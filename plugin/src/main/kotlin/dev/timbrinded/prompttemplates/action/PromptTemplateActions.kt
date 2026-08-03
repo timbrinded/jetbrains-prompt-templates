@@ -1,0 +1,50 @@
+package dev.timbrinded.prompttemplates.action
+
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.components.service
+import com.intellij.openapi.project.DumbAwareAction
+import dev.timbrinded.prompttemplates.PromptTemplatesProjectService
+
+class OpenPromptTemplatesAction : DumbAwareAction() {
+    override fun actionPerformed(event: AnActionEvent) {
+        event.project?.service<PromptTemplatesProjectService>()?.show { it.focusSearch() }
+    }
+
+    override fun update(event: AnActionEvent) {
+        event.presentation.isEnabled = event.project != null
+    }
+}
+
+class NewPromptTemplateAction : DumbAwareAction() {
+    override fun actionPerformed(event: AnActionEvent) {
+        event.project?.service<PromptTemplatesProjectService>()?.newTemplate()
+    }
+
+    override fun update(event: AnActionEvent) {
+        event.presentation.isEnabled = event.project != null
+    }
+}
+
+class CopyRenderedPromptAction : DumbAwareAction() {
+    override fun actionPerformed(event: AnActionEvent) {
+        event.project?.service<PromptTemplatesProjectService>()?.copyRendered()
+    }
+
+    override fun update(event: AnActionEvent) {
+        event.presentation.isEnabled = event.project
+            ?.service<PromptTemplatesProjectService>()
+            ?.canDeliver() == true
+    }
+}
+
+class InsertRenderedPromptAction : DumbAwareAction() {
+    override fun actionPerformed(event: AnActionEvent) {
+        event.project?.service<PromptTemplatesProjectService>()?.insertRendered()
+    }
+
+    override fun update(event: AnActionEvent) {
+        event.presentation.isEnabled = event.project
+            ?.service<PromptTemplatesProjectService>()
+            ?.canDeliver() == true
+    }
+}

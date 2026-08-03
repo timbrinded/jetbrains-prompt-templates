@@ -1,0 +1,81 @@
+package dev.timbrinded.prompttemplates.core
+
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
+import java.nio.file.Path
+import kotlin.io.path.readText
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertTrue
+
+class FileSystemPromptTemplateRepositoryTest {
+    @TempDir
+    lateinit var temporaryDirectory: Path
+
+    @Test
+    fun `creates loads updates exports and deletes a template`() {
+        val root = temporaryDirectory.resolve("library")
+        val repository = FileSystemPromptTemplateRepository(root)
+        val id = TemplateId.random()
+        val created = assertIs<RepositoryResult.Success<StoredTemplate>>(
+            repository.create(
+                PromptTemplateDraft(
+                    id = id,
+                    name = "Review implementation",
+                    variables = listOf(PromptVariable("goal", "Goal")),
+                    markdown = "Review {{goal}}",
+                ),
+            ),
+        ).value
+
+        assertTrue(Files.isRegularFile(created.directory.resolve("prompt.md")))
+        assertTrue(Files.isRegularFile(created.directory.resolve("prompt.meta.json")))
+        assertEquals(id, assertIs<RepositoryResult.Success<StoredTemplate>>(repository.load(created.directory)).value.template.id)
+
+        val updated = assertIs<RepositoryResult.Success<StoredTemplate>>(
+            repository.update(
+                created.directory,
+                PromptTemplateDraft(id, "Review implementation", markdown = "Updated"),
+            ),
+        ).value
+        assertEquals("Updated", updated.template.markdown)
+
+        val destination = temporaryDirectory.resolve("export/review.md")
+        assertIs<RepositoryResult.Success<Path>>(repository.exportTemplateMarkdown(created.directory, destination))
+        assertEquals("Updated", destination.readText())
+
+        assertIs<RepositoryResult.Success<Unit>>(repository.delete(created.directory))
+        assertTrue(Files.notExists(created.directory))
+    }
+
+    @Test
+    fun `surfaces missing metadata as recoverable and infers variables`() {
+        val root = temporaryDirectory.resolve("library")
+        val directory = root.resolve("manual")
+        Files.createDirectories(directory)
+        Files.writeString(directory.resolve("prompt.md"), "# Manual\n\nHello {{name}} {{ide.selection}}")
+        val repository = FileSystemPromptTemplateRepository(root)
+
+        val summary = repository.scan().single()
+        assertEquals(TemplateHealth.RECOVERABLE, summary.health)
+
+        val loaded = assertIs<RepositoryResult.Success<StoredTemplate>>(repository.load(directory)).value
+        assertTrue(loaded.recoverable)
+        assertEquals(listOf("name"), loaded.template.metadata.variables.map(PromptVariable::key))
+    }
+
+    @Test
+    fun `imports markdown by copying it into the library`() {
+        val source = temporaryDirectory.resolve("source.md")
+        Files.writeString(source, "# Imported prompt\n\nDo {{task}}")
+        val repository = FileSystemPromptTemplateRepository(temporaryDirectory.resolve("library"))
+
+        val imported = assertIs<RepositoryResult.Success<StoredTemplate>>(repository.importMarkdown(source)).value
+
+        assertEquals("Imported prompt", imported.template.metadata.name)
+        assertEquals("task", imported.template.metadata.variables.single().key)
+        assertTrue(imported.directory.startsWith(repository.root))
+        assertTrue(imported.directory.resolve("prompt.md") != source)
+    }
+}

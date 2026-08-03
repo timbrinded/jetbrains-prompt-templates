@@ -1,0 +1,56 @@
+<idea-plugin>
+    <id>dev.timbrinded.prompttemplates</id>
+    <name>Prompt Templates</name>
+    <vendor>Tim Brinded</vendor>
+
+    <description><![CDATA[
+      A native workbench for authoring, searching and rendering typed Markdown prompt templates.
+      Templates remain ordinary Markdown files; typed variable metadata is stored separately.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <applicationConfigurable
+                parentId="tools"
+                displayName="Prompt Templates"
+                instance="dev.timbrinded.prompttemplates.settings.PromptTemplatesConfigurable"
+                id="dev.timbrinded.prompttemplates.settings"/>
+
+        <toolWindow
+                id="Prompt Templates"
+                anchor="bottom"
+                icon="/icons/promptTemplates.svg"
+                factoryClass="dev.timbrinded.prompttemplates.ui.PromptTemplatesToolWindowFactory"/>
+
+        <notificationGroup
+                id="Prompt Templates"
+                displayType="BALLOON"
+                isLogByDefault="false"/>
+    </extensions>
+
+    <actions>
+        <action
+                id="PromptTemplates.Open"
+                class="dev.timbrinded.prompttemplates.action.OpenPromptTemplatesAction"
+                text="Open Prompt Templates"
+                description="Open and focus the Prompt Templates tool window">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        <action
+                id="PromptTemplates.New"
+                class="dev.timbrinded.prompttemplates.action.NewPromptTemplateAction"
+                text="New Prompt Template"
+                description="Create a new prompt template"/>
+        <action
+                id="PromptTemplates.CopyRendered"
+                class="dev.timbrinded.prompttemplates.action.CopyRenderedPromptAction"
+                text="Copy Rendered Prompt"
+                description="Copy the completed prompt to the clipboard"/>
+        <action
+                id="PromptTemplates.InsertRendered"
+                class="dev.timbrinded.prompttemplates.action.InsertRenderedPromptAction"
+                text="Insert Rendered Prompt"
+                description="Insert the completed prompt into the active editor"/>
+    </actions>
+</idea-plugin>
