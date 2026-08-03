@@ -270,7 +270,7 @@ Recommended implementation:
 │ Tags: [ review, code-quality                                    ] │
 │ Description: [ Review code for correctness and maintainability  ] │
 │                                                                    │
-│ Template Markdown                                                  │
+│ Template Markdown                                      [✓ Word wrap]│
 │ ┌────────────────────────────────────────────────────────────────┐ │
 │ │ Review the following implementation.                           │ │
 │ │                                                                │ │
@@ -296,6 +296,8 @@ Recommended implementation:
 │                                      [Cancel] [Save Template]       │
 └────────────────────────────────────────────────────────────────────┘
 ```
+
+The authoring editor exposes a word-wrap toggle. Soft wrapping is enabled by default and changes immediately without modifying the Markdown source. Native editor scrollbars appear when the Markdown exceeds the available viewport.
 
 ### 6.4 Empty state
 
@@ -569,19 +571,21 @@ Initial built-ins:
 
 ### 9.3 Variable discovery
 
-After each debounced document change:
+After each document change:
 
 1. Parse the full template body using a linear scanner.
 2. Produce placeholder tokens and syntax diagnostics.
 3. Deduplicate references by key.
 4. Reconcile user-variable references with the draft metadata.
-5. Add newly discovered user variables as required Text variables.
-6. Preserve existing metadata for repeated variables.
-7. Mark metadata variables absent from the body as unused.
-8. Recognise built-ins through the context-provider registry.
-9. Mark unknown dotted variables as unresolved context variables.
+5. Add newly discovered user variables as required Text variables that are transient for the edit session.
+6. Delete transient variables immediately when their references disappear or change.
+7. Make a transient variable intentional when the user edits its key, label, type, required state, description or options.
+8. Preserve intentional metadata for repeated variables.
+9. Mark intentional metadata variables absent from the body as unused.
+10. Recognise built-ins through the context-provider registry.
+11. Mark unknown dotted variables as unresolved context variables.
 
-Do not immediately delete metadata when a placeholder is removed. A temporary source edit must not destroy enum options, labels or defaults. Unused definitions are removed only through an explicit action or when the user confirms cleanup on save.
+Transient definitions prevent partial keys from accumulating while a placeholder is typed. Do not automatically delete intentional metadata when a placeholder is removed. A temporary source edit must not destroy enum options, labels or defaults. Intentional unused definitions are removed only through an explicit action or when the user confirms cleanup on save.
 
 ### 9.4 Rename behaviour
 
@@ -612,21 +616,23 @@ All variables eventually render to text. Types exist to control input, validatio
 #### Enum
 
 - Control: combo box.
-- Each option has a stable ID, display label and rendered value.
+- An enum always has one selected choice, so it has no optional or required setting.
+- The author separates literal choices with semicolons.
+- Each choice has a stable internal ID and one visible text value.
 - Default refers to option ID.
-- Output is the selected option's rendered value, not necessarily its label.
+- Output is the selected choice exactly as displayed.
 
 Example:
 
 ```text
-Label: Thorough
-Value: Perform a comprehensive review including edge cases and failure modes.
+concise; detailed; exhaustive
 ```
 
 ### 9.6 Required and optional values
 
 - Required user variables with no value produce an inline error and block output.
 - Optional user variables with no value render as an empty string.
+- Required and optional apply only to text and multiline variables.
 - Empty output can create aesthetically poor blank sections; conditional blocks are deferred until usage proves they are needed.
 - A whitespace-only value is considered empty unless the type later permits explicit whitespace.
 
@@ -715,7 +721,7 @@ Expected validation failures should be modelled explicitly, not thrown as except
 Preview should:
 
 - Use a read-only `EditorTextField`.
-- Update after a short debounce.
+- Update after each input change.
 - Preserve exact whitespace.
 - Highlight unresolved placeholders or unavailable context.
 - Show the exact text that copy, insertion and rendered export will use.
@@ -1057,6 +1063,8 @@ Register the tool window declaratively and construct it lazily on first use.
 | Need | API |
 |---|---|
 | Template body editor | `EditorTextField` |
+| Authoring word wrap | `EditorSettings.setUseSoftWraps()` |
+| Authoring overflow | Native editor scroll pane with scrollbars as needed |
 | Preview | Read-only `EditorTextField` |
 | Draft document | `EditorFactory.createDocument()` |
 | Change tracking | `DocumentListener` |
@@ -1161,14 +1169,14 @@ The parser should correctly handle:
 - Dotted context keys.
 - Large multiline templates.
 
-A full parse is acceptable because prompt templates are expected to be small. Debounce document changes by approximately 75–150 ms and keep the parser O(n).
+A full parse after each document change is acceptable because prompt templates are expected to be small. Keep the parser O(n).
 
 ### 15.3 Highlight controller
 
 `PlaceholderHighlightController` should:
 
 1. Subscribe to the draft document.
-2. Parse after a debounce.
+2. Parse after each document change.
 3. Remove only highlighters owned by the controller.
 4. Add theme-aware highlighters for:
    - Valid user variables.
@@ -1283,7 +1291,7 @@ When a template is selected:
 3. Bind control values to invocation state.
 4. Add descriptions as secondary text or tooltips where appropriate.
 5. Validate on change without modal dialogs.
-6. Debounce preview rendering.
+6. Render the preview after each input change.
 
 Kotlin UI DSL is suitable for the generated form and variable inspector because these are row-based forms. The overall tool-window shell should remain ordinary Swing/platform layout code.
 
@@ -1301,9 +1309,14 @@ Enum       -> ComboBox<EnumOption>
 - Enter in a single-line field does not unexpectedly invoke output unless assigned deliberately.
 - Multiline controls accept Enter normally.
 - Required errors appear below or beside the field.
+- The variable inspector shows Required for text and multiline, and enum choices for enum. Type changes update these controls immediately and remove state that the new type cannot use.
 - The first invalid field receives focus when output is attempted.
 - Defaults are applied only when no current value exists.
 - Switching templates preserves values during the session, keyed by UUID.
+- Templates without user variables omit the variable form and give the rendered preview the full content area.
+- Each user-variable row has a stable accent from a fixed light/dark palette. Rendered occurrences use matching colored text on a soft tinted background, without token outlines. This is editor-only markup, so copied, inserted and exported text remains unchanged.
+- The rendered preview uses native editor scrollbars when its content exceeds the viewport.
+- The library recursively watches its configured root and reacts to canonical template-file and template-directory changes. There is no manual refresh action.
 
 ### 17.4 Context status
 
@@ -1473,14 +1486,14 @@ data class PromptTemplatesSettingsState(
 - Do not perform IO in `AnAction.update()`.
 - Keep action updates deterministic and fast.
 
-### 21.2 Debouncing
+### 21.2 Event coalescing
 
-Debounce:
+Coalesce only event bursts that can trigger expensive external work:
 
 - Search updates where body indexing is involved.
-- Placeholder parsing while typing.
-- Preview rendering.
 - VFS event bursts.
+
+Do not debounce placeholder parsing or preview rendering. Both operations are local, bounded and must reflect each input change immediately.
 
 Cancellation must ensure stale results do not overwrite newer UI state.
 

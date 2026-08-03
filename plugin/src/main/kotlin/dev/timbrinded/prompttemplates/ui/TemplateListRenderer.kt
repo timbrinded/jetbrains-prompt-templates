@@ -23,6 +23,5 @@ class TemplateListRenderer : ColoredListCellRenderer<TemplateSummary>() {
         }
         secondary?.let { append(it, SimpleTextAttributes.GRAYED_ATTRIBUTES) }
         toolTipText = value.diagnostic ?: value.description
-        accessibleContext.accessibleName = value.name
     }
 }

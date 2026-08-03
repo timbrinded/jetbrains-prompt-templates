@@ -10,7 +10,6 @@ import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.ui.EditorTextField
-import com.intellij.util.Alarm
 import dev.timbrinded.prompttemplates.core.BUILT_IN_CONTEXT_KEYS
 import dev.timbrinded.prompttemplates.core.LinearPlaceholderParser
 
@@ -20,27 +19,20 @@ class PlaceholderHighlightController(
     private val onParsed: () -> Unit,
 ) {
     private val parser = LinearPlaceholderParser()
-    private val alarm = Alarm(Alarm.ThreadToUse.SWING_THREAD, parentDisposable)
     private val highlighters = mutableListOf<RangeHighlighter>()
 
     init {
         field.document.addDocumentListener(object : DocumentListener {
-            override fun documentChanged(event: DocumentEvent) = schedule()
+            override fun documentChanged(event: DocumentEvent) {
+                onParsed()
+                updateHighlights()
+            }
         }, parentDisposable)
-        schedule()
+        updateHighlights()
     }
 
-    private fun schedule() {
-        alarm.cancelAllRequests()
-        alarm.addRequest({ update() }, 100)
-    }
-
-    private fun update() {
-        val editor = field.editor as? EditorEx
-        if (editor == null) {
-            alarm.addRequest({ update() }, 100)
-            return
-        }
+    private fun updateHighlights() {
+        val editor = field.editor as? EditorEx ?: return
         highlighters.forEach(RangeHighlighter::dispose)
         highlighters.clear()
 
@@ -68,6 +60,5 @@ class PlaceholderHighlightController(
                 HighlighterTargetArea.EXACT_RANGE,
             )
         }
-        onParsed()
     }
 }

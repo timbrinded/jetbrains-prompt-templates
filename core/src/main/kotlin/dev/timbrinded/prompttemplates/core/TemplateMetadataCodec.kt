@@ -22,7 +22,7 @@ class TemplateMetadataCodec(
     },
 ) {
     fun encode(metadata: TemplateMetadata): String =
-        json.encodeToString(TemplateMetadata.serializer(), metadata) + "\n"
+        json.encodeToString(TemplateMetadata.serializer(), metadata.withLiteralEnumChoices()) + "\n"
 
     fun decode(raw: String): MetadataDecodeResult {
         val metadata = try {
@@ -37,9 +37,10 @@ class TemplateMetadataCodec(
             return MetadataDecodeResult.UnsupportedVersion(metadata.schemaVersion)
         }
 
-        val error = validate(metadata)
+        val literalMetadata = metadata.withLiteralEnumChoices()
+        val error = validate(literalMetadata)
         return if (error == null) {
-            MetadataDecodeResult.Success(metadata)
+            MetadataDecodeResult.Success(literalMetadata)
         } else {
             MetadataDecodeResult.Invalid(error)
         }
@@ -66,9 +67,13 @@ class TemplateMetadataCodec(
             }
             if (variable.label.isBlank()) return "Variable '${variable.key}' needs a label."
             if (variable.type == PromptVariableType.ENUM) {
+                if (!variable.required) return "Enum '${variable.key}' always requires a choice."
                 if (variable.options.isEmpty()) return "Enum '${variable.key}' needs at least one option."
                 if (variable.options.any { it.id.isBlank() || it.label.isBlank() }) {
                     return "Enum '${variable.key}' contains an invalid option."
+                }
+                if (variable.options.any { it.label != it.value }) {
+                    return "Enum '${variable.key}' must contain literal choices."
                 }
                 if (variable.options.map(EnumOption::id).distinct().size != variable.options.size) {
                     return "Enum '${variable.key}' contains duplicate option ids."
