@@ -6,7 +6,7 @@ The plugin is agent-agnostic. It renders exact text, copies it to the clipboard,
 
 ## Current release
 
-`0.1.0` is a functional beta targeting IntelliJ Platform 2025.3 (build 253) and later. The implementation uses only the platform module so the same distribution can be tested in IntelliJ IDEA, WebStorm, RustRover and other IntelliJ-based desktop IDEs.
+`0.1.0` is a functional beta targeting IntelliJ Platform 2026.2 (build 262). The supported hosts are RustRover 2026.2 and WebStorm 2026.2.
 
 Implemented workflows:
 
@@ -71,7 +71,7 @@ Metadata is serialized deterministically. Unknown fields are tolerated; a future
 
 ## Build and run
 
-Requirements are JDK 21 and the included Gradle wrapper. Gradle can provision the matching toolchain automatically.
+Requirements are JDK 25 and the included Gradle wrapper. Gradle can provision the matching toolchain automatically.
 
 ```bash
 ./gradlew check
@@ -114,6 +114,6 @@ The plugin has no networking, telemetry or prompt execution. Current variable va
 
 ## Compatibility and release work
 
-CI compiles, tests, builds the plugin ZIP and runs JetBrains' plugin structure verifier on JDK 21. Before a public 1.0 release, the distribution still needs manual UI review and Plugin Verifier runs across the declared IntelliJ IDEA, WebStorm and RustRover version matrix.
+CI compiles, tests and builds the plugin ZIP on JDK 25, then verifies it against RustRover 2026.2 and WebStorm 2026.2. Earlier platform builds and other IDE products are outside the supported scope. Before a public 1.0 release, the distribution still needs manual UI review in both supported hosts.
 
 No licence has been selected for this private repository.

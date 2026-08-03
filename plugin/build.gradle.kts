@@ -1,6 +1,6 @@
+import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.gradle.api.tasks.bundling.Zip
 
 plugins {
@@ -19,22 +19,20 @@ repositories {
 }
 
 dependencies {
-    implementation(project(":core"))
+    implementation(project(":core")) {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    }
 
     testImplementation(kotlin("test"))
 
     intellijPlatform {
-        intellijIdea("2025.3.6")
+        intellijIdea("2026.2.0.1")
         testFramework(TestFrameworkType.Platform)
     }
 }
 
 kotlin {
-    jvmToolchain(21)
-    compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_21)
-        jvmDefault.set(JvmDefaultMode.NO_COMPATIBILITY)
-    }
+    compilerOptions.jvmDefault.set(JvmDefaultMode.NO_COMPATIBILITY)
 }
 
 intellijPlatform {
@@ -42,9 +40,12 @@ intellijPlatform {
         id = "dev.timbrinded.prompttemplates"
         name = "Prompt Templates"
         version = project.version.toString()
+    }
 
-        ideaVersion {
-            sinceBuild = "253"
+    pluginVerification {
+        ides {
+            create(IntelliJPlatformType.RustRover, "2026.2")
+            create(IntelliJPlatformType.WebStorm, "2026.2")
         }
     }
 }

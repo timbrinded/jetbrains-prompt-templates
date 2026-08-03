@@ -123,13 +123,13 @@ These defaults remove ambiguity from the implementation.
 | Input-value persistence | Session-only by default |
 | Metadata format | Versioned JSON |
 | First-release scope | Personal library; project libraries follow |
-| Minimum proposed IDE baseline | IntelliJ Platform 2025.3 |
+| Supported IDE baseline | IntelliJ Platform 2026.2 (build 262) |
 | Mandatory platform dependency | `com.intellij.modules.platform` |
 | UI framework | Swing with JetBrains platform components |
 | Settings/forms framework | Kotlin UI DSL v2 where appropriate |
 | Build tooling | IntelliJ Platform Gradle Plugin 2.x |
 
-The minimum IDE baseline should be confirmed during the compatibility spike. `2025.3` is the recommended starting point because it provides a modern platform baseline and leaves a clean path to split-mode testing. If install-base data materially favours an older release, the core feature set does not inherently require `2025.3`.
+The plugin supports IntelliJ Platform 2026.2 only. RustRover 2026.2 and WebStorm 2026.2 are the supported hosts; earlier platform builds and other IDE products are out of scope.
 
 ---
 
@@ -1014,8 +1014,8 @@ src/integrationTest/kotlin/
 | Build | Gradle Kotlin DSL |
 | Plugin build tooling | IntelliJ Platform Gradle Plugin 2.x |
 | Minimum dependency | `com.intellij.modules.platform` |
-| Java toolchain | Match the oldest target platform; proposed baseline uses Java 21 |
-| Compatibility verification | `verifyPlugin` and `runPluginVerifier` |
+| Java toolchain | Java 25, matching IntelliJ Platform 2026.2 |
+| Compatibility verification | `verifyPlugin` against RustRover 2026.2 and WebStorm 2026.2 |
 | UI integration tests | IntelliJ Starter and Driver |
 
 Pin exact build-tool versions in a version catalog. Update them intentionally rather than using dynamic version selectors.
@@ -2048,4 +2048,3 @@ The API choices in this plan were checked against the official IntelliJ Platform
 - [UI Integration Tests](https://plugins.jetbrains.com/docs/intellij/integration-tests-ui.html)
 - [Verifying Plugin Compatibility](https://plugins.jetbrains.com/docs/intellij/verifying-plugin-compatibility.html)
 - [Exploring the IntelliJ Platform API](https://plugins.jetbrains.com/docs/intellij/explore-api.html)
-
