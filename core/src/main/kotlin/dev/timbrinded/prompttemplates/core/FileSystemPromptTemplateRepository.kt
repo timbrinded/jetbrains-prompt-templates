@@ -8,6 +8,7 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.util.Comparator
+import java.util.Locale
 import java.util.UUID
 import kotlin.io.path.extension
 import kotlin.io.path.nameWithoutExtension
@@ -59,16 +60,26 @@ class FileSystemPromptTemplateRepository(
             .eachCount()
             .filterValues { it > 1 }
             .keys
+        val duplicateNames = summaries
+            .groupingBy { it.name.trim().lowercase(Locale.ROOT) }
+            .eachCount()
+            .filterValues { it > 1 }
+            .keys
 
         return summaries
             .map { summary ->
-                if (summary.id?.value in duplicateIds) {
-                    summary.copy(
+                when {
+                    summary.id?.value in duplicateIds -> summary.copy(
                         health = TemplateHealth.BROKEN,
                         diagnostic = "Duplicate template UUID ${summary.id?.value}.",
                     )
-                } else {
-                    summary
+
+                    summary.name.trim().lowercase(Locale.ROOT) in duplicateNames -> summary.copy(
+                        health = TemplateHealth.BROKEN,
+                        diagnostic = "Duplicate template name '${summary.name}'.",
+                    )
+
+                    else -> summary
                 }
             }
             .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
@@ -105,6 +116,9 @@ class FileSystemPromptTemplateRepository(
         val template = draft.toTemplate()
         codec.validate(template.metadata)?.let { return@protect RepositoryResult.Failure(it) }
         Files.createDirectories(root)
+        duplicateName(template.metadata.name)?.let {
+            return@protect RepositoryResult.Failure("A prompt named '${template.metadata.name}' already exists.")
+        }
         val directory = nextAvailableDirectory(slugify(template.metadata.name))
         Files.createDirectory(directory)
         writeTemplate(directory, template)
@@ -118,6 +132,18 @@ class FileSystemPromptTemplateRepository(
         val safeDirectory = requireTemplateDirectory(directory)
         val template = draft.toTemplate()
         codec.validate(template.metadata)?.let { return@protect RepositoryResult.Failure(it) }
+        val stored = when (val result = load(safeDirectory)) {
+            is RepositoryResult.Success -> result.value
+            is RepositoryResult.Failure -> return@protect result
+        }
+        if (stored.template.id != template.id) {
+            return@protect RepositoryResult.Failure(
+                "Refusing to overwrite a different template. Reload the library and try again.",
+            )
+        }
+        duplicateName(template.metadata.name, excluding = safeDirectory)?.let {
+            return@protect RepositoryResult.Failure("A prompt named '${template.metadata.name}' already exists.")
+        }
         writeTemplate(safeDirectory, template)
         RepositoryResult.Success(StoredTemplate(template, safeDirectory))
     }
@@ -296,6 +322,10 @@ class FileSystemPromptTemplateRepository(
             suffix++
         }
         return candidate
+    }
+
+    private fun duplicateName(name: String, excluding: Path? = null): TemplateSummary? = scan().firstOrNull { summary ->
+        summary.directory != excluding && summary.name.trim().equals(name.trim(), ignoreCase = true)
     }
 
     private fun ensureDestinationParent(destination: Path) {

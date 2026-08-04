@@ -78,4 +78,83 @@ class FileSystemPromptTemplateRepositoryTest {
         assertTrue(imported.directory.startsWith(repository.root))
         assertTrue(imported.directory.resolve("prompt.md") != source)
     }
+
+    @Test
+    fun `creates a new template without changing an existing template`() {
+        val repository = FileSystemPromptTemplateRepository(temporaryDirectory.resolve("library"))
+        val existing = assertIs<RepositoryResult.Success<StoredTemplate>>(
+            repository.create(PromptTemplateDraft(name = "Existing", markdown = "Keep this")),
+        ).value
+
+        val created = assertIs<RepositoryResult.Success<StoredTemplate>>(
+            repository.create(PromptTemplateDraft(name = "New prompt", markdown = "Save this")),
+        ).value
+
+        assertEquals("Save this", created.template.markdown)
+        assertEquals(
+            "Keep this",
+            assertIs<RepositoryResult.Success<StoredTemplate>>(repository.load(existing.directory)).value.template.markdown,
+        )
+    }
+
+    @Test
+    fun `rejects a duplicate prompt name without changing the existing template`() {
+        val repository = FileSystemPromptTemplateRepository(temporaryDirectory.resolve("library"))
+        val existing = assertIs<RepositoryResult.Success<StoredTemplate>>(
+            repository.create(PromptTemplateDraft(name = "Review PR", markdown = "Original")),
+        ).value
+
+        val duplicate = repository.create(PromptTemplateDraft(name = "  review pr  ", markdown = "Replacement"))
+
+        val failure = assertIs<RepositoryResult.Failure>(duplicate)
+        assertTrue(failure.message.contains("already exists"))
+        assertEquals(
+            "Original",
+            assertIs<RepositoryResult.Success<StoredTemplate>>(repository.load(existing.directory)).value.template.markdown,
+        )
+        assertEquals(1, repository.scan().size)
+    }
+
+    @Test
+    fun `rejects renaming a template to another prompt name`() {
+        val repository = FileSystemPromptTemplateRepository(temporaryDirectory.resolve("library"))
+        assertIs<RepositoryResult.Success<StoredTemplate>>(
+            repository.create(PromptTemplateDraft(name = "First prompt", markdown = "First")),
+        )
+        val second = assertIs<RepositoryResult.Success<StoredTemplate>>(
+            repository.create(PromptTemplateDraft(name = "Second prompt", markdown = "Second")),
+        ).value
+
+        val duplicate = repository.update(
+            second.directory,
+            PromptTemplateDraft(id = second.template.id, name = "FIRST PROMPT", markdown = "Changed"),
+        )
+
+        val failure = assertIs<RepositoryResult.Failure>(duplicate)
+        assertTrue(failure.message.contains("already exists"))
+        assertEquals(
+            "Second",
+            assertIs<RepositoryResult.Success<StoredTemplate>>(repository.load(second.directory)).value.template.markdown,
+        )
+    }
+
+    @Test
+    fun `rejects updating a stored template with a different draft id`() {
+        val repository = FileSystemPromptTemplateRepository(temporaryDirectory.resolve("library"))
+        val existing = assertIs<RepositoryResult.Success<StoredTemplate>>(
+            repository.create(PromptTemplateDraft(name = "Existing", markdown = "Original")),
+        ).value
+
+        val mismatched = repository.update(
+            existing.directory,
+            PromptTemplateDraft(name = "New prompt", markdown = "Replacement"),
+        )
+
+        val failure = assertIs<RepositoryResult.Failure>(mismatched)
+        assertTrue(failure.message.contains("different template"))
+        assertEquals(
+            "Original",
+            assertIs<RepositoryResult.Success<StoredTemplate>>(repository.load(existing.directory)).value.template.markdown,
+        )
+    }
 }

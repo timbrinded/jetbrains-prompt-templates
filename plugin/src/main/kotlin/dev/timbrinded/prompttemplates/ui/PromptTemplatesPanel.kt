@@ -263,7 +263,11 @@ class PromptTemplatesPanel(
                 summaries += orderSummaries(scanned)
                 bodyIndex.clear()
                 bodyIndex.putAll(indexedBodies)
-                val selectDirectory = activeStored?.directory ?: templateList.selectedValue?.directory
+                val selectDirectory = selectDirectoryAfterLibraryReload(
+                    activeDirectory = activeStored?.directory,
+                    selectedDirectory = templateList.selectedValue?.directory,
+                    authorOpen = currentAuthor != null,
+                )
                 filterTemplates(selectDirectory)
                 if (
                     selectDirectory != null &&
@@ -690,3 +694,9 @@ class PromptTemplatesPanel(
         private const val ERROR_CARD = "error"
     }
 }
+
+internal fun selectDirectoryAfterLibraryReload(
+    activeDirectory: Path?,
+    selectedDirectory: Path?,
+    authorOpen: Boolean,
+): Path? = if (authorOpen) null else activeDirectory ?: selectedDirectory

@@ -110,4 +110,18 @@ class TemplateMetadataCodecTest {
         assertEquals("Review it", variable.defaultValue)
         assertEquals(emptyList(), variable.options)
     }
+
+    @Test
+    fun `rejects duplicate variable keys`() {
+        val metadata = TemplateMetadata(
+            id = TemplateId.random().value,
+            name = "Duplicate variables",
+            variables = listOf(
+                PromptVariable("objective", "Objective"),
+                PromptVariable("objective", "Other objective"),
+            ),
+        )
+
+        assertEquals("Variable 'objective' is defined more than once.", codec.validate(metadata))
+    }
 }
