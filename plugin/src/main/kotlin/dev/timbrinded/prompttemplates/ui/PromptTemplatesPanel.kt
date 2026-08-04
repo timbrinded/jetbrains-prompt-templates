@@ -246,7 +246,13 @@ class PromptTemplatesPanel(
         }
     }
 
-    private fun reloadLibrary() {
+    private fun reloadLibrary(
+        selectDirectory: Path? = selectDirectoryAfterLibraryReload(
+            activeDirectory = activeStored?.directory,
+            selectedDirectory = templateList.selectedValue?.directory,
+            authorOpen = currentAuthor != null,
+        ),
+    ) {
         val generation = loadGeneration.incrementAndGet()
         val nextRepository = FileSystemPromptTemplateRepository(settings.libraryRoot)
         ApplicationManager.getApplication().executeOnPooledThread {
@@ -263,11 +269,6 @@ class PromptTemplatesPanel(
                 summaries += orderSummaries(scanned)
                 bodyIndex.clear()
                 bodyIndex.putAll(indexedBodies)
-                val selectDirectory = selectDirectoryAfterLibraryReload(
-                    activeDirectory = activeStored?.directory,
-                    selectedDirectory = templateList.selectedValue?.directory,
-                    authorOpen = currentAuthor != null,
-                )
                 filterTemplates(selectDirectory)
                 if (
                     selectDirectory != null &&
@@ -302,11 +303,17 @@ class PromptTemplatesPanel(
         val generation = loadGeneration.incrementAndGet()
         ApplicationManager.getApplication().executeOnPooledThread {
             val result = repository.load(summary.directory)
+            val directoryMissing = Files.notExists(summary.directory)
             ApplicationManager.getApplication().invokeLater {
                 if (disposed || generation != loadGeneration.get()) return@invokeLater
                 when (result) {
                     is RepositoryResult.Success -> showUse(result.value)
-                    is RepositoryResult.Failure -> showError(summary.name, result.message)
+                    is RepositoryResult.Failure -> if (shouldDiscardTemplateSummary(result, directoryMissing)) {
+                        clearSelectedTemplate()
+                        reloadLibrary(selectDirectory = null)
+                    } else {
+                        showError(summary.name, result.message)
+                    }
                 }
             }
         }
@@ -505,7 +512,11 @@ class PromptTemplatesPanel(
                 if (disposed) return@invokeLater
                 when (result) {
                     is RepositoryResult.Success -> {
-                        showUse(result.value)
+                        afterTemplateSaved(
+                            savedDirectory = result.value.directory,
+                            showSaved = { showUse(result.value) },
+                            refreshLibrary = ::reloadLibrary,
+                        )
                     }
                     is RepositoryResult.Failure -> PromptTemplatesNotifications.error(project, result.message)
                 }
@@ -605,7 +616,10 @@ class PromptTemplatesPanel(
             operation = { repository.delete(stored.directory) },
             successMessage = "Prompt template deleted.",
             afterSuccess = {
-                clearSelectedTemplate()
+                afterTemplateDeleted(
+                    clearSelection = ::clearSelectedTemplate,
+                    refreshLibrary = ::reloadLibrary,
+                )
             },
         )
     }
@@ -650,6 +664,7 @@ class PromptTemplatesPanel(
     }
 
     private fun clearSelectedTemplate() {
+        templateList.clearSelection()
         activeStored = null
         activeRender = null
         disposeUseView()
@@ -700,3 +715,25 @@ internal fun selectDirectoryAfterLibraryReload(
     selectedDirectory: Path?,
     authorOpen: Boolean,
 ): Path? = if (authorOpen) null else activeDirectory ?: selectedDirectory
+
+internal fun afterTemplateSaved(
+    savedDirectory: Path,
+    showSaved: () -> Unit,
+    refreshLibrary: (Path?) -> Unit,
+) {
+    showSaved()
+    refreshLibrary(savedDirectory)
+}
+
+internal fun afterTemplateDeleted(
+    clearSelection: () -> Unit,
+    refreshLibrary: (Path?) -> Unit,
+) {
+    clearSelection()
+    refreshLibrary(null)
+}
+
+internal fun shouldDiscardTemplateSummary(
+    result: RepositoryResult<StoredTemplate>,
+    directoryMissing: Boolean,
+): Boolean = result is RepositoryResult.Failure && directoryMissing
