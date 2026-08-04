@@ -64,6 +64,11 @@ class TemplateAuthorPanel(
     private val diagnostics = JBLabel()
     private var unusedKeys = emptySet<String>()
     private var updatingInspector = false
+    private val variableListActions = UnusedVariableListActions(
+        list = variableList,
+        isUnused = { variable -> variable.key in unusedKeys },
+        onRemove = ::removeUnusedVariable,
+    )
 
     init {
         border = JBUI.Borders.empty(8)
@@ -78,13 +83,21 @@ class TemplateAuthorPanel(
             markdownEditor.editor?.settings?.isUseSoftWraps = wordWrapToggle.isSelected
         }
 
+        variableList.selectionMode = ListSelectionModel.SINGLE_SELECTION
+        variableList.accessibleContext.accessibleName = "Template variables"
+        variableList.accessibleContext.accessibleDescription =
+            "Unused variables can be removed with Delete or the trash icon."
+        variableList.cellRenderer = VariableRenderer(
+            isUnused = { variable -> variable.key in unusedKeys },
+            isRowHovered = variableListActions::isRowHovered,
+            isDeleteHovered = variableListActions::isDeleteHovered,
+        )
+        variableList.addListSelectionListener { if (!it.valueIsAdjusting) loadInspector() }
+
         add(createHeader(), BorderLayout.NORTH)
         add(createEditorAndVariables(), BorderLayout.CENTER)
         add(createFooter(), BorderLayout.SOUTH)
 
-        variableList.selectionMode = ListSelectionModel.SINGLE_SELECTION
-        variableList.cellRenderer = VariableRenderer { variable -> variable.key in unusedKeys }
-        variableList.addListSelectionListener { if (!it.valueIsAdjusting) loadInspector() }
         installInspectorListeners()
         reconcileVariables()
         PlaceholderHighlightController(markdownEditor, this, ::reconcileVariables)
@@ -116,11 +129,6 @@ class TemplateAuthorPanel(
         optionsField.toolTipText = "Separate choices with semicolons. The selected choice is inserted unchanged."
         val renameButton = JButton("Rename")
         renameButton.addActionListener { renameSelectedVariable() }
-        val removeUnused = JButton("Remove Unused")
-        removeUnused.addActionListener {
-            variableState.remove(unusedKeys)
-            reconcileVariables()
-        }
         val keyRow = JPanel(BorderLayout(JBUI.scale(4), 0)).apply {
             add(keyField, BorderLayout.CENTER)
             add(renameButton, BorderLayout.EAST)
@@ -132,7 +140,6 @@ class TemplateAuthorPanel(
             .addComponent(requiredField)
             .addLabeledComponent("Description:", descriptionVariableField)
             .addLabeledComponent(optionsLabel, optionsField)
-            .addComponent(removeUnused)
             .panel
         inspector.minimumSize = Dimension(JBUI.scale(280), JBUI.scale(210))
 
@@ -249,6 +256,12 @@ class TemplateAuthorPanel(
         variableList.selectedIndex = index
     }
 
+    private fun removeUnusedVariable(variable: PromptVariable) {
+        if (variable.key !in unusedKeys) return
+        variableState.remove(setOf(variable.key))
+        reconcileVariables()
+    }
+
     private fun renameSelectedVariable() {
         val index = variableList.selectedIndex
         val variables = variableState.variables
@@ -298,19 +311,4 @@ class TemplateAuthorPanel(
 
     override fun dispose() = Unit
 
-    private class VariableRenderer(
-        private val isUnused: (PromptVariable) -> Boolean,
-    ) : com.intellij.ui.ColoredListCellRenderer<PromptVariable>() {
-        override fun customizeCellRenderer(
-            list: javax.swing.JList<out PromptVariable>,
-            value: PromptVariable,
-            index: Int,
-            selected: Boolean,
-            hasFocus: Boolean,
-        ) {
-            append(value.key)
-            append("  ${value.type.name.lowercase()}", com.intellij.ui.SimpleTextAttributes.GRAYED_ATTRIBUTES)
-            if (isUnused(value)) append("  unused", com.intellij.ui.SimpleTextAttributes.GRAYED_ATTRIBUTES)
-        }
-    }
 }
