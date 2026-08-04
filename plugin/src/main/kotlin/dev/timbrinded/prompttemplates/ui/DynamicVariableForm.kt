@@ -12,14 +12,17 @@ import dev.timbrinded.prompttemplates.core.PromptVariableType
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Dimension
+import java.awt.Font
+import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.event.DocumentEvent
 
-class DynamicVariableForm(
+internal class DynamicVariableForm(
     variables: List<PromptVariable>,
+    private val accents: Map<String, VariableAccent>,
     private val values: MutableMap<String, String>,
     private val onChanged: () -> Unit,
 ) : JPanel() {
@@ -45,8 +48,16 @@ class DynamicVariableForm(
     private fun createVariableRow(variable: PromptVariable): JPanel {
         val panel = JPanel(BorderLayout(JBUI.scale(6), JBUI.scale(4)))
         panel.isOpaque = false
-        val suffix = if (variable.required) " *" else ""
+        val suffix = if (variable.required && variable.type != PromptVariableType.ENUM) " *" else ""
         val label = JBLabel(variable.label + suffix)
+        accents[variable.key]?.let { accent ->
+            panel.border = BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, JBUI.scale(3), 0, 0, accent.foreground),
+                JBUI.Borders.emptyLeft(8),
+            )
+            label.foreground = accent.foreground
+            label.font = label.font.deriveFont(label.font.style or Font.BOLD)
+        }
         panel.add(label, BorderLayout.NORTH)
 
         val control: JComponent = when (variable.type) {
@@ -99,14 +110,13 @@ class DynamicVariableForm(
     }
 
     private fun enumField(variable: PromptVariable): ComboBox<EnumChoice> {
-        val choices = buildList {
-            add(EnumChoice("", "Select…"))
-            variable.options.forEach { add(EnumChoice(it.id, it.label)) }
-        }
+        val choices = enumChoices(variable)
         val combo = ComboBox(choices.toTypedArray())
         combo.accessibleContext.accessibleName = variable.label
         val selected = currentValue(variable)
-        combo.selectedItem = choices.firstOrNull { it.id == selected } ?: choices.first()
+        val selectedChoice = choices.firstOrNull { it.id == selected } ?: choices.first()
+        values[variable.key] = selectedChoice.id
+        combo.selectedItem = selectedChoice
         combo.addActionListener {
             values[variable.key] = (combo.selectedItem as? EnumChoice)?.id.orEmpty()
             onChanged()
@@ -119,8 +129,11 @@ class DynamicVariableForm(
         values.putIfAbsent(variable.key, value)
         return value
     }
+}
 
-    private data class EnumChoice(val id: String, val label: String) {
-        override fun toString(): String = label
-    }
+internal fun enumChoices(variable: PromptVariable): List<EnumChoice> =
+    variable.options.map { option -> EnumChoice(option.id, option.label) }
+
+internal data class EnumChoice(val id: String, val label: String) {
+    override fun toString(): String = label
 }

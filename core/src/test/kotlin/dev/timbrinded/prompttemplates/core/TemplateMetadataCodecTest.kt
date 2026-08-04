@@ -46,11 +46,68 @@ class TemplateMetadataCodecTest {
                     label = "Depth",
                     type = PromptVariableType.ENUM,
                     defaultValue = "missing",
-                    options = listOf(EnumOption("deep", "Deep", "Deep review")),
+                    options = listOf(EnumOption("deep", "Deep", "Deep")),
                 ),
             ),
         )
 
         assertTrue(codec.validate(invalid)!!.contains("unknown default"))
+    }
+
+    @Test
+    fun `expands saved label to output mappings into literal choices`() {
+        val raw = """
+            {
+              "schemaVersion": 1,
+              "id": "${TemplateId.random().value}",
+              "name": "PR Explainer",
+              "variables": [
+                {
+                  "key": "font-icon",
+                  "label": "Font Icon",
+                  "type": "enum",
+                  "required": false,
+                  "defaultValue": "huge-icons",
+                  "options": [
+                    {
+                      "id": "huge-icons",
+                      "label": "huge-icons",
+                      "value": "lucide-react-icons"
+                    }
+                  ]
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val metadata = assertIs<MetadataDecodeResult.Success>(codec.decode(raw)).metadata
+        val variable = metadata.variables.single()
+        val options = variable.options
+
+        assertTrue(variable.required)
+        assertEquals(listOf("huge-icons", "lucide-react-icons"), options.map { it.label })
+        assertEquals(options.map { it.label }, options.map { it.value })
+    }
+
+    @Test
+    fun `removes enum choices from text variables`() {
+        val metadata = TemplateMetadata(
+            id = TemplateId.random().value,
+            name = "Text",
+            variables = listOf(
+                PromptVariable(
+                    key = "objective",
+                    label = "Objective",
+                    defaultValue = "Review it",
+                    options = listOf(EnumOption("unused", "Unused", "Unused")),
+                ),
+            ),
+        )
+
+        val decoded = assertIs<MetadataDecodeResult.Success>(codec.decode(codec.encode(metadata))).metadata
+        val variable = decoded.variables.single()
+
+        assertEquals("Review it", variable.defaultValue)
+        assertEquals(emptyList(), variable.options)
     }
 }

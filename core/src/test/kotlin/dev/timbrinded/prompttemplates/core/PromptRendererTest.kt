@@ -19,7 +19,13 @@ class PromptRendererTest {
                     "depth",
                     "Depth",
                     PromptVariableType.ENUM,
-                    options = listOf(EnumOption("deep", "Deep", "Review every failure mode.")),
+                    options = listOf(
+                        EnumOption(
+                            "review-every-failure-mode",
+                            "Review every failure mode.",
+                            "Review every failure mode.",
+                        ),
+                    ),
                 ),
                 PromptVariable("details", "Details", PromptVariableType.MULTILINE),
             ),
@@ -27,7 +33,11 @@ class PromptRendererTest {
 
         val result = renderer.render(
             template,
-            mapOf("goal" to "Correctness", "depth" to "deep", "details" to "Line one\nLine two"),
+            mapOf(
+                "goal" to "Correctness",
+                "depth" to "review-every-failure-mode",
+                "details" to "Line one\nLine two",
+            ),
             mapOf("ide.selection" to ContextValue.available("const answer = 42")),
         )
 
@@ -48,6 +58,28 @@ class PromptRendererTest {
 
         assertEquals("{{second}}", result.renderedText)
         assertTrue(result.isValid)
+    }
+
+    @Test
+    fun `renders the selected enum choice exactly as displayed`() {
+        val result = renderer.render(
+            template(
+                "Icon set: {{font-icon}}",
+                listOf(
+                    PromptVariable(
+                        "font-icon",
+                        "Font Icon",
+                        PromptVariableType.ENUM,
+                        options = listOf(EnumOption("huge-icons", "huge-icons", "lucide-react-icons")),
+                    ),
+                ),
+            ),
+            mapOf("font-icon" to "huge-icons"),
+            emptyMap(),
+        )
+
+        assertTrue(result.isValid)
+        assertEquals("Icon set: huge-icons", result.renderedText)
     }
 
     @Test

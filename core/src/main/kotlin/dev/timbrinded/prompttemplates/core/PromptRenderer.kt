@@ -104,7 +104,7 @@ class StrictPromptRenderer(
             diagnostics += TemplateDiagnostic.InvalidEnumValue(variable.key, currentValue)
             return "{{${token.key}}}"
         }
-        return option.value
+        return option.label
     }
 
     private fun resolveContext(

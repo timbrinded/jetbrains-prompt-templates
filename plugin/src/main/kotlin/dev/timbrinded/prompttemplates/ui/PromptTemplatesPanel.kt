@@ -99,6 +99,7 @@ class PromptTemplatesPanel(
     private var validationLabel: JBLabel? = null
     private var contextArea: JBTextArea? = null
     private var dynamicForm: DynamicVariableForm? = null
+    private var previewHighlights: RenderedVariableHighlightController? = null
     private var currentAuthor: TemplateAuthorPanel? = null
     private var editingStored: StoredTemplate? = null
 
@@ -133,6 +134,7 @@ class PromptTemplatesPanel(
         addComponentListener(object : ComponentAdapter() {
             override fun componentResized(event: ComponentEvent) = updateResponsiveLayout()
         })
+        LibraryFileWatcher(project, settings.libraryRoot, this, ::onLibraryFilesChanged)
         reloadLibrary()
     }
 
@@ -163,11 +165,8 @@ class PromptTemplatesPanel(
         newButton.addActionListener { startNewTemplate() }
         val importButton = JButton("Import")
         importButton.addActionListener { importMarkdown() }
-        val refreshButton = JButton("Refresh")
-        refreshButton.addActionListener { reloadLibrary() }
         actions.add(newButton)
         actions.add(importButton)
-        actions.add(refreshButton)
 
         val header = JPanel(BorderLayout(JBUI.scale(6), 0))
         header.border = JBUI.Borders.empty(6)
@@ -241,7 +240,13 @@ class PromptTemplatesPanel(
         if (narrowMode) (narrowPanel.layout as CardLayout).show(narrowPanel, NARROW_DETAIL_CARD)
     }
 
-    private fun reloadLibrary(selectDirectory: Path? = activeStored?.directory) {
+    private fun onLibraryFilesChanged() {
+        ApplicationManager.getApplication().invokeLater {
+            if (!disposed) reloadLibrary()
+        }
+    }
+
+    private fun reloadLibrary() {
         val generation = loadGeneration.incrementAndGet()
         val nextRepository = FileSystemPromptTemplateRepository(settings.libraryRoot)
         ApplicationManager.getApplication().executeOnPooledThread {
@@ -258,7 +263,15 @@ class PromptTemplatesPanel(
                 summaries += orderSummaries(scanned)
                 bodyIndex.clear()
                 bodyIndex.putAll(indexedBodies)
+                val selectDirectory = activeStored?.directory ?: templateList.selectedValue?.directory
                 filterTemplates(selectDirectory)
+                if (
+                    selectDirectory != null &&
+                    scanned.none { summary -> summary.directory == selectDirectory } &&
+                    currentAuthor == null
+                ) {
+                    clearSelectedTemplate()
+                }
             }
         }
     }
@@ -297,6 +310,7 @@ class PromptTemplatesPanel(
 
     private fun showUse(stored: StoredTemplate) {
         disposeAuthor()
+        disposeUseView()
         editingStored = null
         activeStored = stored
         settings.markRecent(stored.template.id.value)
@@ -312,7 +326,13 @@ class PromptTemplatesPanel(
         header.add(JBLabel(stored.directory.resolve("prompt.md").toString()), BorderLayout.SOUTH)
         panel.add(header, BorderLayout.NORTH)
 
-        dynamicForm = DynamicVariableForm(stored.template.metadata.variables, values, ::refreshPreview)
+        val variableAccents = VariableAccentPalette.forVariables(stored.template.metadata.variables)
+        dynamicForm = DynamicVariableForm(
+            stored.template.metadata.variables,
+            variableAccents,
+            values,
+            ::refreshPreview,
+        )
         val formPanel = JPanel(BorderLayout())
         formPanel.add(JBScrollPane(dynamicForm), BorderLayout.CENTER)
 
@@ -321,7 +341,9 @@ class PromptTemplatesPanel(
             setViewer(true)
             preferredSize = Dimension(JBUI.scale(420), JBUI.scale(190))
             accessibleContext.accessibleName = "Rendered prompt preview"
+            addSettingsProvider { editor -> configurePromptEditorScrollbars(editor.scrollPane) }
         }
+        previewHighlights = RenderedVariableHighlightController(previewField!!, variableAccents)
         contextArea = JBTextArea().apply {
             isEditable = false
             isOpaque = false
@@ -336,10 +358,10 @@ class PromptTemplatesPanel(
         previewPanel.add(previewField, BorderLayout.CENTER)
         previewPanel.add(validationLabel, BorderLayout.SOUTH)
 
-        val splitter = OnePixelSplitter(true, 0.48f)
-        splitter.firstComponent = formPanel
-        splitter.secondComponent = previewPanel
-        panel.add(splitter, BorderLayout.CENTER)
+        panel.add(
+            createUseViewContent(stored.template.metadata.variables.isNotEmpty(), formPanel, previewPanel),
+            BorderLayout.CENTER,
+        )
         panel.add(createUseActions(), BorderLayout.SOUTH)
 
         replaceDetail(USE_CARD, panel)
@@ -372,6 +394,7 @@ class PromptTemplatesPanel(
         val values = sessionValues.getOrPut(stored.template.id) { mutableMapOf() }
         activeRender = renderer.render(stored.template, values, activeContext)
         previewField?.text = activeRender!!.renderedText
+        previewHighlights?.update(activeRender!!)
         val firstError = activeRender!!.diagnostics.firstOrNull { it.severity == DiagnosticSeverity.ERROR }
         validationLabel?.text = firstError?.message.orEmpty()
         val referencedContext = parser.parse(stored.template.markdown).placeholders
@@ -432,6 +455,7 @@ class PromptTemplatesPanel(
 
     private fun showAuthor(draft: PromptTemplateDraft, existing: StoredTemplate?) {
         disposeAuthor()
+        disposeUseView()
         activeStored = null
         activeRender = null
         editingStored = existing
@@ -478,7 +502,6 @@ class PromptTemplatesPanel(
                 when (result) {
                     is RepositoryResult.Success -> {
                         showUse(result.value)
-                        reloadLibrary(result.value.directory)
                     }
                     is RepositoryResult.Failure -> PromptTemplatesNotifications.error(project, result.message)
                 }
@@ -578,11 +601,7 @@ class PromptTemplatesPanel(
             operation = { repository.delete(stored.directory) },
             successMessage = "Prompt template deleted.",
             afterSuccess = {
-                activeStored = null
-                activeRender = null
-                replaceDetail(EMPTY_CARD, createEmptyState())
-                reloadLibrary(null)
-                showNarrowLibrary()
+                clearSelectedTemplate()
             },
         )
     }
@@ -607,14 +626,11 @@ class PromptTemplatesPanel(
     }
 
     private fun showError(name: String, message: String) {
+        disposeUseView()
         val panel = JPanel(BorderLayout())
         panel.border = JBUI.Borders.empty(18)
         panel.add(JBLabel("Unable to open $name"), BorderLayout.NORTH)
         panel.add(JBLabel(message), BorderLayout.CENTER)
-        JButton("Refresh Library").also { button ->
-            button.addActionListener { reloadLibrary() }
-            panel.add(button, BorderLayout.SOUTH)
-        }
         activeStored = null
         activeRender = null
         replaceDetail(ERROR_CARD, panel)
@@ -629,9 +645,26 @@ class PromptTemplatesPanel(
         detailCards.repaint()
     }
 
+    private fun clearSelectedTemplate() {
+        activeStored = null
+        activeRender = null
+        disposeUseView()
+        replaceDetail(EMPTY_CARD, createEmptyState())
+        showNarrowLibrary()
+    }
+
     private fun disposeAuthor() {
         currentAuthor?.let(Disposer::dispose)
         currentAuthor = null
+    }
+
+    private fun disposeUseView() {
+        previewHighlights?.dispose()
+        previewHighlights = null
+        previewField = null
+        validationLabel = null
+        contextArea = null
+        dynamicForm = null
     }
 
     private fun slug(value: String): String = value.lowercase()
@@ -643,6 +676,7 @@ class PromptTemplatesPanel(
         disposed = true
         settings.state.splitterProportion = wideSplitter.proportion
         disposeAuthor()
+        disposeUseView()
     }
 
     companion object {

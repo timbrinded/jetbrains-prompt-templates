@@ -13,17 +13,16 @@ import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
-import dev.timbrinded.prompttemplates.core.EnumOption
 import dev.timbrinded.prompttemplates.core.LinearPlaceholderParser
 import dev.timbrinded.prompttemplates.core.PromptTemplateDraft
 import dev.timbrinded.prompttemplates.core.PromptVariable
 import dev.timbrinded.prompttemplates.core.PromptVariableType
 import dev.timbrinded.prompttemplates.core.TemplateReconciler
 import dev.timbrinded.prompttemplates.core.USER_VARIABLE_KEY_REGEX
+import dev.timbrinded.prompttemplates.core.VariableEditorState
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.FlowLayout
@@ -42,6 +41,7 @@ class TemplateAuthorPanel(
 ) : JPanel(BorderLayout()), Disposable {
     private val parser = LinearPlaceholderParser()
     private val reconciler = TemplateReconciler()
+    private val variableState = VariableEditorState(initialDraft.variables, reconciler)
     private val draftId = initialDraft.id
     private val nameField = JBTextField(initialDraft.name)
     private val descriptionField = JBTextField(initialDraft.description.orEmpty())
@@ -51,6 +51,7 @@ class TemplateAuthorPanel(
         project,
         FileTypeManager.getInstance().getFileTypeByExtension("md"),
     )
+    private val wordWrapToggle = JBCheckBox("Word wrap", true)
     private val variableModel = DefaultListModel<PromptVariable>()
     private val variableList = JBList(variableModel)
     private val keyField = JBTextField()
@@ -58,10 +59,9 @@ class TemplateAuthorPanel(
     private val typeField = ComboBox(PromptVariableType.entries.toTypedArray())
     private val requiredField = JBCheckBox("Required")
     private val descriptionVariableField = JBTextField()
-    private val optionsArea = JBTextArea()
-    private val optionsScroll = JBScrollPane(optionsArea)
+    private val optionsLabel = JBLabel("Enum choices (; separated):")
+    private val optionsField = JBTextField()
     private val diagnostics = JBLabel()
-    private var variables = initialDraft.variables.toMutableList()
     private var unusedKeys = emptySet<String>()
     private var updatingInspector = false
 
@@ -70,6 +70,13 @@ class TemplateAuthorPanel(
         markdownEditor.setOneLineMode(false)
         markdownEditor.preferredSize = Dimension(JBUI.scale(520), JBUI.scale(240))
         markdownEditor.accessibleContext.accessibleName = "Template Markdown"
+        markdownEditor.addSettingsProvider { editor ->
+            editor.settings.isUseSoftWraps = wordWrapToggle.isSelected
+            configurePromptEditorScrollbars(editor.scrollPane)
+        }
+        wordWrapToggle.addActionListener {
+            markdownEditor.editor?.settings?.isUseSoftWraps = wordWrapToggle.isSelected
+        }
 
         add(createHeader(), BorderLayout.NORTH)
         add(createEditorAndVariables(), BorderLayout.CENTER)
@@ -92,23 +99,26 @@ class TemplateAuthorPanel(
     private fun createEditorAndVariables(): JComponent {
         val editorPanel = JPanel(BorderLayout(JBUI.scale(4), JBUI.scale(4)))
         editorPanel.border = JBUI.Borders.emptyTop(8)
-        editorPanel.add(JBLabel("Template Markdown"), BorderLayout.NORTH)
+        val editorHeader = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(JBLabel("Template Markdown"), BorderLayout.WEST)
+            add(wordWrapToggle, BorderLayout.EAST)
+        }
+        editorPanel.add(editorHeader, BorderLayout.NORTH)
         editorPanel.add(markdownEditor, BorderLayout.CENTER)
 
         val variablePanel = JPanel(BorderLayout(JBUI.scale(8), JBUI.scale(8)))
         variablePanel.border = JBUI.Borders.empty(8, 0, 0, 0)
-        variablePanel.add(JBScrollPane(variableList), BorderLayout.WEST)
-        variableList.preferredSize = Dimension(JBUI.scale(190), JBUI.scale(210))
+        val variableListScroll = JBScrollPane(variableList).apply {
+            minimumSize = Dimension(JBUI.scale(140), JBUI.scale(210))
+        }
 
-        optionsArea.rows = 5
-        optionsArea.lineWrap = true
-        optionsArea.toolTipText = "One option per line: Label => rendered value"
-        optionsScroll.preferredSize = Dimension(JBUI.scale(300), JBUI.scale(90))
+        optionsField.toolTipText = "Separate choices with semicolons. The selected choice is inserted unchanged."
         val renameButton = JButton("Rename")
         renameButton.addActionListener { renameSelectedVariable() }
         val removeUnused = JButton("Remove Unused")
         removeUnused.addActionListener {
-            variables.removeAll { it.key in unusedKeys }
+            variableState.remove(unusedKeys)
             reconcileVariables()
         }
         val keyRow = JPanel(BorderLayout(JBUI.scale(4), 0)).apply {
@@ -121,10 +131,15 @@ class TemplateAuthorPanel(
             .addLabeledComponent("Type:", typeField)
             .addComponent(requiredField)
             .addLabeledComponent("Description:", descriptionVariableField)
-            .addLabeledComponent("Enum options:", optionsScroll)
+            .addLabeledComponent(optionsLabel, optionsField)
             .addComponent(removeUnused)
             .panel
-        variablePanel.add(inspector, BorderLayout.CENTER)
+        inspector.minimumSize = Dimension(JBUI.scale(280), JBUI.scale(210))
+
+        val variableSplitter = OnePixelSplitter(false, 0.34f)
+        variableSplitter.firstComponent = variableListScroll
+        variableSplitter.secondComponent = inspector
+        variablePanel.add(variableSplitter, BorderLayout.CENTER)
 
         val splitter = OnePixelSplitter(true, 0.56f)
         splitter.firstComponent = editorPanel
@@ -155,10 +170,11 @@ class TemplateAuthorPanel(
         descriptionVariableField.document.addDocumentListener(
             textListener { updateSelected { it.copy(description = descriptionVariableField.text.ifBlank { null }) } },
         )
-        optionsArea.document.addDocumentListener(textListener {
+        optionsField.document.addDocumentListener(textListener {
             updateSelected { variable ->
-                val options = parseOptions(optionsArea.text)
+                val options = parseEnumOptionInput(optionsField.text)
                 variable.copy(
+                    required = true,
                     options = options,
                     defaultValue = variable.defaultValue?.takeIf { default -> options.any { it.id == default } }
                         ?: options.firstOrNull()?.id,
@@ -167,23 +183,7 @@ class TemplateAuthorPanel(
         })
         typeField.addActionListener {
             if (!updatingInspector) {
-                updateSelected { variable ->
-                    val type = typeField.selectedItem as PromptVariableType
-                    val options = if (type == PromptVariableType.ENUM && variable.options.isEmpty()) {
-                        listOf(EnumOption("option", "Option", "Option"))
-                    } else {
-                        variable.options
-                    }
-                    variable.copy(
-                        type = type,
-                        options = options,
-                        defaultValue = if (type == PromptVariableType.ENUM) {
-                            variable.defaultValue ?: options.firstOrNull()?.id
-                        } else {
-                            variable.defaultValue
-                        },
-                    )
-                }
+                changeSelectedType(typeField.selectedItem as PromptVariableType)
                 loadInspector()
             }
         }
@@ -193,8 +193,8 @@ class TemplateAuthorPanel(
     }
 
     private fun reconcileVariables() {
-        val result = reconciler.reconcile(markdownEditor.text, variables)
-        variables = result.variables.toMutableList()
+        val result = variableState.reconcile(markdownEditor.text)
+        val variables = variableState.variables
         unusedKeys = result.unusedKeys
         val selectedKey = variableList.selectedValue?.key
         variableModel.clear()
@@ -217,28 +217,41 @@ class TemplateAuthorPanel(
             typeField.selectedItem = variable?.type ?: PromptVariableType.TEXT
             requiredField.isSelected = variable?.required ?: true
             descriptionVariableField.text = variable?.description.orEmpty()
-            optionsArea.text = variable?.options?.joinToString("\n") { "${it.label} => ${it.value}" }.orEmpty()
+            optionsField.text = variable?.options?.joinToString("; ") { it.label }.orEmpty()
             val enabled = variable != null
-            listOf(keyField, labelField, typeField, requiredField, descriptionVariableField, optionsArea)
+            listOf(keyField, labelField, typeField, requiredField, descriptionVariableField, optionsField)
                 .forEach { it.isEnabled = enabled }
-            optionsArea.isEnabled = variable != null && variable.type == PromptVariableType.ENUM
+            val presentation = variableTypePresentation(variable?.type)
+            requiredField.isVisible = presentation.requiredVisible
+            optionsLabel.isVisible = presentation.enumChoicesVisible
+            optionsField.isVisible = presentation.enumChoicesVisible
         } finally {
             updatingInspector = false
         }
+        revalidate()
+        repaint()
     }
 
     private fun updateSelected(transform: (PromptVariable) -> PromptVariable) {
         if (updatingInspector) return
         val index = variableList.selectedIndex
-        if (index !in variables.indices) return
-        val updated = transform(variables[index])
-        variables[index] = updated
-        variableModel.set(index, updated)
+        if (index !in variableState.variables.indices) return
+        variableState.updateAt(index, transform)
+        variableModel.set(index, variableState.variables[index])
+        variableList.selectedIndex = index
+    }
+
+    private fun changeSelectedType(type: PromptVariableType) {
+        val index = variableList.selectedIndex
+        if (index !in variableState.variables.indices) return
+        variableState.changeTypeAt(index, type)
+        variableModel.set(index, variableState.variables[index])
         variableList.selectedIndex = index
     }
 
     private fun renameSelectedVariable() {
         val index = variableList.selectedIndex
+        val variables = variableState.variables
         if (index !in variables.indices) return
         val newKey = keyField.text.trim()
         val oldKey = variables[index].key
@@ -246,7 +259,7 @@ class TemplateAuthorPanel(
             !USER_VARIABLE_KEY_REGEX.matches(newKey) -> diagnostics.text = "Invalid variable key '$newKey'."
             variables.any { it.key == newKey && it.key != oldKey } -> diagnostics.text = "Variable '$newKey' already exists."
             else -> {
-                variables[index] = variables[index].copy(key = newKey)
+                variableState.updateAt(index) { it.copy(key = newKey) }
                 WriteCommandAction.runWriteCommandAction(project) {
                     markdownEditor.document.setText(reconciler.rename(markdownEditor.text, oldKey, newKey))
                 }
@@ -271,27 +284,10 @@ class TemplateAuthorPanel(
                 name = nameField.text,
                 description = descriptionField.text,
                 tags = tagsField.text.split(',').map(String::trim).filter(String::isNotEmpty),
-                variables = variables,
+                variables = variableState.variables,
                 markdown = markdownEditor.text,
             ),
         )
-    }
-
-    private fun parseOptions(raw: String): List<EnumOption> {
-        val used = mutableSetOf<String>()
-        return raw.lineSequence().map(String::trim).filter(String::isNotEmpty).mapIndexed { index, line ->
-            val parts = line.split("=>", limit = 2)
-            val label = parts[0].trim()
-            val value = parts.getOrElse(1) { label }.trim()
-            var id = label.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').ifEmpty { "option-${index + 1}" }
-            var suffix = 2
-            val base = id
-            while (!used.add(id)) {
-                id = "$base-$suffix"
-                suffix++
-            }
-            EnumOption(id, label, value)
-        }.toList()
     }
 
     private fun textListener(block: () -> Unit): DocumentAdapter = object : DocumentAdapter() {
