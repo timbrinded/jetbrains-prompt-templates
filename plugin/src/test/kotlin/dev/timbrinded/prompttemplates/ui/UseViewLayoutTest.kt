@@ -1,10 +1,9 @@
 package dev.timbrinded.prompttemplates.ui
 
-import com.intellij.ui.OnePixelSplitter
+import java.awt.Dimension
 import javax.swing.JPanel
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertSame
 
 class UseViewLayoutTest {
@@ -19,10 +18,43 @@ class UseViewLayoutTest {
     }
 
     @Test
-    fun `keeps the variable and preview splitter when variables exist`() {
-        val content = createUseViewContent(true, JPanel(), JPanel())
+    fun `sizes a short variable form to its preferred height`() {
+        val formPanel = JPanel().apply { preferredSize = Dimension(300, 72) }
+        val previewPanel = JPanel()
+        val content = createUseViewContent(true, formPanel, previewPanel)
 
-        assertIs<OnePixelSplitter>(content)
+        content.setSize(400, 500)
+        content.doLayout()
+
+        assertEquals(72, formPanel.height)
+        assertEquals(420, previewPanel.height)
+    }
+
+    @Test
+    fun `caps a long variable form to preserve the preview`() {
+        val formPanel = JPanel().apply { preferredSize = Dimension(300, 480) }
+        val previewPanel = JPanel()
+        val content = createUseViewContent(true, formPanel, previewPanel)
+
+        content.setSize(400, 500)
+        content.doLayout()
+
+        assertEquals(332, formPanel.height)
+        assertEquals(160, previewPanel.height)
+    }
+
+    @Test
+    fun `keeps the variable form usable when the view is short`() {
+        assertEquals(
+            64,
+            useViewFormHeight(
+                availableHeight = 200,
+                preferredFormHeight = 480,
+                minimumFormHeight = 64,
+                minimumPreviewHeight = 160,
+                gap = 8,
+            ),
+        )
     }
 
     @Test

@@ -74,6 +74,7 @@ internal class DynamicVariableForm(
             help.foreground = JBUI.CurrentTheme.ContextHelp.FOREGROUND
             panel.add(help, BorderLayout.SOUTH)
         }
+        panel.maximumSize = Dimension(Int.MAX_VALUE, panel.preferredSize.height)
         return panel
     }
 

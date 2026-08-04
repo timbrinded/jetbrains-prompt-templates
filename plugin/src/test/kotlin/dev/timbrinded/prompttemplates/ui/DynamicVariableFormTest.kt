@@ -3,10 +3,29 @@ package dev.timbrinded.prompttemplates.ui
 import dev.timbrinded.prompttemplates.core.EnumOption
 import dev.timbrinded.prompttemplates.core.PromptVariable
 import dev.timbrinded.prompttemplates.core.PromptVariableType
+import javax.swing.JPanel
+import javax.swing.SwingUtilities
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class DynamicVariableFormTest {
+    @Test
+    fun `text variable remains a single-line row in a tall form`() {
+        SwingUtilities.invokeAndWait {
+            val form = DynamicVariableForm(
+                variables = listOf(PromptVariable("issue", "Issue", description = "The GH issue number")),
+                accents = emptyMap(),
+                values = mutableMapOf(),
+                onChanged = {},
+            )
+            form.setSize(500, 300)
+            form.doLayout()
+            val row = form.components.first() as JPanel
+
+            assertEquals(row.preferredSize.height, row.height)
+        }
+    }
+
     @Test
     fun `enum choices contain no empty selection`() {
         val variable = PromptVariable(

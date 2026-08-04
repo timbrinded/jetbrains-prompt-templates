@@ -359,7 +359,10 @@ class PromptTemplatesPanel(
             setViewer(true)
             preferredSize = Dimension(JBUI.scale(420), JBUI.scale(190))
             accessibleContext.accessibleName = "Rendered prompt preview"
-            addSettingsProvider { editor -> configurePromptEditorScrollbars(editor.scrollPane) }
+            addSettingsProvider { editor ->
+                editor.settings.isUseSoftWraps = true
+                configurePromptEditorScrollbars(editor.scrollPane)
+            }
         }
         previewHighlights = RenderedVariableHighlightController(previewField!!, variableAccents)
         contextArea = JBTextArea().apply {
