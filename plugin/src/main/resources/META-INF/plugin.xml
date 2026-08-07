@@ -20,12 +20,10 @@
     ]]></description>
 
     <change-notes><![CDATA[
-      <p>Initial beta release.</p>
+      <p>Compatibility clarification for the initial beta.</p>
       <ul>
-        <li>Added a searchable, file-backed prompt-template library.</li>
-        <li>Added Markdown authoring, typed variables, live preview and strict rendering.</li>
-        <li>Added clipboard delivery, editor insertion, import, export and recovery diagnostics.</li>
-        <li>Added responsive wide and narrow tool-window layouts.</li>
+        <li>Clarified compatibility with standalone JetBrains IDEs based on IntelliJ Platform, from build 262.</li>
+        <li>Documented RustRover 2026.2 and WebStorm 2026.2 as the current explicit verification matrix.</li>
       </ul>
     ]]></change-notes>
 
