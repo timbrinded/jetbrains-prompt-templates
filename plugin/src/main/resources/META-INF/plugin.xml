@@ -13,7 +13,8 @@
         <li>Import, export, recover and diagnose templates.</li>
       </ul>
       <p>The plugin makes no network requests, executes no prompts and sends no telemetry.</p>
-      <p>Supported in RustRover 2026.2 and WebStorm 2026.2.</p>
+      <p>Compatible with standalone JetBrains IDEs based on IntelliJ Platform, with a minimum platform build of 262 (2026.2).</p>
+      <p>Automated Plugin Verifier coverage currently includes RustRover 2026.2 and WebStorm 2026.2.</p>
       <p><a href="https://github.com/timbrinded/jetbrains-prompt-templates#readme">Documentation</a> · <a href="https://github.com/timbrinded/jetbrains-prompt-templates/issues">Support</a> · <a href="https://github.com/timbrinded/jetbrains-prompt-templates/blob/main/PRIVACY.md">Privacy</a></p>
       <p><a href="https://www.flaticon.com/free-icons/copy-and-paste" title="copy-and-paste icons">Copy-and-paste icons created by ranksol graphics - Flaticon</a></p>
     ]]></description>

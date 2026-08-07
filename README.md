@@ -6,7 +6,7 @@ The plugin is agent-agnostic. It renders exact text, copies it to the clipboard,
 
 ## Current release
 
-`0.1.0` is a functional beta targeting IntelliJ Platform 2026.2 (build 262). The supported hosts are RustRover 2026.2 and WebStorm 2026.2.
+`0.1.0` is a functional beta for standalone JetBrains IDEs based on IntelliJ Platform, with minimum build 262 (2026.2). The current explicit verification matrix covers RustRover 2026.2 and WebStorm 2026.2; other compatible products are intended targets but have not yet been individually verified.
 
 Implemented workflows:
 
@@ -114,7 +114,9 @@ The plugin has no networking, telemetry or prompt execution. Current variable va
 
 ## Compatibility and release work
 
-CI compiles, tests and builds the plugin ZIP on JDK 25, then verifies it against RustRover 2026.2 and WebStorm 2026.2. Earlier platform builds and other IDE products are outside the supported scope. Before a public 1.0 release, the distribution still needs manual UI review in both supported hosts.
+The plugin declares only the shared `com.intellij.modules.platform` dependency. Product compatibility therefore covers standalone JetBrains IDEs that provide that module, with minimum platform build 262. It does not depend on a product-specific language or framework module.
+
+CI compiles, tests and builds the plugin ZIP on JDK 25, then runs Plugin Verifier against RustRover 2026.2 and WebStorm 2026.2. Those are the current verified hosts, not a product whitelist. Before a public 1.0 release, the verifier and manual UI matrix should expand across representative compatible products. Remote-development topology remains a separate, unverified target.
 
 ## License
 

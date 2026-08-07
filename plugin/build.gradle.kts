@@ -43,6 +43,7 @@ intellijPlatform {
 
     pluginVerification {
         ides {
+            // Explicit verification matrix, not a product-compatibility whitelist.
             create(IntelliJPlatformType.RustRover, "2026.2")
             create(IntelliJPlatformType.WebStorm, "2026.2")
         }

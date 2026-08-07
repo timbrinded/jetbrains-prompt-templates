@@ -78,7 +78,7 @@ Key terms:
 14. Export template Markdown without metadata.
 15. Export a rendered prompt as Markdown.
 16. Import a standalone Markdown template and infer untyped variables.
-17. Validate compatibility in IntelliJ IDEA, WebStorm and RustRover before release.
+17. Validate compatibility in representative IntelliJ Platform IDEs before each release and expand the product matrix before 1.0.
 18. Avoid network access, telemetry and arbitrary code execution.
 
 ### 3.2 Explicit non-goals for version 1.0
@@ -129,7 +129,9 @@ These defaults remove ambiguity from the implementation.
 | Settings/forms framework | Kotlin UI DSL v2 where appropriate |
 | Build tooling | IntelliJ Platform Gradle Plugin 2.x |
 
-The plugin supports IntelliJ Platform 2026.2 only. RustRover 2026.2 and WebStorm 2026.2 are the supported hosts; earlier platform builds and other IDE products are out of scope.
+The minimum supported IntelliJ Platform is 2026.2 (build 262). Because the plugin depends only on `com.intellij.modules.platform`, its product scope is all standalone JetBrains IDEs that provide that shared module. The current beta verification matrix covers RustRover 2026.2 and WebStorm 2026.2; other compatible products are intended targets but have not yet been individually verified. Remote-development topology remains a separate target.
+
+Use **compatible products** for products admitted by the descriptor dependencies and platform build range. Use **verified hosts** only for products checked by Plugin Verifier or explicit runtime testing. Do not use these terms interchangeably.
 
 ---
 
@@ -1021,7 +1023,7 @@ src/integrationTest/kotlin/
 | Plugin build tooling | IntelliJ Platform Gradle Plugin 2.x |
 | Minimum dependency | `com.intellij.modules.platform` |
 | Java toolchain | Java 25, matching IntelliJ Platform 2026.2 |
-| Compatibility verification | `verifyPlugin` against RustRover 2026.2 and WebStorm 2026.2 |
+| Current verified-host matrix | `verifyPlugin` against RustRover 2026.2 and WebStorm 2026.2 |
 | UI integration tests | IntelliJ Starter and Driver |
 
 Pin exact build-tool versions in a version catalog. Update them intentionally rather than using dynamic version selectors.
@@ -1670,18 +1672,23 @@ Custom controls should expose stable accessible names to make UI tests robust.
 
 ### 25.5 Compatibility tests
 
-Before each release, run Plugin Verifier against the supported versions of:
+For each beta release, run Plugin Verifier against the current verified-host matrix:
+
+- WebStorm.
+- RustRover.
+
+Before 1.0, expand verification across the standalone JetBrains IDEs reported as compatible with the descriptor. The planned representative matrix includes:
 
 - IntelliJ IDEA Community Edition.
 - IntelliJ IDEA Ultimate Edition.
-- WebStorm.
-- RustRover.
 - PyCharm.
 - GoLand.
 - CLion.
 - DataGrip.
+- PhpStorm.
+- RubyMine.
 
-Add Rider only after verifying the relevant platform and frontend behaviour explicitly.
+Add Rider only after verifying desktop frontend behaviour explicitly. Treat remote development and JetBrains Client as a separate runtime topology rather than inferring support from the desktop product result.
 
 Test at least:
 
@@ -1715,7 +1722,7 @@ Test:
 5. Run static analysis and formatting checks.
 6. Build plugin distribution.
 7. Run `verifyPlugin`.
-8. Run Plugin Verifier against the core product matrix.
+8. Run Plugin Verifier against the current verified-host matrix.
 9. Upload the unsigned plugin ZIP as a CI artefact.
 
 ### 26.2 Release pipeline
@@ -1725,7 +1732,7 @@ Test:
 3. Sign the plugin.
 4. Run final verifier matrix.
 5. Publish to a private Marketplace channel first.
-6. Smoke-test installation in WebStorm and RustRover.
+6. Smoke-test installation in the current verified hosts, WebStorm and RustRover, plus additional representative compatible products before 1.0.
 7. Promote to the stable channel.
 
 ### 26.3 Dependency management
@@ -1760,12 +1767,13 @@ Resolve high-risk API questions before building the full UI.
 - Prototype `CopyPasteManager` output.
 - Prototype active-editor insertion as one undoable command.
 - Prototype file chooser, open, reveal and export operations.
-- Run Plugin Verifier against WebStorm and RustRover.
+- Run Plugin Verifier against the current verified hosts, WebStorm and RustRover.
 - Inspect comparable first-party UI using UI Inspector and the IntelliJ Platform source.
 
 #### Acceptance criteria
 
-- Plugin installs and opens in IntelliJ IDEA, WebStorm and RustRover.
+- Plugin installs and opens in the current verified hosts, WebStorm and RustRover.
+- Descriptor dependencies remain product-neutral so other compatible standalone JetBrains IDEs can load the plugin.
 - No internal APIs are required for the core workflow.
 - Embedded editor, highlighting, clipboard and editor insertion are proven.
 - A written decision records minimum IDE baseline and any optional dependencies.
@@ -1811,7 +1819,7 @@ Resolve high-risk API questions before building the full UI.
 #### Acceptance criteria
 
 - Templates survive IDE restart.
-- The same configured library can be used from WebStorm and RustRover.
+- The same configured library works across compatible standalone JetBrains IDEs; this is verified in WebStorm and RustRover.
 - External file edits are detected.
 - Broken templates remain visible with diagnostics.
 - No template content is stored in IDE settings.
@@ -1989,7 +1997,7 @@ Candidate work, ordered by likely value:
 | Tool window becomes visually dense | Poor usability | Separate Library, Author and Use modes; responsive card layout |
 | Too many variable types | Complex schema and UI | Ship only Text, Multiline and Enum |
 | Optional variables create blank prose sections | Awkward rendered prompts | Document empty-string semantics; defer conditionals |
-| Cross-product API incompatibility | Plugin fails in WebStorm or RustRover | Depend only on platform module and verify product matrix continuously |
+| Cross-product API incompatibility | Plugin fails in a compatible IntelliJ Platform IDE | Depend only on the platform module, continuously verify WebStorm and RustRover, and expand the representative product matrix before 1.0 |
 | Remote development adds frontend/backend ambiguity | Broken paths and context | Keep core adapters isolated; treat split mode as a separate milestone |
 | Persisted prompt inputs leak sensitive data | Privacy issue | Session-only values by default; no prompt-content logging |
 | Terminal or agent integration is unreliable | Accidental shell input or breakage | Exclude from 1.0; isolate future adapters and never auto-execute |
@@ -2027,7 +2035,7 @@ Version 1.0 is complete when:
 - Clipboard output and active-editor insertion use stable public IntelliJ APIs.
 - Source open, reveal, path copy, template export and rendered export work on supported operating systems.
 - Standalone Markdown can be imported and typed later.
-- The plugin passes automated tests and Plugin Verifier for the declared product/version matrix.
+- The plugin passes automated tests for the supported platform baseline and Plugin Verifier for the documented verified-host matrix.
 - No core implementation uses internal or experimental APIs.
 - No prompt content or invocation values are sent over a network or logged by default.
 - The UI is usable by keyboard and remains legible across supported themes and scale factors.
