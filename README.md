@@ -116,4 +116,6 @@ The plugin has no networking, telemetry or prompt execution. Current variable va
 
 CI compiles, tests and builds the plugin ZIP on JDK 25, then verifies it against RustRover 2026.2 and WebStorm 2026.2. Earlier platform builds and other IDE products are outside the supported scope. Before a public 1.0 release, the distribution still needs manual UI review in both supported hosts.
 
-No licence has been selected for this private repository.
+## License
+
+Prompt Templates is available under the [Apache License 2.0](LICENSE).
