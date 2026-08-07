@@ -1,13 +1,32 @@
-<idea-plugin>
-    <id>dev.timbrinded.prompttemplates</id>
+<idea-plugin url="https://github.com/timbrinded/jetbrains-prompt-templates">
+    <id>dev.smoothbrains.prompttemplates</id>
     <name>Prompt Templates</name>
-    <vendor>Tim Brinded</vendor>
+    <vendor url="https://smoothbrains.ltd" email="tim@smoothbrains.ltd">Smooth Brains Ltd.</vendor>
 
     <description><![CDATA[
-      <p>A native workbench for authoring, searching and rendering typed Markdown prompt templates.</p>
+      <p>Create, manage and render reusable typed Markdown prompt templates inside JetBrains IDEs.</p>
       <p>Templates remain ordinary Markdown files; typed variable metadata is stored separately.</p>
+      <ul>
+        <li>Search and edit a personal prompt library.</li>
+        <li>Resolve editor selection, current-file, project and clipboard context.</li>
+        <li>Preview exact rendered output before copying or inserting it.</li>
+        <li>Import, export, recover and diagnose templates.</li>
+      </ul>
+      <p>The plugin makes no network requests, executes no prompts and sends no telemetry.</p>
+      <p>Supported in RustRover 2026.2 and WebStorm 2026.2.</p>
+      <p><a href="https://github.com/timbrinded/jetbrains-prompt-templates#readme">Documentation</a> · <a href="https://github.com/timbrinded/jetbrains-prompt-templates/issues">Support</a> · <a href="https://github.com/timbrinded/jetbrains-prompt-templates/blob/main/PRIVACY.md">Privacy</a></p>
       <p><a href="https://www.flaticon.com/free-icons/copy-and-paste" title="copy-and-paste icons">Copy-and-paste icons created by ranksol graphics - Flaticon</a></p>
     ]]></description>
+
+    <change-notes><![CDATA[
+      <p>Initial beta release.</p>
+      <ul>
+        <li>Added a searchable, file-backed prompt-template library.</li>
+        <li>Added Markdown authoring, typed variables, live preview and strict rendering.</li>
+        <li>Added clipboard delivery, editor insertion, import, export and recovery diagnostics.</li>
+        <li>Added responsive wide and narrow tool-window layouts.</li>
+      </ul>
+    ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
 

@@ -1,6 +1,7 @@
+import org.gradle.api.tasks.bundling.Jar
+import org.gradle.api.tasks.bundling.Zip
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
-import org.gradle.api.tasks.bundling.Zip
 
 plugins {
     kotlin("jvm")
@@ -35,7 +36,7 @@ kotlin {
 
 intellijPlatform {
     pluginConfiguration {
-        id = "dev.timbrinded.prompttemplates"
+        id = "dev.smoothbrains.prompttemplates"
         name = "Prompt Templates"
         version = project.version.toString()
     }
@@ -50,6 +51,15 @@ intellijPlatform {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+tasks.named<Jar>("jar") {
+    from(rootProject.file("LICENSE")) {
+        into("META-INF")
+    }
+    from(rootProject.file("THIRD-PARTY-NOTICES")) {
+        into("META-INF")
+    }
 }
 
 tasks.named<Zip>("buildPlugin") {

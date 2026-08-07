@@ -1,3 +1,5 @@
+import org.gradle.api.tasks.bundling.Jar
+
 plugins {
     kotlin("jvm")
     kotlin("plugin.serialization")
@@ -17,4 +19,10 @@ kotlin {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+tasks.named<Jar>("jar") {
+    from(rootProject.file("LICENSE")) {
+        into("META-INF")
+    }
 }

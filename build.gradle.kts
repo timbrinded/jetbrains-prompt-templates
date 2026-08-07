@@ -5,7 +5,7 @@ plugins {
 }
 
 allprojects {
-    group = "dev.timbrinded.prompttemplates"
+    group = "dev.smoothbrains.prompttemplates"
     version = "0.1.0"
 
     repositories {

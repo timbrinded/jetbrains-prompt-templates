@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 — 2026-08-03
+## 0.1.0 — 2026-08-07
 
 - Added a native searchable prompt-template library.
 - Added Markdown authoring with placeholder discovery, highlighting and typed variables.
