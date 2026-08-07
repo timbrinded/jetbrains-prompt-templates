@@ -4,13 +4,16 @@
     <vendor>Tim Brinded</vendor>
 
     <description><![CDATA[
-      A native workbench for authoring, searching and rendering typed Markdown prompt templates.
-      Templates remain ordinary Markdown files; typed variable metadata is stored separately.
+      <p>A native workbench for authoring, searching and rendering typed Markdown prompt templates.</p>
+      <p>Templates remain ordinary Markdown files; typed variable metadata is stored separately.</p>
+      <p><a href="https://www.flaticon.com/free-icons/copy-and-paste" title="copy-and-paste icons">Copy-and-paste icons created by ranksol graphics - Flaticon</a></p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
 
     <extensions defaultExtensionNs="com.intellij">
+        <iconMapper mappingFile="PromptTemplatesIconMappings.json"/>
+
         <applicationConfigurable
                 parentId="tools"
                 displayName="Prompt Templates"

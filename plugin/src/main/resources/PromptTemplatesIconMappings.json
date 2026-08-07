@@ -1,0 +1,7 @@
+{
+  "icons": {
+    "expui": {
+      "promptTemplates.svg": "icons/promptTemplates.svg"
+    }
+  }
+}

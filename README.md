@@ -119,3 +119,7 @@ CI compiles, tests and builds the plugin ZIP on JDK 25, then verifies it against
 ## License
 
 Prompt Templates is available under the [Apache License 2.0](LICENSE).
+
+## Attribution
+
+[Copy-and-paste icons created by ranksol graphics - Flaticon](https://www.flaticon.com/free-icons/copy-and-paste)
