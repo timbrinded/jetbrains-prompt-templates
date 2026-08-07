@@ -6,7 +6,7 @@ The plugin is agent-agnostic. It renders exact text, copies it to the clipboard,
 
 ## Current release
 
-`0.1.0` is a functional beta for standalone JetBrains IDEs based on IntelliJ Platform, with minimum build 262 (2026.2). The current explicit verification matrix covers RustRover 2026.2 and WebStorm 2026.2; other compatible products are intended targets but have not yet been individually verified.
+`0.1.1` is a functional beta for standalone JetBrains IDEs based on IntelliJ Platform, with minimum build 262 (2026.2). The current explicit verification matrix covers RustRover 2026.2 and WebStorm 2026.2; other compatible products are intended targets but have not yet been individually verified.
 
 Implemented workflows:
 

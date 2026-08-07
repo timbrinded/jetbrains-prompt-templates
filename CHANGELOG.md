@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.1 — Unreleased
+## 0.1.1 — 2026-08-07
 
 - Clarified platform-wide product compatibility separately from the current RustRover and WebStorm verification matrix.
 
