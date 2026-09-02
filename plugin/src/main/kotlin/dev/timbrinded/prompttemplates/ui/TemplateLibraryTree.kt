@@ -98,12 +98,12 @@ internal class TemplateLibraryTree(
 
     init {
         isRootVisible = false
-        showsRootHandles = true
+        setShowsRootHandles(true)
         selectionModel.selectionMode = javax.swing.tree.TreeSelectionModel.SINGLE_TREE_SELECTION
         emptyText.text = "No prompt templates yet"
         putClientProperty(AccessibleContext.ACCESSIBLE_NAME_PROPERTY, LIBRARY_TREE_ACCESSIBLE_NAME)
-        cellRenderer = LibraryTreeRenderer()
-        toggleClickCount = 2
+        setCellRenderer(LibraryTreeRenderer())
+        setToggleClickCount(2)
 
         addTreeSelectionListener {
             if (!rebuilding) selectedSelection()?.let { selection ->
@@ -135,7 +135,7 @@ internal class TemplateLibraryTree(
         super.updateUI()
         // IntelliJ can install a default renderer during a late look-and-feel refresh. Restore the
         // semantic renderer after the UI delegate has finished applying its defaults.
-        cellRenderer = LibraryTreeRenderer()
+        setCellRenderer(LibraryTreeRenderer())
     }
 
     fun updateLibrary(
@@ -463,13 +463,13 @@ private class LibraryTreeRenderer : ColoredTreeCellRenderer() {
         when (val item = (value as? DefaultMutableTreeNode)?.userObject as? LibraryTreeSelection) {
             is LibraryTreeSelection.Root -> Unit
             is LibraryTreeSelection.Folder -> {
-                icon = if (expanded) AllIcons.Nodes.Folder else AllIcons.Nodes.Folder
+                icon = AllIcons.Nodes.Folder
                 append(item.entry.displayName)
                 item.entry.diagnostic?.let { append("  Warning", SimpleTextAttributes.GRAYED_ATTRIBUTES) }
                 toolTipText = item.entry.diagnostic ?: item.directory.toString()
             }
             is LibraryTreeSelection.Template -> {
-                icon = AllIcons.FileTypes.Text
+                icon = AllIcons.FileTypes.Markdown
                 val summary = item.entry.summary
                 append(summary.name)
                 when (summary.health) {

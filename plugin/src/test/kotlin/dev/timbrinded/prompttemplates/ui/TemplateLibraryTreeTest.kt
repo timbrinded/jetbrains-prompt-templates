@@ -1,5 +1,7 @@
 package dev.timbrinded.prompttemplates.ui
 
+import com.intellij.icons.AllIcons
+import com.intellij.ui.ColoredTreeCellRenderer
 import dev.timbrinded.prompttemplates.core.EntryPlacement
 import dev.timbrinded.prompttemplates.core.LibraryEntry
 import dev.timbrinded.prompttemplates.core.LibrarySnapshot
@@ -378,11 +380,51 @@ class TemplateLibraryTreeTest {
         )
         val expectedRendererClass = tree.cellRenderer.javaClass
         tree.cellRenderer = DefaultTreeCellRenderer()
+        val publishedRenderers = mutableListOf<Any?>()
+        tree.addPropertyChangeListener("cellRenderer") { event -> publishedRenderers += event.newValue }
 
         tree.updateUI()
 
         assertEquals(expectedRendererClass, tree.cellRenderer.javaClass)
+        assertTrue(publishedRenderers.any(expectedRendererClass::isInstance))
         assertEquals("Reviews", tree.model.getChild(tree.model.root, 0).toString())
+    }
+
+    @Test
+    fun `library renderer gives folders and prompts distinct native icons`() {
+        val prompt = template("prompt", "Prompt", "")
+        val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
+        tree.updateLibrary(
+            LibrarySnapshot(root, listOf(folder("Reviews", emptyList()), prompt)),
+            emptyMap(),
+            "",
+            null,
+            emptyList(),
+        )
+        val rootNode = tree.model.root
+        val renderer = assertIs<ColoredTreeCellRenderer>(tree.cellRenderer)
+
+        renderer.getTreeCellRendererComponent(
+            tree,
+            tree.model.getChild(rootNode, 0),
+            false,
+            false,
+            true,
+            0,
+            false,
+        )
+        assertEquals(AllIcons.Nodes.Folder, renderer.icon)
+
+        renderer.getTreeCellRendererComponent(
+            tree,
+            tree.model.getChild(rootNode, 1),
+            false,
+            false,
+            true,
+            1,
+            false,
+        )
+        assertEquals(AllIcons.FileTypes.Markdown, renderer.icon)
     }
 
     @Test
