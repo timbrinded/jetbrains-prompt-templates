@@ -64,9 +64,11 @@ jobs:
         with:
           name: prompt-templates-ui-e2e
           path: |
-            out/ide-tests/
+            out/ide-tests/tests/*/*/log/
+            out/ide-tests/tests/*/*/reports/
+            out/ide-tests/tests/*/*/jbrDiagnostic/
             plugin/build/allure-results/
-            plugin/build/ui-test/
+            plugin/build/ui-test/*/evidence/
             plugin/build/reports/tests/integrationTest/
             plugin/build/test-results/integrationTest/
           if-no-files-found: warn

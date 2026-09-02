@@ -70,14 +70,21 @@ internal enum class LibraryTreeCommand {
     DELETE_TEMPLATE,
 }
 
-internal data class LibrarySelectionKey(
-    val templateId: String? = null,
-    val relativePath: String? = null,
-    val folder: Boolean = false,
-)
+internal sealed interface LibrarySelectionKey {
+    val relativePath: String?
+
+    data class Folder(override val relativePath: String) : LibrarySelectionKey
+
+    data class Template(
+        val templateId: String,
+        override val relativePath: String? = null,
+    ) : LibrarySelectionKey
+
+    data class TemplatePath(override val relativePath: String) : LibrarySelectionKey
+}
 
 /**
- * The library navigation widget. Filesystem work stays in [PromptTemplatesPanel]; this class owns
+ * The library navigation widget. Filesystem work stays in [PromptTemplatesController]; this class owns
  * presentation, selection, filtering, context menus, keyboard movement and Swing drag-and-drop.
  */
 internal class TemplateLibraryTree(
@@ -243,33 +250,37 @@ internal class TemplateLibraryTree(
 
     private fun restoreSelection(key: LibrarySelectionKey?) {
         if (key == null) return
-        val byRelativePath = key.relativePath?.let { relativePath ->
-            findPath { selection ->
-                when (selection) {
-                    is LibraryTreeSelection.Template -> !key.folder &&
-                        portableRelativePath(snapshot.root, selection.directory) == relativePath &&
-                        (key.templateId == null ||
-                            selection.entry.summary.id?.value.equals(key.templateId, ignoreCase = true))
-                    is LibraryTreeSelection.Folder -> key.folder &&
-                        portableRelativePath(snapshot.root, selection.directory) == relativePath
-                    is LibraryTreeSelection.Root -> false
+        val path = when (key) {
+            is LibrarySelectionKey.Folder -> findPath { selection ->
+                selection is LibraryTreeSelection.Folder &&
+                    portableRelativePath(snapshot.root, selection.directory) == key.relativePath
+            }
+            is LibrarySelectionKey.TemplatePath -> findPath { selection ->
+                selection is LibraryTreeSelection.Template &&
+                    portableRelativePath(snapshot.root, selection.directory) == key.relativePath
+            }
+            is LibrarySelectionKey.Template -> {
+                val exactPath = key.relativePath?.let { relativePath ->
+                    findPath { selection ->
+                        selection is LibraryTreeSelection.Template &&
+                            portableRelativePath(snapshot.root, selection.directory) == relativePath &&
+                            selection.entry.summary.id?.value.equals(key.templateId, ignoreCase = true)
+                    }
+                }
+                val matchingIds = flattenTemplates(snapshot.children).count { entry ->
+                    entry.summary.id?.value.equals(key.templateId, ignoreCase = true)
+                }
+                exactPath ?: if (matchingIds == 1) {
+                    findPath { selection ->
+                        selection is LibraryTreeSelection.Template &&
+                            selection.entry.summary.id?.value.equals(key.templateId, ignoreCase = true)
+                    }
+                } else {
+                    null
                 }
             }
         }
-        val byUniqueId = key.templateId?.let { id ->
-            val matches = flattenTemplates(snapshot.children).count { entry ->
-                entry.summary.id?.value.equals(id, ignoreCase = true)
-            }
-            if (matches == 1) {
-                findPath { selection ->
-                    selection is LibraryTreeSelection.Template &&
-                        selection.entry.summary.id?.value.equals(id, ignoreCase = true)
-                }
-            } else {
-                null
-            }
-        }
-        val path = byRelativePath ?: byUniqueId ?: return
+        path ?: return
         selectionPath = path
         if (isShowing) scrollPathToVisible(path)
     }
@@ -559,14 +570,10 @@ internal fun portableRelativePath(root: Path, directory: Path): String =
 internal fun portablePath(path: Path): String = path.joinToString("/") { it.toString() }
 
 internal fun selectionKey(selection: LibraryTreeSelection?, root: Path): LibrarySelectionKey? = when (selection) {
-    is LibraryTreeSelection.Template -> LibrarySelectionKey(
-        templateId = selection.entry.summary.id?.value,
-        relativePath = portableRelativePath(root, selection.directory),
-    )
-    is LibraryTreeSelection.Folder -> LibrarySelectionKey(
-        relativePath = portableRelativePath(root, selection.directory),
-        folder = true,
-    )
+    is LibraryTreeSelection.Template -> selection.entry.summary.id?.value?.let { templateId ->
+        LibrarySelectionKey.Template(templateId, portableRelativePath(root, selection.directory))
+    } ?: LibrarySelectionKey.TemplatePath(portableRelativePath(root, selection.directory))
+    is LibraryTreeSelection.Folder -> LibrarySelectionKey.Folder(portableRelativePath(root, selection.directory))
     is LibraryTreeSelection.Root, null -> null
 }
 

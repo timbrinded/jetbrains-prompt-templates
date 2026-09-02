@@ -81,7 +81,7 @@ class TemplateLibraryTreeTest {
         val second = template("b", "B", "")
         val snapshot = LibrarySnapshot(root, listOf(folder, first, second))
 
-        val move = siblingMove(snapshot, first.directory, folder = false, direction = 1)
+        val move = siblingMove(snapshot, LibraryTreeSelection.Template(first), MoveDirection.DOWN)
 
         assertEquals(root, move?.destination)
         assertEquals(EntryPlacement.After(second.directory), move?.placement)
@@ -94,7 +94,7 @@ class TemplateLibraryTreeTest {
         val reviews = folder("Reviews", listOf(first, second))
         val snapshot = LibrarySnapshot(root, listOf(reviews))
 
-        val move = siblingMove(snapshot, second.directory, folder = false, direction = -1)
+        val move = siblingMove(snapshot, LibraryTreeSelection.Template(second), MoveDirection.UP)
 
         assertEquals(reviews.directory, move?.destination)
         assertEquals(EntryPlacement.Before(first.directory), move?.placement)
@@ -106,8 +106,8 @@ class TemplateLibraryTreeTest {
         val template = template("template", "Template", "")
         val snapshot = LibrarySnapshot(root, listOf(folder, template))
 
-        assertNull(siblingMove(snapshot, folder.directory, folder = true, direction = 1))
-        assertNull(siblingMove(snapshot, template.directory, folder = false, direction = -1))
+        assertNull(siblingMove(snapshot, LibraryTreeSelection.Folder(folder), MoveDirection.DOWN))
+        assertNull(siblingMove(snapshot, LibraryTreeSelection.Template(template), MoveDirection.UP))
     }
 
     @Test
@@ -133,10 +133,7 @@ class TemplateLibraryTreeTest {
             snapshot = LibrarySnapshot(root, listOf(folder("First", listOf(first)), folder("Second", listOf(second)))),
             bodyIndex = emptyMap(),
             searchQuery = "",
-            preferredSelection = LibrarySelectionKey(
-                templateId = duplicateId.value,
-                relativePath = "Second/b",
-            ),
+            preferredSelection = LibrarySelectionKey.Template(duplicateId.value, "Second/b"),
             expandedPaths = emptyList(),
         )
 
@@ -158,10 +155,7 @@ class TemplateLibraryTreeTest {
             ),
             bodyIndex = emptyMap(),
             searchQuery = "",
-            preferredSelection = LibrarySelectionKey(
-                templateId = duplicateId.value,
-                relativePath = "missing",
-            ),
+            preferredSelection = LibrarySelectionKey.Template(duplicateId.value, "missing"),
             expandedPaths = emptyList(),
         )
 
@@ -233,10 +227,7 @@ class TemplateLibraryTreeTest {
             ),
             bodyIndex = emptyMap(),
             searchQuery = "visible",
-            preferredSelection = LibrarySelectionKey(
-                templateId = duplicateId.value,
-                relativePath = "original",
-            ),
+            preferredSelection = LibrarySelectionKey.Template(duplicateId.value, "original"),
             expandedPaths = emptyList(),
         )
 
@@ -255,10 +246,7 @@ class TemplateLibraryTreeTest {
             snapshot = LibrarySnapshot(root, listOf(folder("archive", listOf(moved)), replacement)),
             bodyIndex = emptyMap(),
             searchQuery = "",
-            preferredSelection = LibrarySelectionKey(
-                templateId = stableId.value,
-                relativePath = "original",
-            ),
+            preferredSelection = LibrarySelectionKey.Template(stableId.value, "original"),
             expandedPaths = emptyList(),
         )
 
@@ -268,25 +256,6 @@ class TemplateLibraryTreeTest {
     @Test
     fun `relative paths use portable separators`() {
         assertEquals("Reviews/Security", portableRelativePath(root, root.resolve("Reviews/Security")))
-    }
-
-    @Test
-    fun `move to current parent is a no-op`() {
-        val source = root.resolve("Reviews/audit")
-
-        assertEquals(false, shouldMoveToFolder(source, root.resolve("Reviews")))
-        assertEquals(true, shouldMoveToFolder(source, root.resolve("Archive")))
-    }
-
-    @Test
-    fun `root diagnostic remains available when the snapshot has children`() {
-        val snapshot = LibrarySnapshot(
-            root = root,
-            children = listOf(template("audit", "Audit", "")),
-            diagnostic = "Order file is invalid.",
-        )
-
-        assertEquals("Order file is invalid.", libraryDiagnostic(snapshot))
     }
 
     @Test
@@ -433,13 +402,13 @@ class TemplateLibraryTreeTest {
         val second = template("Reviews/b", "B", "")
         val snapshot = LibrarySnapshot(root, listOf(folder("Reviews", listOf(first, second))))
         val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
-        val firstKey = LibrarySelectionKey(templateId = first.summary.id?.value)
+        val firstKey = LibrarySelectionKey.Template(requireNotNull(first.summary.id).value)
 
         tree.updateLibrary(snapshot, emptyMap(), "", firstKey, emptyList())
         tree.selectTemplateByDirectory(second.directory)
         tree.updateLibrary(snapshot, emptyMap(), "", firstKey, emptyList())
 
-        assertEquals(first.summary.id?.value, tree.currentSelectionKey()?.templateId)
+        assertEquals(first.summary.id?.value, (tree.currentSelectionKey() as? LibrarySelectionKey.Template)?.templateId)
     }
 
     @Test
@@ -453,7 +422,7 @@ class TemplateLibraryTreeTest {
             snapshot,
             emptyMap(),
             "",
-            LibrarySelectionKey(templateId = first.summary.id?.value),
+            LibrarySelectionKey.Template(requireNotNull(first.summary.id).value),
             emptyList(),
         )
         tree.updateLibrary(snapshot, emptyMap(), "Beta", null, emptyList())
@@ -474,7 +443,7 @@ class TemplateLibraryTreeTest {
             snapshot,
             emptyMap(),
             "",
-            LibrarySelectionKey(templateId = first.summary.id?.value),
+            LibrarySelectionKey.Template(requireNotNull(first.summary.id).value),
             emptyList(),
         )
         tree.updateLibrary(snapshot, emptyMap(), "Alpha", null, emptyList())
@@ -482,7 +451,7 @@ class TemplateLibraryTreeTest {
             snapshot = snapshot,
             bodyIndex = emptyMap(),
             searchQuery = "",
-            preferredSelection = LibrarySelectionKey(templateId = second.summary.id?.value),
+            preferredSelection = LibrarySelectionKey.Template(requireNotNull(second.summary.id).value),
             expandedPaths = emptyList(),
             preferPreferredSelection = true,
         )

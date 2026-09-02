@@ -419,6 +419,36 @@ class FileSystemPromptTemplateHierarchyTest {
     }
 
     @Test
+    fun `deletion preview treats a template support tree as opaque but fingerprints its files`() {
+        val root = temporaryDirectory.resolve("library")
+        val folder = root.resolve("Delete me")
+        val template = folder.resolve("template")
+        val nestedPackage = template.resolve("support/nested-package")
+        Files.createDirectories(nestedPackage)
+        Files.writeString(template.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE), "prompt")
+        val supportFile = template.resolve("support/data.txt")
+        Files.writeString(supportFile, "before")
+        Files.writeString(
+            nestedPackage.resolve(FileSystemPromptTemplateRepository.METADATA_FILE),
+            "nested package metadata",
+        )
+        val repository = FileSystemPromptTemplateRepository(root)
+
+        val firstPreview = success(repository.previewFolderDeletion(folder))
+
+        assertEquals(0, firstPreview.folderCount)
+        assertEquals(1, firstPreview.templateCount)
+        assertEquals(3, firstPreview.fileCount)
+
+        Files.writeString(supportFile, "after")
+        val changedPreview = success(repository.previewFolderDeletion(folder))
+
+        assertEquals(0, changedPreview.folderCount)
+        assertEquals(1, changedPreview.templateCount)
+        assertNotEquals(firstPreview.fingerprint, changedPreview.fingerprint)
+    }
+
+    @Test
     fun `fresh deletion never follows an intermediate replaced after fingerprinting`() {
         val target = temporaryDirectory.resolve("target")
         val intermediate = target.resolve("intermediate")
@@ -429,7 +459,7 @@ class FileSystemPromptTemplateHierarchyTest {
         Files.writeString(intermediate.resolve("victim.txt"), "original")
         Files.writeString(outside.resolve("victim.txt"), "outside")
 
-        val fingerprint = LibraryTreeDeletion.manifest(target) { false }.preview.fingerprint
+        val fingerprint = LibraryTreeDeletion.manifest(target) { false }.fingerprint
         Files.move(intermediate, displaced)
         Files.createSymbolicLink(intermediate, outside)
 
@@ -586,7 +616,6 @@ class FileSystemPromptTemplateHierarchyTest {
         val storedOrder = requireNotNull(LibraryFolderOrderCodec.read(physicalRoot).value)
         assertEquals(24, templateDirectories.size)
         assertEquals(templateDirectories, storedOrder.templates)
-        assertEquals(templateDirectories.toSet(), storedOrder.templates.toSet())
     }
 
     @Test

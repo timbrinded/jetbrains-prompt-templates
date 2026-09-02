@@ -19,7 +19,6 @@ import com.intellij.driver.sdk.waitFor
 import java.awt.Point
 import java.awt.event.InputEvent
 import java.awt.event.MouseEvent
-import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -118,7 +117,7 @@ class PromptTemplatesUi(
         waitForPath(*(parentPath + name).toTypedArray())
     }
 
-    fun createDefaultTemplate(parentPath: List<String>, name: String = "New prompt") {
+    fun createDefaultTemplate(parentPath: List<String>, name: String) {
         selectContextMenuItem(*parentPath.toTypedArray(), item = "New Template Here")
         val frame = driver.ideFrame()
         val saveButton = frame.button("Save Template").waitFound(30.seconds)
@@ -127,12 +126,6 @@ class PromptTemplatesUi(
         waitForPath(*(parentPath + name).toTypedArray())
     }
 
-    fun search(query: String) {
-        driver.ideFrame().textField { byAccessibleName(SEARCH_ACCESSIBLE_NAME) }.text = query
-    }
-
-    fun clearSearch() = search("")
-
     fun selectPath(vararg path: String) {
         val tree = libraryTree().expandAll()
         val expectedPath = path.toList()
@@ -140,7 +133,7 @@ class PromptTemplatesUi(
         waitFor("tree path $expectedPath is selected", 30.seconds) {
             runCatching {
                 libraryTree().collectSelectedPaths().any { selected ->
-                    pathMatches(selected.path, expectedPath)
+                    libraryPathEndsWith(selected.path, expectedPath)
                 }
             }.getOrDefault(false)
         }
@@ -161,32 +154,32 @@ class PromptTemplatesUi(
         )
     }
 
-    fun waitForPath(vararg path: String, timeout: Duration = 30.seconds) {
-        waitFor("tree path ${path.toList()} is visible", timeout) {
+    fun waitForPath(vararg path: String) {
+        waitFor("tree path ${path.toList()} is visible", 30.seconds) {
             runCatching { hasPath(libraryTree().expandAll(), path.toList()) }.getOrDefault(false)
         }
     }
 
-    fun waitForPathAbsent(vararg path: String, timeout: Duration = 30.seconds) {
-        waitFor("tree path ${path.toList()} is absent", timeout) {
+    fun waitForPathAbsent(vararg path: String) {
+        waitFor("tree path ${path.toList()} is absent", 30.seconds) {
             runCatching { !hasPath(libraryTree().expandAll(), path.toList()) }.getOrDefault(false)
         }
     }
 
-    fun waitForVisiblePath(vararg path: String, timeout: Duration = 30.seconds) {
-        waitFor("tree path ${path.toList()} is visible", timeout) {
+    fun waitForVisiblePath(vararg path: String) {
+        waitFor("tree path ${path.toList()} is visible", 30.seconds) {
             runCatching { hasPath(libraryTree(), path.toList()) }.getOrDefault(false)
         }
     }
 
-    fun waitForVisiblePathAbsent(vararg path: String, timeout: Duration = 30.seconds) {
-        waitFor("tree path ${path.toList()} is not visible", timeout) {
+    fun waitForVisiblePathAbsent(vararg path: String) {
+        waitFor("tree path ${path.toList()} is not visible", 30.seconds) {
             runCatching { !hasPath(libraryTree(), path.toList()) }.getOrDefault(false)
         }
     }
 
-    fun waitForVisibleText(text: String, timeout: Duration = 30.seconds) {
-        driver.ui.x { contains(byVisibleText(text)) }.waitFound(timeout)
+    fun waitForVisibleText(text: String) {
+        driver.ui.x { contains(byVisibleText(text)) }.waitFound(30.seconds)
     }
 
     fun confirmFolderDeletion(folderPath: List<String>, typedName: String) {
@@ -249,7 +242,7 @@ class PromptTemplatesUi(
 
     private fun rowFor(tree: JTreeUiComponent, expectedPath: List<String>): Int {
         val matches = tree.collectExpandedPaths().filter { candidate ->
-            pathMatches(candidate.path, expectedPath)
+            libraryPathEndsWith(candidate.path, expectedPath)
         }
         check(matches.size == 1) {
             "Expected one row for $expectedPath, found ${matches.map { it.path }} in ${tree.collectExpandedPathsAsStrings()}"
@@ -258,21 +251,35 @@ class PromptTemplatesUi(
     }
 
     private fun hasPath(tree: JTreeUiComponent, expectedPath: List<String>): Boolean =
-        tree.collectExpandedPaths().any { candidate -> pathMatches(candidate.path, expectedPath) }
-
-    private fun pathMatches(actualPath: List<String>, expectedPath: List<String>): Boolean {
-        if (actualPath.size < expectedPath.size) return false
-        return actualPath.takeLast(expectedPath.size)
-            .zip(expectedPath)
-            .all { (actual, expected) -> actual.contains(expected, ignoreCase = true) }
-    }
+        tree.collectExpandedPaths().any { candidate ->
+            libraryPathEndsWith(candidate.path, expectedPath)
+        }
 
     companion object {
         const val LIBRARY_TREE_ACCESSIBLE_NAME = "Prompt template library tree"
         private const val OPEN_ACTION_ID = "PromptTemplates.Open"
-        private const val SEARCH_ACCESSIBLE_NAME = "Search prompt templates"
     }
 }
+
+internal fun libraryPathEndsWith(
+    actual: List<String>,
+    expected: List<String>,
+): Boolean = actual.size >= expected.size &&
+    actual.takeLast(expected.size)
+        .zip(expected)
+        .all { (actualSegment, expectedSegment) ->
+            actualSegment.matchesLibrarySegment(expectedSegment)
+        }
+
+private fun String.matchesLibrarySegment(expected: String): Boolean {
+    if (equals(expected, ignoreCase = true)) return true
+    if (!startsWith(expected, ignoreCase = true)) return false
+    val presentation = drop(expected.length)
+    return presentation.startsWith(", ") || presentation.startsWith("  ")
+}
+
+internal fun String.endsWithLibraryPath(expected: String): Boolean =
+    libraryPathEndsWith(split('/'), expected.split('/'))
 
 @Remote("java.awt.Component")
 private interface PopupEventTarget {

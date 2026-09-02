@@ -4,7 +4,12 @@ import dev.timbrinded.prompttemplates.core.EntryPlacement
 import dev.timbrinded.prompttemplates.core.LibraryEntry
 import dev.timbrinded.prompttemplates.core.LibrarySnapshot
 import dev.timbrinded.prompttemplates.core.TemplateHealth
+import java.nio.channels.Channels
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
+import java.nio.file.StandardOpenOption
 
 internal fun flattenTemplates(entries: List<LibraryEntry>): List<LibraryEntry.Template> = buildList {
     fun visit(items: List<LibraryEntry>) {
@@ -32,9 +37,14 @@ internal fun flattenFolders(entries: List<LibraryEntry>): List<LibraryEntry.Fold
 
 internal fun countFolders(entries: List<LibraryEntry>): Int = flattenFolders(entries).size
 
-internal fun shouldMoveToFolder(source: Path, destination: Path): Boolean = source.parent != destination
-
-internal fun libraryDiagnostic(snapshot: LibrarySnapshot): String? = snapshot.diagnostic?.takeIf(String::isNotBlank)
+internal fun readSearchIndexBody(markdownPath: Path): String {
+    if (!Files.isRegularFile(markdownPath, NOFOLLOW_LINKS)) return ""
+    return runCatching {
+        Files.newByteChannel(markdownPath, setOf(StandardOpenOption.READ, NOFOLLOW_LINKS)).use { channel ->
+            Channels.newReader(channel, StandardCharsets.UTF_8).readText()
+        }
+    }.getOrDefault("")
+}
 
 internal fun resolveTemplateEntry(
     target: TemplateDetailTarget,
@@ -57,14 +67,15 @@ internal fun resolveTemplateEntry(
 
 internal data class SiblingMove(val destination: Path, val placement: EntryPlacement)
 
+internal enum class MoveDirection { UP, DOWN }
+
 internal fun siblingMove(
     snapshot: LibrarySnapshot,
-    source: Path,
-    folder: Boolean,
-    direction: Int,
+    source: LibraryTreeSelection,
+    direction: MoveDirection,
 ): SiblingMove? {
     fun findParent(parent: Path, children: List<LibraryEntry>): Pair<Path, List<LibraryEntry>>? {
-        if (children.any { it.directory == source }) return parent to children
+        if (children.any { it.directory == source.directory }) return parent to children
         return children.asSequence()
             .filterIsInstance<LibraryEntry.Folder>()
             .mapNotNull { findParent(it.directory, it.children) }
@@ -72,13 +83,22 @@ internal fun siblingMove(
     }
 
     val (parent, siblings) = findParent(snapshot.root, snapshot.children) ?: return null
-    val sameKind = siblings.filter { (it is LibraryEntry.Folder) == folder }
-    val index = sameKind.indexOfFirst { it.directory == source }
+    val sameKind = siblings.filter {
+        when (source) {
+            is LibraryTreeSelection.Folder -> it is LibraryEntry.Folder
+            is LibraryTreeSelection.Template -> it is LibraryEntry.Template
+            is LibraryTreeSelection.Root -> false
+        }
+    }
+    val index = sameKind.indexOfFirst { it.directory == source.directory }
     if (index < 0) return null
-    return when {
-        direction < 0 && index > 0 -> SiblingMove(parent, EntryPlacement.Before(sameKind[index - 1].directory))
-        direction > 0 && index < sameKind.lastIndex -> SiblingMove(parent, EntryPlacement.After(sameKind[index + 1].directory))
-        else -> null
+    return when (direction) {
+        MoveDirection.UP -> sameKind.getOrNull(index - 1)?.let {
+            SiblingMove(parent, EntryPlacement.Before(it.directory))
+        }
+        MoveDirection.DOWN -> sameKind.getOrNull(index + 1)?.let {
+            SiblingMove(parent, EntryPlacement.After(it.directory))
+        }
     }
 }
 

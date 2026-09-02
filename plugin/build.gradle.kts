@@ -83,6 +83,11 @@ tasks.test {
 val integrationTest by intellijPlatformTesting.testIdeUi.registering {
     task {
         val integrationTestSourceSet = sourceSets.getByName("integrationTest")
+        val staleOutput = listOf(
+            rootProject.layout.projectDirectory.dir("out/ide-tests/tests").asFile,
+            layout.buildDirectory.dir("ui-test").get().asFile,
+            layout.buildDirectory.dir("allure-results").get().asFile,
+        )
 
         testClassesDirs = integrationTestSourceSet.output.classesDirs
         classpath = integrationTestSourceSet.runtimeClasspath
@@ -106,6 +111,12 @@ val integrationTest by intellijPlatformTesting.testIdeUi.registering {
             excludeEngines("junit-vintage")
         }
         dependsOn(tasks.prepareSandbox)
+
+        doFirst {
+            check(staleOutput.all { it.deleteRecursively() }) {
+                "Unable to clean stale IDE integration-test output."
+            }
+        }
 
         testLogging {
             events("passed", "skipped", "failed")

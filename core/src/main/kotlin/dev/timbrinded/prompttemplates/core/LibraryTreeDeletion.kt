@@ -13,11 +13,8 @@ import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.attribute.BasicFileAttributeView
 import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
+import java.util.HexFormat
 import java.util.UUID
-
-internal data class LibraryDeletionManifest(
-    val preview: FolderDeletionPreview,
-)
 
 internal enum class LibraryDeletionMode {
     PREFER_SECURE,
@@ -28,20 +25,30 @@ internal object LibraryTreeDeletion {
     fun manifest(
         directory: Path,
         isTemplatePackage: (Path) -> Boolean,
-    ): LibraryDeletionManifest {
+    ): FolderDeletionPreview {
         var folderCount = 0
         var templateCount = 0
         var fileCount = 0
+        var opaqueTemplatePackage: Path? = null
         val records = mutableListOf<String>()
         Files.walkFileTree(directory, object : SimpleFileVisitor<Path>() {
             override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
                 val templatePackage = isTemplatePackage(dir)
-                if (templatePackage) {
-                    templateCount++
-                } else if (dir != directory) {
-                    folderCount++
+                if (opaqueTemplatePackage == null) {
+                    if (templatePackage) {
+                        templateCount++
+                        opaqueTemplatePackage = dir
+                    } else if (dir != directory) {
+                        folderCount++
+                    }
                 }
                 records += "D\u0000${directory.relativize(dir).toPortableString()}\u0000$templatePackage"
+                return FileVisitResult.CONTINUE
+            }
+
+            override fun postVisitDirectory(dir: Path, error: IOException?): FileVisitResult {
+                if (error != null) throw error
+                if (dir == opaqueTemplatePackage) opaqueTemplatePackage = null
                 return FileVisitResult.CONTINUE
             }
 
@@ -59,14 +66,12 @@ internal object LibraryTreeDeletion {
             override fun visitFileFailed(file: Path, error: IOException): FileVisitResult = throw error
         })
         val fingerprint = sha256(records.sorted().joinToString("\n").toByteArray(StandardCharsets.UTF_8))
-        return LibraryDeletionManifest(
-            FolderDeletionPreview(
-                directory = directory,
-                folderCount = folderCount,
-                templateCount = templateCount,
-                fileCount = fileCount,
-                fingerprint = fingerprint,
-            ),
+        return FolderDeletionPreview(
+            directory = directory,
+            folderCount = folderCount,
+            templateCount = templateCount,
+            fileCount = fileCount,
+            fingerprint = fingerprint,
         )
     }
 
@@ -209,15 +214,14 @@ internal object LibraryTreeDeletion {
                 digest.update(buffer, 0, read)
             }
         }
-        return digest.digest().toHex()
+        return HEX_FORMAT.formatHex(digest.digest())
     }
 
     private fun sha256(bytes: ByteArray): String =
-        MessageDigest.getInstance("SHA-256").digest(bytes).toHex()
-
-    private fun ByteArray.toHex(): String = joinToString("") { byte -> "%02x".format(byte) }
+        HEX_FORMAT.formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
 
     private fun Path.toPortableString(): String = iterator().asSequence().joinToString("/")
 
+    private val HEX_FORMAT = HexFormat.of()
     private const val QUARANTINE_PREFIX = ".prompt-template-delete-"
 }

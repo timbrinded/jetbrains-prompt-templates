@@ -25,7 +25,6 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.nio.file.StandardOpenOption
 import javax.imageio.ImageIO
 import kotlin.io.path.writeText
 import kotlin.time.Duration.Companion.minutes
@@ -48,7 +47,7 @@ class StarterHarness private constructor(
 
     private fun runSessions(blocks: List<Driver.(PromptTemplatesUi) -> Unit>) {
         val context = createContext()
-        StarterFailureReporter.install(workspace, PINNED_IDE_BUILD)
+        StarterFailureReporter.ensureInstalled(PINNED_IDE_BUILD)
         try {
             blocks.forEach { block -> runSession(context, block) }
         } finally {
@@ -59,9 +58,9 @@ class StarterHarness private constructor(
     private fun createContext(): IDETestContext = Starter.newContext(
         testName = workspace.root.fileName.toString(),
         testCase = TestCase(
-                IdeInfo.IdeaUltimate,
-                LocalProjectInfo(workspace.project),
-            ).withVersion(IDE_VERSION),
+            IdeInfo.IdeaUltimate,
+            LocalProjectInfo(workspace.project),
+        ).withVersion(IDE_VERSION),
     ).apply {
         require(paths.testHome.any { it.toString() == "IU-$PINNED_IDE_BUILD" }) {
             "IDE $IDE_VERSION did not resolve to the pinned build $PINNED_IDE_BUILD: ${paths.testHome}"
@@ -187,9 +186,6 @@ private fun TestWorkspace.writeEvidenceFailure(kind: String, error: Throwable) {
 
 private object StarterFailureReporter {
     @Volatile
-    private var workspace: TestWorkspace? = null
-
-    @Volatile
     private var ideBuild: String? = null
 
     init {
@@ -205,10 +201,7 @@ private object StarterFailureReporter {
                         kind: SyntheticTestKind,
                         generifyTestName: Boolean,
                     ) {
-                        if (isKnownPinnedPlatformError(testName, details)) {
-                            recordKnownPlatformError(testName, message, details)
-                            return
-                        }
+                        if (isKnownPlatformError(testName, details)) return
                         fail("$testName failed in the IDE process: $message\n$details")
                     }
                 }
@@ -216,59 +209,30 @@ private object StarterFailureReporter {
         }
     }
 
-    fun install(workspace: TestWorkspace, ideBuild: String) {
-        this.workspace = workspace
+    fun ensureInstalled(ideBuild: String) {
         this.ideBuild = ideBuild
     }
 
-    private fun isKnownPinnedPlatformError(testName: String, details: String): Boolean =
-        isKnownPinnedPlatformThemeError(testName, details) ||
-            isKnownPinnedBundledTslintError(testName, details)
-
-    private fun isKnownPinnedPlatformThemeError(testName: String, details: String): Boolean =
-        ideBuild == AFFECTED_IDE_BUILD &&
-            testName == KNOWN_ERROR &&
-            details.contains(KNOWN_PLATFORM_FRAME) &&
-            containsNoPromptTemplatesFrame(details)
-
-    private fun isKnownPinnedBundledTslintError(testName: String, details: String): Boolean =
-        ideBuild == AFFECTED_IDE_BUILD &&
-            testName == KNOWN_TSLINT_ERROR &&
-            details.contains(KNOWN_TSLINT_PLUGIN_EXCEPTION) &&
-            details.contains(KNOWN_TSLINT_FRAME) &&
-            containsNoPromptTemplatesFrame(details)
-
-    private fun containsNoPromptTemplatesFrame(details: String): Boolean =
-        !details.substringBefore("\tat org.junit.jupiter.api.AssertionUtils").contains(PLUGIN_PACKAGE)
-
-    private fun recordKnownPlatformError(testName: String, message: String, details: String) {
-        val evidence = workspace?.evidence ?: return
-        Files.writeString(
-            evidence.resolve("known-platform-errors.txt"),
-            buildString {
-                appendLine("Muted pinned JetBrains platform error")
-                appendLine("IDE build: $ideBuild")
-                appendLine("Exception: $testName")
-                appendLine("Reporter message: $message")
-                appendLine(details)
-                appendLine()
-            },
-            StandardCharsets.UTF_8,
-            StandardOpenOption.CREATE,
-            StandardOpenOption.APPEND,
-        )
+    private fun isKnownPlatformError(testName: String, details: String): Boolean {
+        if (ideBuild != AFFECTED_IDE_BUILD) return false
+        val requiredDetails = knownPlatformErrors[testName] ?: return false
+        val relevantStack = details.substringBefore("\tat org.junit.jupiter.api.AssertionUtils")
+        return requiredDetails.all(relevantStack::contains) && !relevantStack.contains(PLUGIN_PACKAGE)
     }
 
+    private val knownPlatformErrors = mapOf(
+        "java.lang.Throwable: Theme Islands Dark refers to unknown color scheme Islands Dark" to
+            listOf(
+                "\tat com.intellij.openapi.editor.colors.impl.EditorColorsManagerImpl.getSchemeForCurrentUITheme",
+            ),
+        "java.lang.ClassNotFoundException: " +
+            "com.intellij.lang.javascript.linter.tslint.editor.TsLintCodeStyleEditorNotificationProvider" to
+            listOf(
+                "com.intellij.diagnostic.PluginException: Cannot create extension " +
+                    "(class=com.intellij.lang.javascript.linter.tslint.editor.TsLintCodeStyleEditorNotificationProvider)",
+                "\tat com.intellij.ui.EditorNotificationsImpl\$updateEditors\$job\$1.invokeSuspend",
+            ),
+    )
     private const val AFFECTED_IDE_BUILD = "262.8665.337"
-    private const val KNOWN_ERROR =
-        "java.lang.Throwable: Theme Islands Dark refers to unknown color scheme Islands Dark"
-    private const val KNOWN_PLATFORM_FRAME =
-        "\tat com.intellij.openapi.editor.colors.impl.EditorColorsManagerImpl.getSchemeForCurrentUITheme(EditorColorsManagerImpl.kt:266)"
-    private const val KNOWN_TSLINT_ERROR =
-        "java.lang.ClassNotFoundException: com.intellij.lang.javascript.linter.tslint.editor.TsLintCodeStyleEditorNotificationProvider"
-    private const val KNOWN_TSLINT_PLUGIN_EXCEPTION =
-        "com.intellij.diagnostic.PluginException: Cannot create extension (class=com.intellij.lang.javascript.linter.tslint.editor.TsLintCodeStyleEditorNotificationProvider) [Plugin: tslint]"
-    private const val KNOWN_TSLINT_FRAME =
-        "\tat com.intellij.ui.EditorNotificationsImpl\$updateEditors\$job\$1.invokeSuspend(EditorNotificationsImpl.kt:275)"
     private const val PLUGIN_PACKAGE = "dev.timbrinded.prompttemplates"
 }

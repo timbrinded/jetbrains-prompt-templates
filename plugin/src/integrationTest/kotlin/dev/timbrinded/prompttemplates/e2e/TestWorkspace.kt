@@ -23,14 +23,13 @@ class TestWorkspace private constructor(
         listOf(userHome, project, library, evidence).forEach(::requireInsideRoot)
     }
 
-    fun writeLibraryManifest(fileName: String = "library-manifest.txt"): Path {
-        val destination = evidence.resolve(fileName)
+    fun writeLibraryManifest() {
+        val destination = evidence.resolve("library-manifest.txt")
         requireInsideRoot(destination)
         destination.writeText(templates.manifest(), StandardCharsets.UTF_8)
-        return destination
     }
 
-    fun writePathRecord(starterPaths: Map<String, Path>): Path {
+    fun writePathRecord(starterPaths: Map<String, Path>) {
         val destination = evidence.resolve("isolated-paths.txt")
         requireInsideRoot(destination)
         val lines = buildList {
@@ -41,7 +40,6 @@ class TestWorkspace private constructor(
             starterPaths.toSortedMap().forEach { (name, path) -> add("starter.$name=$path") }
         }
         destination.writeText(lines.joinToString("\n", postfix = "\n"), StandardCharsets.UTF_8)
-        return destination
     }
 
     fun requireInsideRoot(path: Path): Path {
@@ -83,28 +81,22 @@ class TestWorkspace private constructor(
 class TestLibrary(
     val root: Path,
 ) {
-    fun createFolder(relativePath: String): Path = resolve(relativePath).createDirectories()
+    fun createFolder(relativePath: String) {
+        resolve(relativePath).createDirectories()
+    }
 
     fun createTemplate(
         relativeDirectory: String,
         name: String,
         id: String,
-        markdown: String = "# $name\n\n{{objective}}\n",
-        supportFiles: Map<String, String> = emptyMap(),
     ): Path {
         require(runCatching { UUID.fromString(id) }.isSuccess) { "Template ID must be a UUID: $id" }
         val directory = resolve(relativeDirectory).createDirectories()
-        directory.resolve("prompt.md").writeText(markdown, StandardCharsets.UTF_8)
+        directory.resolve("prompt.md").writeText("# $name\n\n{{objective}}\n", StandardCharsets.UTF_8)
         directory.resolve("prompt.meta.json").writeText(
             metadataJson(id = id, name = name),
             StandardCharsets.UTF_8,
         )
-        supportFiles.forEach { (relativePath, contents) ->
-            val destination = directory.resolve(relativePath).normalize()
-            require(destination.startsWith(directory)) { "Support file escapes its template: $relativePath" }
-            destination.parent?.createDirectories()
-            destination.writeText(contents, StandardCharsets.UTF_8)
-        }
         return directory
     }
 
@@ -112,7 +104,7 @@ class TestLibrary(
         relativeFolder: String,
         folders: List<String>,
         templates: List<String>,
-    ): Path {
+    ) {
         val folder = resolve(relativeFolder).createDirectories()
         val destination = folder.resolve(".prompt-templates-order.json")
         destination.writeText(
@@ -125,7 +117,6 @@ class TestLibrary(
             },
             StandardCharsets.UTF_8,
         )
-        return destination
     }
 
     fun manifest(): String {

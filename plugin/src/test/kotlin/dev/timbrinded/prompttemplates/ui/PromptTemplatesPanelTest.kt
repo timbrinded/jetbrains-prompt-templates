@@ -1,13 +1,8 @@
 package dev.timbrinded.prompttemplates.ui
 
-import dev.timbrinded.prompttemplates.core.LibraryEntry
-import dev.timbrinded.prompttemplates.core.LibrarySnapshot
 import dev.timbrinded.prompttemplates.core.PromptTemplateDraft
 import dev.timbrinded.prompttemplates.core.RepositoryResult
 import dev.timbrinded.prompttemplates.core.StoredTemplate
-import dev.timbrinded.prompttemplates.core.TemplateHealth
-import dev.timbrinded.prompttemplates.core.TemplateId
-import dev.timbrinded.prompttemplates.core.TemplateSummary
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -26,7 +21,7 @@ class PromptTemplatesPanelTest {
 
     @Test
     fun `library refresh does not replace an open new-template draft with the prior selection`() {
-        val previouslySelected = LibrarySelectionKey(relativePath = "existing-prompt")
+        val previouslySelected = LibrarySelectionKey.TemplatePath("existing-prompt")
 
         val selected = selectLibrarySelectionAfterReload(
             authorOpen = true,
@@ -40,8 +35,8 @@ class PromptTemplatesPanelTest {
 
     @Test
     fun `library refresh keeps a newly selected tree entry ahead of stale active detail`() {
-        val selected = LibrarySelectionKey(relativePath = "reviews/new-selection")
-        val staleActive = LibrarySelectionKey(relativePath = "reviews/old-selection")
+        val selected = LibrarySelectionKey.TemplatePath("reviews/new-selection")
+        val staleActive = LibrarySelectionKey.TemplatePath("reviews/old-selection")
 
         assertEquals(
             selected,
@@ -75,22 +70,13 @@ class PromptTemplatesPanelTest {
             )?.relativePath,
         )
         assertEquals(
-            LibrarySelectionKey(templateId = null, relativePath = "legacy"),
+            LibrarySelectionKey.TemplatePath("legacy"),
             activeTemplateSelection(
                 root = newRoot,
                 activeDirectory = newRoot.resolve("legacy"),
                 templateId = null,
             ),
         )
-    }
-
-    @Test
-    fun `library watcher rebinds only when the normalized root changes`() {
-        val currentRoot = Path.of("workspace", "library").toAbsolutePath()
-
-        assertTrue(!shouldRebindLibraryWatcher(currentRoot, currentRoot.resolve(".")))
-        assertTrue(shouldRebindLibraryWatcher(currentRoot, currentRoot.resolveSibling("other-library")))
-        assertTrue(shouldRebindLibraryWatcher(null, currentRoot))
     }
 
     @Test
@@ -102,118 +88,21 @@ class PromptTemplatesPanelTest {
             oldRoot.resolve("reviews/draft"),
         )
         val target = TemplateDetailTarget(existing.directory, existing.template.id.value)
-        val session = AuthorSessionState(
+        val author = TemplateAuthorState(
+            draft = PromptTemplateDraft(name = "Draft", markdown = "version one"),
             existing = existing,
             existingTarget = target,
-            selectionBefore = LibrarySelectionKey(existing.template.id.value, "reviews/draft"),
+            selectionBefore = LibrarySelectionKey.Template(existing.template.id.value, "reviews/draft"),
             destination = oldRoot.resolve("reviews"),
         )
 
-        assertTrue(session.rebaseAsNewTemplate(newRoot))
+        val rebased = author.rebasedAsNewTemplate(newRoot)
 
-        assertNull(session.existing)
-        assertNull(session.existingTarget)
-        assertNull(session.selectionBefore)
-        assertEquals(newRoot.toAbsolutePath().normalize(), session.destination)
-        assertTrue(!session.rebaseAsNewTemplate(newRoot.resolve(".")))
-    }
-
-    @Test
-    fun `saving a template refreshes and selects its stored directory`() {
-        val savedDirectory = Path.of("library", "new-prompt")
-        val events = mutableListOf<String>()
-
-        afterTemplateSaved(
-            savedDirectory = savedDirectory,
-            showSaved = { events += "show" },
-            refreshLibrary = { selected -> events += "refresh:$selected" },
-        )
-
-        assertEquals(listOf("show", "refresh:$savedDirectory"), events)
-    }
-
-    @Test
-    fun `deleting a template clears selection and refreshes the library`() {
-        val events = mutableListOf<String>()
-
-        afterTemplateDeleted(
-            clearSelection = { events += "clear" },
-            refreshLibrary = { selected -> events += "refresh:$selected" },
-        )
-
-        assertEquals(listOf("clear", "refresh:null"), events)
-    }
-
-    @Test
-    fun `a failed load discards a summary when its directory is gone`() {
-        val result: RepositoryResult<StoredTemplate> = RepositoryResult.Failure("Template directory does not exist.")
-
-        assertTrue(shouldDiscardTemplateSummary(result, directoryMissing = true))
-    }
-
-    @Test
-    fun `all detail load failures clear missing entries or replace stale detail with an error`() {
-        val failure: RepositoryResult<StoredTemplate> = RepositoryResult.Failure("Unable to load selected template.")
-
-        assertEquals(
-            DetailLoadFailureAction.CLEAR_AND_RELOAD,
-            detailLoadFailureAction(failure, directoryMissing = true),
-        )
-        assertEquals(
-            DetailLoadFailureAction.SHOW_ERROR,
-            detailLoadFailureAction(failure, directoryMissing = false),
-        )
-    }
-
-    @Test
-    fun `cancel existing edit resolves the latest snapshot entry and clears a deleted entry`() {
-        val root = temporaryDirectory.resolve("library")
-        val id = TemplateId.random()
-        val directory = root.resolve("reviews/draft")
-        val target = TemplateDetailTarget(directory, id.value)
-        val latest = LibraryEntry.Template(
-            summary = TemplateSummary(
-                id = id,
-                name = "Version two",
-                description = "Changed outside the IDE",
-                tags = emptyList(),
-                directory = directory,
-                health = TemplateHealth.HEALTHY,
-            ),
-            relativeDirectory = Path.of("reviews/draft"),
-        )
-
-        val resolved = resolveEditedTemplateAfterCancel(target, LibrarySnapshot(root, listOf(latest)))
-
-        assertEquals("Version two", resolved?.summary?.name)
-        assertNull(resolveEditedTemplateAfterCancel(target, LibrarySnapshot(root, emptyList())))
-    }
-
-    @Test
-    fun `cancel existing edit follows one unique UUID move`() {
-        val root = temporaryDirectory.resolve("library")
-        val id = TemplateId.random()
-        val oldDirectory = root.resolve("reviews/draft")
-        val movedDirectory = root.resolve("archive/draft")
-        val moved = LibraryEntry.Template(
-            summary = TemplateSummary(
-                id = id,
-                name = "Moved draft",
-                description = null,
-                tags = emptyList(),
-                directory = movedDirectory,
-                health = TemplateHealth.HEALTHY,
-            ),
-            relativeDirectory = Path.of("archive/draft"),
-        )
-
-        assertEquals(
-            movedDirectory,
-            resolveEditedTemplateAfterCancel(
-                TemplateDetailTarget(oldDirectory, id.value),
-                LibrarySnapshot(root, listOf(moved)),
-            )?.directory,
-        )
+        assertNull(rebased.existing)
+        assertNull(rebased.existingTarget)
+        assertNull(rebased.selectionBefore)
+        assertEquals(newRoot.toAbsolutePath().normalize(), rebased.destination)
+        assertEquals(rebased, rebased.rebasedAsNewTemplate(newRoot.resolve(".")))
     }
 
     @Test
@@ -245,8 +134,8 @@ class PromptTemplatesPanelTest {
     @Test
     fun `preferred mutation selection survives a superseding watcher reload until applied`() {
         val tracker = PreferredLibrarySelectionTracker()
-        val created = LibrarySelectionKey(relativePath = "Reviews/New folder", folder = true)
-        val stale = LibrarySelectionKey(relativePath = "Reviews/Old folder", folder = true)
+        val created = LibrarySelectionKey.Folder("Reviews/New folder")
+        val stale = LibrarySelectionKey.Folder("Reviews/Old folder")
 
         tracker.remember(created)
 
@@ -263,17 +152,11 @@ class PromptTemplatesPanelTest {
         val tracker = PreferredLibrarySelectionTracker()
         val templateId = "92ee5ce7-2448-4875-89a7-bd574eacc9e1"
         tracker.remember(
-            LibrarySelectionKey(
-                templateId = templateId,
-                relativePath = "Reviews/original",
-            ),
+            LibrarySelectionKey.Template(templateId, "Reviews/original"),
         )
 
         tracker.acknowledge(
-            LibrarySelectionKey(
-                templateId = templateId.uppercase(),
-                relativePath = "Archive/original",
-            ),
+            LibrarySelectionKey.Template(templateId.uppercase(), "Archive/original"),
         )
 
         assertNull(tracker.pendingSelection())
@@ -384,29 +267,6 @@ class PromptTemplatesPanelTest {
     }
 
     @Test
-    fun `folder reload reconciles an unchanged detail but preserves a plugin-selected renamed path`() {
-        val oldDirectory = Path.of("library", "Reviews")
-        val renamedDirectory = Path.of("library", "Archived reviews")
-
-        assertTrue(
-            shouldReconcileFolderDetailAfterReload(
-                templateActive = false,
-                authorOpen = false,
-                previousFolderDirectory = oldDirectory,
-                currentFolderDirectory = oldDirectory,
-            ),
-        )
-        assertTrue(
-            !shouldReconcileFolderDetailAfterReload(
-                templateActive = false,
-                authorOpen = false,
-                previousFolderDirectory = oldDirectory,
-                currentFolderDirectory = renamedDirectory,
-            ),
-        )
-    }
-
-    @Test
     fun `search indexing does not follow a symbolic link masquerading as template Markdown`() {
         val outside = temporaryDirectory.resolve("outside.md")
         val linkedMarkdown = temporaryDirectory.resolve("prompt.md")
@@ -446,10 +306,4 @@ class PromptTemplatesPanelTest {
         assertSame(cancellation, thrown)
     }
 
-    @Test
-    fun `narrow library exposes a return route while an author is open`() {
-        assertTrue(authorReturnVisible(narrowMode = true, authorOpen = true))
-        assertTrue(!authorReturnVisible(narrowMode = false, authorOpen = true))
-        assertTrue(!authorReturnVisible(narrowMode = true, authorOpen = false))
-    }
 }

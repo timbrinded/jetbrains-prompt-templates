@@ -1,7 +1,6 @@
 package dev.timbrinded.prompttemplates.core
 
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.nio.charset.StandardCharsets
@@ -61,8 +60,6 @@ internal object LibraryFolderOrderCodec {
         }
         val decoded = try {
             json.decodeFromString(FolderOrderFile.serializer(), Files.readString(path, StandardCharsets.UTF_8))
-        } catch (_: SerializationException) {
-            return invalidOrder()
         } catch (_: IllegalArgumentException) {
             return invalidOrder()
         } catch (error: IOException) {

@@ -1,6 +1,5 @@
 package dev.timbrinded.prompttemplates.ui
 
-import dev.timbrinded.prompttemplates.core.StoredTemplate
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -32,35 +31,66 @@ internal class PreferredLibrarySelectionTracker {
 }
 
 internal fun matchesLibrarySelection(expected: LibrarySelectionKey, actual: LibrarySelectionKey?): Boolean {
-    if (actual == null || expected.folder != actual.folder) return false
-    if (expected.folder) return expected.relativePath != null && expected.relativePath == actual.relativePath
-    return if (expected.templateId != null) {
-        expected.templateId.equals(actual.templateId, ignoreCase = true)
-    } else {
-        expected.relativePath != null && expected.relativePath == actual.relativePath
+    actual ?: return false
+    return when (expected) {
+        is LibrarySelectionKey.Folder -> actual is LibrarySelectionKey.Folder &&
+            expected.relativePath == actual.relativePath
+        is LibrarySelectionKey.Template -> actual is LibrarySelectionKey.Template &&
+            expected.templateId.equals(actual.templateId, ignoreCase = true)
+        is LibrarySelectionKey.TemplatePath -> actual is LibrarySelectionKey.TemplatePath &&
+            expected.relativePath == actual.relativePath
     }
 }
 
-/** Mutable author context kept separate from the editor component so callbacks use the current library. */
-internal data class AuthorSessionState(
-    var existing: StoredTemplate?,
-    var existingTarget: TemplateDetailTarget?,
-    var selectionBefore: LibrarySelectionKey?,
-    var destination: Path,
-) {
-    fun rebaseAsNewTemplate(newRoot: Path): Boolean {
-        val normalizedRoot = newRoot.toAbsolutePath().normalize()
-        val changed = existing != null ||
-            existingTarget != null ||
-            selectionBefore != null ||
-            destination.toAbsolutePath().normalize() != normalizedRoot
-        existing = null
-        existingTarget = null
-        selectionBefore = null
-        destination = normalizedRoot
-        return changed
-    }
+internal fun selectLibrarySelectionAfterReload(
+    authorOpen: Boolean,
+    currentSelection: LibrarySelectionKey?,
+    activeSelection: LibrarySelectionKey?,
+    persistedTemplateId: String?,
+): LibrarySelectionKey? = if (authorOpen) {
+    null
+} else {
+    currentSelection ?: activeSelection ?: persistedTemplateId?.let(LibrarySelectionKey::Template)
 }
+
+internal fun activeTemplateSelection(
+    root: Path,
+    activeDirectory: Path,
+    templateId: String?,
+): LibrarySelectionKey? = runCatching {
+    val normalizedRoot = root.toAbsolutePath().normalize()
+    val normalizedDirectory = activeDirectory.toAbsolutePath().normalize()
+    if (!normalizedDirectory.startsWith(normalizedRoot)) return@runCatching null
+    val relativePath = portablePath(normalizedRoot.relativize(normalizedDirectory))
+    if (templateId == null) LibrarySelectionKey.TemplatePath(relativePath)
+    else LibrarySelectionKey.Template(templateId, relativePath)
+}.getOrNull()
+
+internal fun hasLibraryRootChanged(previousRoot: Path, currentRoot: Path): Boolean = runCatching {
+    previousRoot.toAbsolutePath().normalize() != currentRoot.toAbsolutePath().normalize()
+}.getOrDefault(true)
+
+internal fun shouldReloadSelectedDetail(
+    reloadRequested: Boolean,
+    authorOpen: Boolean,
+    selectedDirectory: Path?,
+    activeDirectory: Path?,
+): Boolean = reloadRequested && !authorOpen && selectedDirectory != null && selectedDirectory == activeDirectory
+
+internal fun shouldReloadHiddenActiveDetail(
+    reloadRequested: Boolean,
+    authorOpen: Boolean,
+    selectedDirectory: Path?,
+    activeDirectory: Path?,
+): Boolean = reloadRequested && !authorOpen && selectedDirectory == null && activeDirectory != null
+
+internal fun shouldRestartPendingDetailAfterReload(
+    resolvedPendingDirectory: Path?,
+    selectedTemplateDirectory: Path?,
+    authorOpen: Boolean,
+): Boolean = !authorOpen &&
+    resolvedPendingDirectory != null &&
+    resolvedPendingDirectory == selectedTemplateDirectory
 
 internal data class AuthorAsyncRequest(
     val generation: Int,
