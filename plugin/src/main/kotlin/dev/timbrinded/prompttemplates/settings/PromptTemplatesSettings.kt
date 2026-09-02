@@ -16,6 +16,8 @@ class PromptTemplatesSettings : PersistentStateComponent<PromptTemplatesSettings
         var pinnedTemplateIds: MutableList<String> = mutableListOf(),
         var recentTemplateIds: MutableList<String> = mutableListOf(),
         var splitterProportion: Float = 0.28f,
+        var expandedFolderPaths: MutableList<String> = mutableListOf(),
+        var selectedTemplateId: String? = null,
     )
 
     private var settingsState = SettingsState()

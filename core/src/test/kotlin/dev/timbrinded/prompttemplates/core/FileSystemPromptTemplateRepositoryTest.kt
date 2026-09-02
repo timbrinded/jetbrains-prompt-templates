@@ -45,7 +45,7 @@ class FileSystemPromptTemplateRepositoryTest {
         assertIs<RepositoryResult.Success<Path>>(repository.exportTemplateMarkdown(created.directory, destination))
         assertEquals("Updated", destination.readText())
 
-        assertIs<RepositoryResult.Success<Unit>>(repository.delete(created.directory))
+        assertIs<RepositoryResult.Success<Unit>>(repository.deleteTemplate(created.directory))
         assertTrue(Files.notExists(created.directory))
     }
 
@@ -57,7 +57,7 @@ class FileSystemPromptTemplateRepositoryTest {
         Files.writeString(directory.resolve("prompt.md"), "# Manual\n\nHello {{name}} {{ide.selection}}")
         val repository = FileSystemPromptTemplateRepository(root)
 
-        val summary = repository.scan().single()
+        val summary = assertIs<LibraryEntry.Template>(repository.scan().children.single()).summary
         assertEquals(TemplateHealth.RECOVERABLE, summary.health)
 
         val loaded = assertIs<RepositoryResult.Success<StoredTemplate>>(repository.load(directory)).value
@@ -112,7 +112,7 @@ class FileSystemPromptTemplateRepositoryTest {
             "Original",
             assertIs<RepositoryResult.Success<StoredTemplate>>(repository.load(existing.directory)).value.template.markdown,
         )
-        assertEquals(1, repository.scan().size)
+        assertEquals(1, repository.scan().children.size)
     }
 
     @Test

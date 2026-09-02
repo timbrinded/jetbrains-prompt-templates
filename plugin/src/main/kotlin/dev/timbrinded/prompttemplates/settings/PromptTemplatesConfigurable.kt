@@ -1,5 +1,6 @@
 package dev.timbrinded.prompttemplates.settings
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.options.Configurable
@@ -45,8 +46,15 @@ class PromptTemplatesConfigurable : Configurable {
             confirmDeletion.isSelected != settings.state.confirmDeletion
 
     override fun apply() {
+        val previousRoot = settings.libraryRoot
         settings.state.libraryPath = libraryPath.text.trim()
         settings.state.confirmDeletion = confirmDeletion.isSelected
+        val currentRoot = settings.libraryRoot
+        if (currentRoot != previousRoot) {
+            ApplicationManager.getApplication().messageBus
+                .syncPublisher(PromptTemplatesSettingsListener.TOPIC)
+                .libraryRootChanged(currentRoot)
+        }
     }
 
     override fun reset() {

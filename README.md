@@ -4,13 +4,16 @@ A native JetBrains workbench for reusable, typed prompt templates. Templates are
 
 The plugin is agent-agnostic. It renders exact text, copies it to the clipboard, or inserts it into the active editor. It does not make network requests, execute prompts, or depend on private AI Assistant or Junie APIs.
 
-## Current release
+## Current development state
 
-`0.1.1` is a functional beta for standalone JetBrains IDEs based on IntelliJ Platform, with minimum build 262 (2026.2). The current explicit verification matrix covers RustRover 2026.2 and WebStorm 2026.2; other compatible products are intended targets but have not yet been individually verified.
+`0.1.1` is the latest released functional beta for standalone JetBrains IDEs based on IntelliJ Platform, with minimum build 262 (2026.2). The workflows below describe the current source tree for unreleased `0.2.0`. The explicit verification matrix covers RustRover 2026.2 and WebStorm 2026.2; other compatible products are intended targets but have not yet been individually verified.
 
 Implemented workflows:
 
 - Search a personal prompt library by metadata and body text.
+- Organise templates in nested folders with saved manual ordering.
+- Move and reorder folders or templates with drag-and-drop or keyboard actions.
+- Use root, folder and template context menus, including branch expansion and collapse.
 - Create and edit templates inside a native tool window.
 - Discover and highlight `{{variable}}` placeholders while typing.
 - Configure Text, Multiline and Enum variables.
@@ -22,7 +25,7 @@ Implemented workflows:
 - Recover Markdown whose sidecar is missing and diagnose broken templates.
 - Switch between wide master-detail and narrow card layouts.
 
-Bundle import/export, project-local libraries, global Markdown annotations, terminal delivery and direct agent-window insertion remain intentionally outside this release.
+Bundle import/export, project-local libraries, global Markdown annotations, terminal delivery and direct agent-window insertion remain intentionally outside the current scope.
 
 ## Storage format
 
@@ -30,10 +33,16 @@ The default library is `~/Prompt Templates`, configurable under **Settings | Too
 
 ```text
 Prompt Templates/
-  review-implementation/
-    prompt.md
-    prompt.meta.json
+  .prompt-templates-order.json
+  Reviews/
+    .prompt-templates-order.json
+    Security/
+      review-implementation/
+        prompt.md
+        prompt.meta.json
 ```
+
+A directory that contains `prompt.md` or `prompt.meta.json` is a template package and a leaf in the library tree. Other directories are organiser folders. The plugin ignores `.git`, `.hg`, `.svn` and `.idea` management directories. The optional `.prompt-templates-order.json` file in each organiser folder records manual order; folders without it use alphabetical order. Template UUIDs and schema stay independent of folder location.
 
 `prompt.md` remains portable:
 
@@ -77,9 +86,12 @@ Requirements are JDK 25 and the included Gradle wrapper. Gradle can provision th
 ./gradlew check
 ./gradlew :plugin:buildPlugin
 ./gradlew :plugin:runIde
+./gradlew :plugin:integrationTest
 ```
 
 The installable ZIP is written to `plugin/build/distributions/`. Install it with **Settings | Plugins | ⚙ | Install Plugin from Disk…**.
+
+The integration task installs the built plugin into an isolated IntelliJ IDEA 2026.2.0.1 instance, uses a temporary project and user home, and drives the real Swing UI with JetBrains Starter and Driver. Screenshots, Swing hierarchies, tree state, isolated paths and library manifests are written below `plugin/build/ui-test/`. The physical drag-and-drop cases require Xvfb on headless Linux and local Wayland sessions. The CI workflow is the authoritative full-suite command.
 
 The core module has no IntelliJ dependency, so its parser, renderer, codec and repository tests run independently:
 
@@ -104,7 +116,8 @@ flowchart TD
 - `plugin/` owns settings, native Swing/platform components, context resolution, output destinations, actions and the responsive tool window.
 - Expected validation failures are typed diagnostics rather than exceptions.
 - Files are written through same-directory temporary files and atomic replacement where the filesystem supports it.
-- Template deletion is restricted to a non-symlink direct child of the configured library root.
+- Repository mutations validate normalised and real paths below the configured library root and never follow symbolic links.
+- Folder deletion uses a fresh subtree preview, typed confirmation and a second fingerprint check before recursive removal.
 
 The full product and implementation rationale is in [`docs/implementation-plan.md`](docs/implementation-plan.md).
 
@@ -116,7 +129,7 @@ The plugin has no networking, telemetry or prompt execution. Current variable va
 
 The plugin declares only the shared `com.intellij.modules.platform` dependency. Product compatibility therefore covers standalone JetBrains IDEs that provide that module, with minimum platform build 262. It does not depend on a product-specific language or framework module.
 
-CI compiles, tests and builds the plugin ZIP on JDK 25, then runs Plugin Verifier against RustRover 2026.2 and WebStorm 2026.2. Those are the current verified hosts, not a product whitelist. Before a public 1.0 release, the verifier and manual UI matrix should expand across representative compatible products. Remote-development topology remains a separate, unverified target.
+CI compiles, tests and builds the plugin ZIP on JDK 25, runs a real IntelliJ IDEA Starter/Driver UI suite under Xvfb, then runs Plugin Verifier against RustRover 2026.2 and WebStorm 2026.2. Those are the current verified hosts, not a product whitelist. Before a public 1.0 release, the verifier and manual UI matrix should expand across representative compatible products. Remote-development topology remains a separate, unverified target.
 
 ## License
 

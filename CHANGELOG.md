@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0 — Unreleased
+
+- Added nested organiser folders for prompt templates.
+- Added portable manual order, folder and template drag-and-drop, and keyboard move actions.
+- Added root, folder and template context menus with branch expansion and collapse.
+- Added guarded recursive folder deletion and hierarchy-aware search and file watching.
+- Added a real IntelliJ IDEA Starter/Driver end-to-end test harness and CI job.
+
 ## 0.1.1 — 2026-08-07
 
 - Clarified platform-wide product compatibility separately from the current RustRover and WebStorm verification matrix.
