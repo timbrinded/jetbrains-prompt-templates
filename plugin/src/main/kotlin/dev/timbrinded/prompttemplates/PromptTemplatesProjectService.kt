@@ -5,12 +5,27 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindowManager
 import dev.timbrinded.prompttemplates.ui.PromptTemplatesPanel
 import java.lang.ref.WeakReference
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 
 @Service(Service.Level.PROJECT)
-class PromptTemplatesProjectService(private val project: Project) {
+class PromptTemplatesProjectService(
+    private val project: Project,
+    private val coroutineScope: CoroutineScope,
+) {
     private var panelReference: WeakReference<PromptTemplatesPanel>? = null
 
-    fun attach(panel: PromptTemplatesPanel) {
+    internal fun createPanel(): PromptTemplatesPanel = PromptTemplatesPanel(project).also(::attach)
+
+    internal fun childScope(name: String): CoroutineScope = CoroutineScope(
+        coroutineScope.coroutineContext +
+            SupervisorJob(coroutineScope.coroutineContext[Job]) +
+            CoroutineName(name),
+    )
+
+    private fun attach(panel: PromptTemplatesPanel) {
         panelReference = WeakReference(panel)
     }
 

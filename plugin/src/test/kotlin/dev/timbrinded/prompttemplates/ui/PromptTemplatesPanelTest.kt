@@ -6,10 +6,11 @@ import dev.timbrinded.prompttemplates.core.StoredTemplate
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.concurrent.CancellationException
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -127,7 +128,7 @@ class PromptTemplatesPanelTest {
         val secondDetailRequest = generations.beginDetailLoad(target, TemplateDetailIntent.EDIT)
 
         assertTrue(generations.isCurrentLibraryLoad(libraryGeneration))
-        assertTrue(!generations.acceptDetailLoad(firstDetailRequest))
+        assertFalse(generations.acceptDetailLoad(firstDetailRequest))
         assertTrue(generations.acceptDetailLoad(secondDetailRequest))
     }
 
@@ -169,7 +170,7 @@ class PromptTemplatesPanelTest {
 
         tracker.invalidate()
 
-        assertTrue(!tracker.isCurrent(save))
+        assertFalse(tracker.isCurrent(save))
     }
 
     @Test
@@ -183,7 +184,7 @@ class PromptTemplatesPanelTest {
 
         assertEquals(firstDestination, first.destination)
         assertEquals(secondDestination, second.destination)
-        assertTrue(!tracker.isCurrent(first))
+        assertFalse(tracker.isCurrent(first))
         assertTrue(tracker.isCurrent(second))
     }
 

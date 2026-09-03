@@ -21,11 +21,13 @@ import org.kodein.di.bindSingleton
 import java.awt.Rectangle
 import java.awt.Robot
 import java.awt.Toolkit
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import javax.imageio.ImageIO
+import kotlin.io.path.copyTo
+import kotlin.io.path.createDirectories
+import kotlin.io.path.exists
+import kotlin.io.path.isRegularFile
+import kotlin.io.path.name
 import kotlin.io.path.writeText
 import kotlin.time.Duration.Companion.minutes
 
@@ -56,7 +58,7 @@ class StarterHarness private constructor(
     }
 
     private fun createContext(): IDETestContext = Starter.newContext(
-        testName = workspace.root.fileName.toString(),
+        testName = workspace.root.name,
         testCase = TestCase(
             IdeInfo.IdeaUltimate,
             LocalProjectInfo(workspace.project),
@@ -112,7 +114,6 @@ class StarterHarness private constructor(
                     appendLine("selected:")
                     ui.selectedPaths().forEach { appendLine("  $it") }
                 },
-                StandardCharsets.UTF_8,
             )
         }.onFailure { workspace.writeEvidenceFailure("$prefix-tree-state", it) }
         runCatching { captureSwingHierarchy(prefix) }
@@ -122,8 +123,8 @@ class StarterHarness private constructor(
     private fun Driver.captureScreenshot(prefix: String) {
         val target = workspace.evidence.resolve("$prefix-screenshot.png")
         val remoteScreenshot = takeScreenshot(prefix)?.let(Path::of)
-        if (remoteScreenshot != null && Files.isRegularFile(remoteScreenshot)) {
-            Files.copy(remoteScreenshot, target, StandardCopyOption.REPLACE_EXISTING)
+        if (remoteScreenshot != null && remoteScreenshot.isRegularFile()) {
+            remoteScreenshot.copyTo(target, overwrite = true)
             return
         }
 
@@ -142,13 +143,12 @@ class StarterHarness private constructor(
             .getSwingHierarchyAsDOM(component = null, onlyFrontend = false)
         workspace.evidence.resolve("$prefix-swing-hierarchy.xml").writeText(
             hierarchy,
-            StandardCharsets.UTF_8,
         )
     }
 
     private fun IDETestContext.seedStableUiSettings() {
         val options = paths.configDir.resolve("options")
-        Files.createDirectories(options)
+        options.createDirectories()
         options.resolve("ui.lnf.xml").writeText(
             """<application>
               |  <component name="LafManager" autodetect="false">
@@ -156,7 +156,6 @@ class StarterHarness private constructor(
               |  </component>
               |</application>
               |""".trimMargin(),
-            StandardCharsets.UTF_8,
         )
     }
 
@@ -164,7 +163,7 @@ class StarterHarness private constructor(
         val configured = System.getProperty(PLUGIN_PATH_PROPERTY)
             ?: error("Missing -D$PLUGIN_PATH_PROPERTY. Run this test with :plugin:integrationTest.")
         val path = Path.of(configured).toAbsolutePath().normalize()
-        require(Files.exists(path)) { "Built plugin distribution does not exist: $path" }
+        require(path.exists()) { "Built plugin distribution does not exist: $path" }
         return path
     }
 
@@ -180,7 +179,6 @@ class StarterHarness private constructor(
 private fun TestWorkspace.writeEvidenceFailure(kind: String, error: Throwable) {
     evidence.resolve("$kind-capture-error.txt").writeText(
         error.stackTraceToString(),
-        StandardCharsets.UTF_8,
     )
 }
 

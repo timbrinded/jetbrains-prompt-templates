@@ -5,12 +5,12 @@ import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository.Co
 import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository.Companion.ORDER_FILE
 import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository.Companion.isLibraryManagementDirectoryName
 import java.io.IOException
-import java.nio.charset.StandardCharsets
 import java.nio.file.DirectoryIteratorException
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
-import java.util.Locale
+import kotlin.io.path.name
+import kotlin.io.path.useDirectoryEntries
 
 internal data class DirectLibraryEntry(
     val path: Path,
@@ -44,8 +44,8 @@ internal class LibraryTreeScanner(
         return LibrarySnapshot(root, markConflicts(scanned.children, duplicateIds), scanned.diagnostic)
     }
 
-    fun directEntries(parent: Path): List<DirectLibraryEntry> = Files.newDirectoryStream(parent).use { stream ->
-        stream.asSequence()
+    fun directEntries(parent: Path): List<DirectLibraryEntry> = parent.useDirectoryEntries { entries ->
+        entries
             .filter(::isScannableDirectoryEntry)
             .map(::classify)
             .toList()
@@ -61,7 +61,7 @@ internal class LibraryTreeScanner(
             path = path.toAbsolutePath().normalize(),
             kind = kind,
             visibleName = when (kind) {
-                EntryKind.FOLDER -> path.fileName.toString()
+                EntryKind.FOLDER -> path.name
                 EntryKind.TEMPLATE -> summaryFor(path).name
             },
         )
@@ -80,15 +80,15 @@ internal class LibraryTreeScanner(
 
     private fun scanFolder(directory: Path): ScannedFolder {
         val children = try {
-            Files.newDirectoryStream(directory).use { stream ->
-                stream.asSequence()
+            directory.useDirectoryEntries { entries ->
+                entries
                     .filter(::isScannableDirectoryEntry)
                     .map { child ->
                         when {
                             Files.isSymbolicLink(child) -> LibraryEntry.Folder(
                                 directory = child.toAbsolutePath().normalize(),
                                 relativeDirectory = relativeToRoot(child),
-                                displayName = child.fileName.toString(),
+                                displayName = child.name,
                                 children = emptyList(),
                                 diagnostic = "Symbolic-link entries are not supported.",
                             )
@@ -103,7 +103,7 @@ internal class LibraryTreeScanner(
                                 LibraryEntry.Folder(
                                     directory = child.toAbsolutePath().normalize(),
                                     relativeDirectory = relativeToRoot(child),
-                                    displayName = child.fileName.toString(),
+                                    displayName = child.name,
                                     children = nested.children,
                                     diagnostic = nested.diagnostic,
                                 )
@@ -187,11 +187,14 @@ internal class LibraryTreeScanner(
             return diagnosticSummary(directory, TemplateHealth.BROKEN, "$METADATA_FILE is not a regular file.")
         }
 
-        val decoded = runCatching {
-            codec.decode(Files.readString(metadataPath, StandardCharsets.UTF_8))
-        }.getOrElse { error ->
+        val rawMetadata = try {
+            Files.readString(metadataPath, Charsets.UTF_8)
+        } catch (error: IOException) {
+            return diagnosticSummary(directory, TemplateHealth.BROKEN, "Unable to read metadata: ${error.message}")
+        } catch (error: SecurityException) {
             return diagnosticSummary(directory, TemplateHealth.BROKEN, "Unable to read metadata: ${error.message}")
         }
+        val decoded = codec.decode(rawMetadata)
 
         return when (decoded) {
             is MetadataDecodeResult.Success -> TemplateSummary(
@@ -225,7 +228,7 @@ internal class LibraryTreeScanner(
         diagnostic: String,
     ): TemplateSummary = TemplateSummary(
         id = null,
-        name = directory.fileName.toString(),
+        name = directory.name,
         description = null,
         tags = emptyList(),
         directory = directory.toAbsolutePath().normalize(),
@@ -234,8 +237,8 @@ internal class LibraryTreeScanner(
     )
 
     private fun isScannableDirectoryEntry(path: Path): Boolean =
-        path.fileName.toString() != ORDER_FILE &&
-            !isLibraryManagementDirectoryName(path.fileName.toString()) &&
+        path.name != ORDER_FILE &&
+            !isLibraryManagementDirectoryName(path.name) &&
             (Files.isDirectory(path, NOFOLLOW_LINKS) || Files.isSymbolicLink(path))
 
     private fun sortEntries(entries: List<LibraryEntry>, order: FolderOrderFile?): List<LibraryEntry> =
@@ -243,7 +246,7 @@ internal class LibraryTreeScanner(
             LibraryFolderOrderCodec.comparator(
                 order = order,
                 kindOf = { if (it is LibraryEntry.Folder) EntryKind.FOLDER else EntryKind.TEMPLATE },
-                orderKeyOf = { it.directory.fileName.toString() },
+                orderKeyOf = { it.directory.name },
                 fallbackNameOf = LibraryEntry::displayName,
             ),
         )
@@ -261,7 +264,7 @@ internal class LibraryTreeScanner(
     private fun combineDiagnostics(vararg values: String?): String? =
         values.filterNotNull().filter(String::isNotBlank).distinct().joinToString(" ").ifBlank { null }
 
-    private fun String.normalizedVisibleName(): String = trim().lowercase(Locale.ROOT)
+    private fun String.normalizedVisibleName(): String = trim().lowercase()
 
     private data class ScannedFolder(
         val children: List<LibraryEntry>,

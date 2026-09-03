@@ -10,10 +10,9 @@ import dev.timbrinded.prompttemplates.PromptTemplatesProjectService
 
 class PromptTemplatesToolWindowFactory : ToolWindowFactory, DumbAware {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val panel = PromptTemplatesPanel(project)
+        val panel = project.service<PromptTemplatesProjectService>().createPanel()
         val content = ContentFactory.getInstance().createContent(panel, "", false)
         content.setDisposer(panel)
         toolWindow.contentManager.addContent(content)
-        project.service<PromptTemplatesProjectService>().attach(panel)
     }
 }

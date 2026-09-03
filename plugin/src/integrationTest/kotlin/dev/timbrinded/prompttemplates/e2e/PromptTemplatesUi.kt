@@ -18,6 +18,7 @@ import com.intellij.driver.sdk.ui.ui
 import com.intellij.driver.sdk.waitFor
 import java.awt.Point
 import java.awt.event.InputEvent
+import java.awt.event.KeyEvent
 import java.awt.event.MouseEvent
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -107,7 +108,7 @@ class PromptTemplatesUi(
     }
 
     fun createFolder(parentPath: List<String>, name: String) {
-        selectContextMenuItem(*parentPath.toTypedArray(), item = "New Folder Here")
+        selectContextMenuItem(*parentPath.toTypedArray(), item = "New Folder")
         driver.ui.dialog(title = "New Prompt Template Folder") {
             waitFound(30.seconds)
             textField().text = name
@@ -118,7 +119,7 @@ class PromptTemplatesUi(
     }
 
     fun createDefaultTemplate(parentPath: List<String>, name: String) {
-        selectContextMenuItem(*parentPath.toTypedArray(), item = "New Template Here")
+        selectContextMenuItem(*parentPath.toTypedArray(), item = "New Template")
         val frame = driver.ideFrame()
         val saveButton = frame.button("Save Template").waitFound(30.seconds)
         frame.textField { byVisibleText("New prompt") }.text = name
@@ -136,6 +137,14 @@ class PromptTemplatesUi(
                     libraryPathEndsWith(selected.path, expectedPath)
                 }
             }.getOrDefault(false)
+        }
+    }
+
+    @Suppress("OPT_IN_USAGE")
+    fun movePathDown(vararg path: String) {
+        selectPath(*path)
+        libraryTree().keyboard {
+            hotKey(KeyEvent.VK_ALT, KeyEvent.VK_DOWN)
         }
     }
 
@@ -200,11 +209,7 @@ class PromptTemplatesUi(
 
     fun expandedRowCount(): Int = driver.withContext(OnDispatcher.EDT) {
         val tree = cast(libraryTree().component, TreeState::class)
-        var count = 0
-        for (row in 0 until tree.getRowCount()) {
-            if (tree.isExpanded(row)) count++
-        }
-        count
+        (0 until tree.getRowCount()).count { row -> tree.isExpanded(row) }
     }
 
     private fun openContextMenu(vararg path: String) {

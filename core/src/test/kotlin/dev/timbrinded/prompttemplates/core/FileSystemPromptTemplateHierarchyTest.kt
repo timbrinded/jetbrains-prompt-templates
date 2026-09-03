@@ -8,18 +8,21 @@ import java.nio.file.Path
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlin.io.path.name
 import kotlin.io.path.readText
+import kotlin.io.path.useDirectoryEntries
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-class FileSystemPromptTemplateHierarchyTest {
-    @TempDir
-    lateinit var temporaryDirectory: Path
-
+class FileSystemPromptTemplateHierarchyTest(
+    @param:TempDir private val temporaryDirectory: Path,
+) {
     @Test
     fun `scans implicit folders recursively and stops at template packages`() {
         val root = temporaryDirectory.resolve("library")
@@ -148,7 +151,7 @@ class FileSystemPromptTemplateHierarchyTest {
             listOf("Zulu", "Alpha", "Bravo", "Zulu template", "Alpha template", "Bravo template"),
             snapshot.children.map(LibraryEntry::displayName),
         )
-        assertEquals(null, snapshot.diagnostic)
+        assertNull(snapshot.diagnostic)
     }
 
     @Test
@@ -169,6 +172,22 @@ class FileSystemPromptTemplateHierarchyTest {
         val unsupported = repository.scan()
         assertEquals(listOf("Alpha", "Zulu"), unsupported.children.map(LibraryEntry::displayName))
         assertTrue(unsupported.diagnostic.orEmpty().contains("Unsupported"))
+    }
+
+    @Test
+    fun `falls back to alphabetical order when the order file is not valid UTF-8`() {
+        val root = temporaryDirectory.resolve("library")
+        Files.createDirectories(root.resolve("Zulu"))
+        Files.createDirectories(root.resolve("Alpha"))
+        Files.write(
+            root.resolve(FileSystemPromptTemplateRepository.ORDER_FILE),
+            byteArrayOf(0xC3.toByte()),
+        )
+
+        val snapshot = FileSystemPromptTemplateRepository(root).scan()
+
+        assertEquals(listOf("Alpha", "Zulu"), snapshot.children.map(LibraryEntry::displayName))
+        assertTrue(snapshot.diagnostic.orEmpty().startsWith("Unable to read"))
     }
 
     @Test
@@ -326,12 +345,13 @@ class FileSystemPromptTemplateHierarchyTest {
             listOf("Reviews"),
             requireNotNull(LibraryFolderOrderCodec.read(root).value).folders,
         )
-        Files.newDirectoryStream(root).use { entries ->
-            val directoryNames = entries
+        val directoryNames = root.useDirectoryEntries { entries ->
+            entries
                 .filter { Files.isDirectory(it) }
-                .map { it.fileName.toString() }
-            assertEquals(listOf("Reviews"), directoryNames)
+                .map { it.name }
+                .toList()
         }
+        assertEquals(listOf("Reviews"), directoryNames)
     }
 
     @Test
@@ -482,9 +502,10 @@ class FileSystemPromptTemplateHierarchyTest {
         LibraryTreeDeletion.deleteTree(target, LibraryDeletionMode.CONSERVATIVE_FALLBACK)
 
         assertFalse(Files.exists(target))
-        Files.newDirectoryStream(temporaryDirectory).use { entries ->
-            assertFalse(entries.any { it.fileName.toString().startsWith(".prompt-template-delete-") })
+        val hasQuarantine = temporaryDirectory.useDirectoryEntries { entries ->
+            entries.any { it.name.startsWith(".prompt-template-delete-") }
         }
+        assertFalse(hasQuarantine)
     }
 
     @Test
@@ -612,7 +633,7 @@ class FileSystemPromptTemplateHierarchyTest {
         val snapshot = repositories.first().scan()
         val templateDirectories = snapshot.children
             .filterIsInstance<LibraryEntry.Template>()
-            .map { it.directory.fileName.toString() }
+            .map { it.directory.name }
         val storedOrder = requireNotNull(LibraryFolderOrderCodec.read(physicalRoot).value)
         assertEquals(24, templateDirectories.size)
         assertEquals(templateDirectories, storedOrder.templates)
@@ -661,10 +682,11 @@ class FileSystemPromptTemplateHierarchyTest {
         var children = snapshot.children
         var current: LibraryEntry.Folder? = null
         names.forEach { name ->
-            current = assertIs(children.first { it.displayName == name })
-            children = current!!.children
+            val folder = assertIs<LibraryEntry.Folder>(children.first { it.displayName == name })
+            current = folder
+            children = folder.children
         }
-        return requireNotNull(current)
+        return assertNotNull(current)
     }
 
     private fun <T> success(result: RepositoryResult<T>): T =

@@ -2,16 +2,18 @@ package dev.timbrinded.prompttemplates.core
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import java.util.UUID
+import kotlin.uuid.Uuid
 
 @JvmInline
 value class TemplateId(val value: String) {
     init {
-        require(runCatching { UUID.fromString(value) }.isSuccess) { "Template ID must be a UUID" }
+        require(isValid(value)) { "Template ID must be a UUID" }
     }
 
     companion object {
-        fun random(): TemplateId = TemplateId(UUID.randomUUID().toString())
+        fun random(): TemplateId = TemplateId(Uuid.random().toString())
+
+        internal fun isValid(value: String): Boolean = Uuid.parseHexDashOrNull(value) != null
     }
 }
 

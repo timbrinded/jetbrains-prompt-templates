@@ -1,33 +1,59 @@
 package dev.timbrinded.prompttemplates.ui
 
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.EDT
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
-import com.intellij.openapi.vfs.newvfs.BulkFileListener
+import com.intellij.openapi.vfs.newvfs.BulkFileListenerBackgroundable
 import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent
 import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent
-import com.intellij.util.Alarm
 import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository
 import java.io.IOException
 import java.nio.file.DirectoryIteratorException
 import java.nio.file.Files
+import java.nio.file.InvalidPathException
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.FileTime
 import java.util.ArrayDeque
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.io.path.name
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 internal fun isPromptLibraryChange(root: Path, eventPath: String): Boolean {
-    val normalizedRoot = root.toAbsolutePath().normalize()
-    val changedPath = runCatching { Path.of(eventPath).toAbsolutePath().normalize() }.getOrNull() ?: return false
+    val normalizedRoot = try {
+        root.toAbsolutePath().normalize()
+    } catch (_: SecurityException) {
+        return false
+    }
+    val changedPath = try {
+        Path.of(eventPath).toAbsolutePath().normalize()
+    } catch (_: InvalidPathException) {
+        return false
+    } catch (_: SecurityException) {
+        return false
+    }
     if (!isManagedLibraryPath(normalizedRoot, changedPath)) return false
 
-    return changedPath.fileName.toString() in LIBRARY_CONTROL_FILES
+    return changedPath.name in LIBRARY_CONTROL_FILES
 }
 
 internal fun isPromptLibraryChange(root: Path, event: VFileEvent): Boolean {
@@ -52,13 +78,20 @@ internal fun isPromptLibraryChange(
 ): Boolean {
     if (eventPaths.any { isPromptLibraryChange(root, it) }) return true
     if (!directoryEvent) return false
+    val normalizedRoot = try {
+        root.toAbsolutePath().normalize()
+    } catch (_: SecurityException) {
+        return false
+    }
     return eventPaths.any { eventPath ->
-        runCatching {
-            isManagedLibraryPath(
-                root.toAbsolutePath().normalize(),
-                Path.of(eventPath).toAbsolutePath().normalize(),
-            )
-        }.getOrDefault(false)
+        val changedPath = try {
+            Path.of(eventPath).toAbsolutePath().normalize()
+        } catch (_: InvalidPathException) {
+            return@any false
+        } catch (_: SecurityException) {
+            return@any false
+        }
+        isManagedLibraryPath(normalizedRoot, changedPath)
     }
 }
 
@@ -136,7 +169,7 @@ internal fun snapshotPromptLibrary(root: Path): LibraryPollSnapshot {
             if (
                 attributes.isSymbolicLink ||
                 !attributes.isRegularFile ||
-                child.fileName.toString() !in LIBRARY_CONTROL_FILES
+                child.name !in LIBRARY_CONTROL_FILES
             ) {
                 return@mapNotNull null
             }
@@ -156,7 +189,7 @@ internal fun snapshotPromptLibrary(root: Path): LibraryPollSnapshot {
             continue
         }
         children.forEach { child ->
-            if (FileSystemPromptTemplateRepository.isLibraryManagementDirectoryName(child.fileName.toString())) return@forEach
+            if (FileSystemPromptTemplateRepository.isLibraryManagementDirectoryName(child.name)) return@forEach
             val attributes = readAttributesNoFollow(child) ?: return@forEach
             if (attributes.isDirectory && !attributes.isSymbolicLink) pendingDirectories.add(child)
         }
@@ -197,8 +230,14 @@ internal class LibraryFileWatcher(
     project: Project,
     root: Path,
     parentDisposable: Disposable,
+    parentScope: CoroutineScope,
     private val onChanged: () -> Unit,
 ) : Disposable {
+    private val coroutineScope = CoroutineScope(
+        parentScope.coroutineContext +
+            SupervisorJob(parentScope.coroutineContext[Job]) +
+            CoroutineName("LibraryFileWatcher"),
+    )
     private val normalizedRoot = root.toAbsolutePath().normalize()
     private val localFileSystem = LocalFileSystem.getInstance()
     private val watchRegistration = registerLibraryWatch(
@@ -206,17 +245,16 @@ internal class LibraryFileWatcher(
         materializeRoot = localFileSystem::refreshAndFindFileByNioFile,
         addRecursiveWatch = localFileSystem::addRootToWatch,
     )
-    private val reloadAlarm = Alarm(Alarm.ThreadToUse.SWING_THREAD, this)
-    private val pollAlarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD, this)
     private val pollChangeTracker = LibraryPollChangeTracker()
+    private var reloadJob: Job? = null
     @Volatile
     private var watcherDisposed = false
 
     init {
         Disposer.register(parentDisposable, this)
         project.messageBus.connect(this).subscribe(
-            VirtualFileManager.VFS_CHANGES,
-            object : BulkFileListener {
+            VirtualFileManager.VFS_CHANGES_BG,
+            object : BulkFileListenerBackgroundable {
                 override fun after(events: List<VFileEvent>) {
                     if (events.any { event -> isPromptLibraryChange(normalizedRoot, event) }) {
                         queueReload()
@@ -224,44 +262,44 @@ internal class LibraryFileWatcher(
                 }
             },
         )
-        scheduleNextPoll(0)
+        coroutineScope.launch(Dispatchers.IO) { pollLibrary() }
     }
 
     override fun dispose() {
         watcherDisposed = true
-        pollAlarm.cancelAllRequests()
-        reloadAlarm.cancelAllRequests()
+        coroutineScope.cancel()
         watchRegistration.watchRequest?.let(localFileSystem::removeWatchedRoot)
     }
 
-    private fun scheduleNextPoll(delayMillis: Int) {
-        if (watcherDisposed) return
-        pollAlarm.addRequest(
-            {
-                if (watcherDisposed) return@addRequest
-                try {
-                    val currentSnapshot = snapshotPromptLibrary(normalizedRoot)
-                    if (pollChangeTracker.record(currentSnapshot)) {
-                        queueReload()
-                    }
-                } finally {
-                    scheduleNextPoll(LIBRARY_POLL_INTERVAL_MS)
-                }
-            },
-            delayMillis,
-        )
+    private suspend fun pollLibrary() {
+        while (currentCoroutineContext().isActive) {
+            try {
+                val currentSnapshot = snapshotPromptLibrary(normalizedRoot)
+                if (pollChangeTracker.record(currentSnapshot)) queueReload()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (exception: RuntimeException) {
+                LOG.warn("Unable to poll the prompt template library", exception)
+            }
+            delay(LIBRARY_POLL_INTERVAL)
+        }
     }
 
     @Synchronized
     private fun queueReload() {
         if (watcherDisposed) return
-        reloadAlarm.cancelAllRequests()
-        reloadAlarm.addRequest(onChanged, RELOAD_DEBOUNCE_MS)
+        reloadJob?.cancel()
+        reloadJob = coroutineScope.launch(Dispatchers.EDT) {
+            delay(RELOAD_DEBOUNCE)
+            if (!watcherDisposed) onChanged()
+        }
     }
 }
 
-private const val RELOAD_DEBOUNCE_MS = 150
-private const val LIBRARY_POLL_INTERVAL_MS = 2_000
+private val RELOAD_DEBOUNCE = 150.milliseconds
+private val LIBRARY_POLL_INTERVAL = 2.seconds
+
+private val LOG = logger<LibraryFileWatcher>()
 
 private val LIBRARY_CONTROL_FILES = setOf(
     FileSystemPromptTemplateRepository.MARKDOWN_FILE,

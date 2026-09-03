@@ -170,7 +170,7 @@ internal class TemplateLibraryTree(
         try {
             val root = DefaultMutableTreeNode(LibraryTreeSelection.Root(snapshot.root))
             visibleEntries(snapshot.children, searchQuery, bodyIndex).forEach { root.add(nodeFor(it)) }
-            (model as DefaultTreeModel).setRoot(root)
+            model = DefaultTreeModel(root)
 
             if (willSearch) {
                 expandEveryRow()
@@ -502,45 +502,26 @@ internal data class MenuCommand(val command: LibraryTreeCommand, val label: Stri
 internal val ROOT_COMMANDS: List<MenuCommand?> = listOf(
     MenuCommand(LibraryTreeCommand.NEW_TEMPLATE, "New Template"),
     MenuCommand(LibraryTreeCommand.NEW_FOLDER, "New Folder"),
-    MenuCommand(LibraryTreeCommand.IMPORT_MARKDOWN, "Import Markdown…"),
-    null,
-    MenuCommand(LibraryTreeCommand.REFRESH, "Refresh"),
-    MenuCommand(LibraryTreeCommand.REVEAL, "Reveal Library"),
-    MenuCommand(LibraryTreeCommand.COPY_PATH, "Copy Library Path"),
     null,
     MenuCommand(LibraryTreeCommand.EXPAND_ALL, "Expand All"),
     MenuCommand(LibraryTreeCommand.COLLAPSE_ALL, "Collapse All"),
 )
 
 internal val FOLDER_COMMANDS: List<MenuCommand?> = listOf(
-    MenuCommand(LibraryTreeCommand.NEW_TEMPLATE, "New Template Here"),
-    MenuCommand(LibraryTreeCommand.NEW_FOLDER, "New Folder Here"),
-    MenuCommand(LibraryTreeCommand.IMPORT_MARKDOWN, "Import Markdown Here…"),
+    MenuCommand(LibraryTreeCommand.NEW_TEMPLATE, "New Template"),
+    MenuCommand(LibraryTreeCommand.NEW_FOLDER, "New Folder"),
     null,
     MenuCommand(LibraryTreeCommand.RENAME_FOLDER, "Rename…"),
     MenuCommand(LibraryTreeCommand.MOVE_TO_FOLDER, "Move to Folder…"),
-    MenuCommand(LibraryTreeCommand.MOVE_UP, "Move Up"),
-    MenuCommand(LibraryTreeCommand.MOVE_DOWN, "Move Down"),
-    null,
-    MenuCommand(LibraryTreeCommand.REVEAL, "Reveal in File Manager"),
-    MenuCommand(LibraryTreeCommand.COPY_PATH, "Copy Folder Path"),
-    MenuCommand(LibraryTreeCommand.EXPAND_BRANCH, "Expand Branch"),
-    MenuCommand(LibraryTreeCommand.COLLAPSE_BRANCH, "Collapse Branch"),
     null,
     MenuCommand(LibraryTreeCommand.DELETE_FOLDER, "Delete Folder…"),
 )
 
 internal val TEMPLATE_COMMANDS: List<MenuCommand?> = listOf(
-    MenuCommand(LibraryTreeCommand.USE_TEMPLATE, "Use Template"),
     MenuCommand(LibraryTreeCommand.EDIT_TEMPLATE, "Edit"),
+    MenuCommand(LibraryTreeCommand.OPEN_MARKDOWN, "Open Markdown"),
     null,
     MenuCommand(LibraryTreeCommand.MOVE_TO_FOLDER, "Move to Folder…"),
-    MenuCommand(LibraryTreeCommand.MOVE_UP, "Move Up"),
-    MenuCommand(LibraryTreeCommand.MOVE_DOWN, "Move Down"),
-    null,
-    MenuCommand(LibraryTreeCommand.OPEN_MARKDOWN, "Open Markdown"),
-    MenuCommand(LibraryTreeCommand.REVEAL, "Reveal in File Manager"),
-    MenuCommand(LibraryTreeCommand.COPY_PATH, "Copy Markdown Path"),
     null,
     MenuCommand(LibraryTreeCommand.DELETE_TEMPLATE, "Delete Template"),
 )
@@ -607,10 +588,6 @@ internal fun visibleEntries(
     }
 
     return entries.mapNotNull { filter(it, false) }
-}
-
-private fun <T> java.util.Enumeration<T>.asSequence(): Sequence<T> = sequence {
-    while (hasMoreElements()) yield(nextElement())
 }
 
 internal const val LIBRARY_TREE_ACCESSIBLE_NAME = "Prompt template library tree"

@@ -12,6 +12,7 @@ import java.nio.file.Path
 import java.util.UUID
 import javax.accessibility.AccessibleContext
 import javax.swing.tree.DefaultTreeCellRenderer
+import kotlin.io.path.name
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -48,7 +49,8 @@ class TemplateLibraryTreeTest {
             mapOf(audit.directory to "Check authorization boundaries"),
         )
 
-        assertEquals("Audit", (result.single() as LibraryEntry.Folder).children.single().displayName)
+        val reviews = assertIs<LibraryEntry.Folder>(result.single())
+        assertEquals("Audit", reviews.children.single().displayName)
     }
 
     @Test
@@ -259,13 +261,11 @@ class TemplateLibraryTreeTest {
     }
 
     @Test
-    fun `folder menu includes rename and movement commands`() {
+    fun `folder menu keeps rename and move to folder commands`() {
         val commands = FOLDER_COMMANDS.filterNotNull().map(MenuCommand::command)
 
         assertTrue(LibraryTreeCommand.RENAME_FOLDER in commands)
         assertTrue(LibraryTreeCommand.MOVE_TO_FOLDER in commands)
-        assertTrue(LibraryTreeCommand.MOVE_UP in commands)
-        assertTrue(LibraryTreeCommand.MOVE_DOWN in commands)
     }
 
     @Test
@@ -274,45 +274,34 @@ class TemplateLibraryTreeTest {
             listOf(
                 LibraryTreeCommand.NEW_TEMPLATE,
                 LibraryTreeCommand.NEW_FOLDER,
-                LibraryTreeCommand.IMPORT_MARKDOWN,
-                LibraryTreeCommand.REFRESH,
-                LibraryTreeCommand.REVEAL,
-                LibraryTreeCommand.COPY_PATH,
+                null,
                 LibraryTreeCommand.EXPAND_ALL,
                 LibraryTreeCommand.COLLAPSE_ALL,
             ),
-            ROOT_COMMANDS.filterNotNull().map(MenuCommand::command),
+            ROOT_COMMANDS.map { command -> command?.command },
         )
         assertEquals(
             listOf(
                 LibraryTreeCommand.NEW_TEMPLATE,
                 LibraryTreeCommand.NEW_FOLDER,
-                LibraryTreeCommand.IMPORT_MARKDOWN,
+                null,
                 LibraryTreeCommand.RENAME_FOLDER,
                 LibraryTreeCommand.MOVE_TO_FOLDER,
-                LibraryTreeCommand.MOVE_UP,
-                LibraryTreeCommand.MOVE_DOWN,
-                LibraryTreeCommand.REVEAL,
-                LibraryTreeCommand.COPY_PATH,
-                LibraryTreeCommand.EXPAND_BRANCH,
-                LibraryTreeCommand.COLLAPSE_BRANCH,
+                null,
                 LibraryTreeCommand.DELETE_FOLDER,
             ),
-            FOLDER_COMMANDS.filterNotNull().map(MenuCommand::command),
+            FOLDER_COMMANDS.map { command -> command?.command },
         )
         assertEquals(
             listOf(
-                LibraryTreeCommand.USE_TEMPLATE,
                 LibraryTreeCommand.EDIT_TEMPLATE,
-                LibraryTreeCommand.MOVE_TO_FOLDER,
-                LibraryTreeCommand.MOVE_UP,
-                LibraryTreeCommand.MOVE_DOWN,
                 LibraryTreeCommand.OPEN_MARKDOWN,
-                LibraryTreeCommand.REVEAL,
-                LibraryTreeCommand.COPY_PATH,
+                null,
+                LibraryTreeCommand.MOVE_TO_FOLDER,
+                null,
                 LibraryTreeCommand.DELETE_TEMPLATE,
             ),
-            TEMPLATE_COMMANDS.filterNotNull().map(MenuCommand::command),
+            TEMPLATE_COMMANDS.map { command -> command?.command },
         )
     }
 
@@ -322,8 +311,8 @@ class TemplateLibraryTreeTest {
         assertEquals(false, isLibraryCommandEnabled(LibraryTreeCommand.RENAME_FOLDER, mutationsEnabled = false))
         assertEquals(false, isLibraryCommandEnabled(LibraryTreeCommand.MOVE_TO_FOLDER, mutationsEnabled = false))
         assertEquals(false, isLibraryCommandEnabled(LibraryTreeCommand.DELETE_FOLDER, mutationsEnabled = false))
-        assertEquals(true, isLibraryCommandEnabled(LibraryTreeCommand.COPY_PATH, mutationsEnabled = false))
-        assertEquals(true, isLibraryCommandEnabled(LibraryTreeCommand.EXPAND_BRANCH, mutationsEnabled = false))
+        assertEquals(true, isLibraryCommandEnabled(LibraryTreeCommand.OPEN_MARKDOWN, mutationsEnabled = false))
+        assertEquals(true, isLibraryCommandEnabled(LibraryTreeCommand.EXPAND_ALL, mutationsEnabled = false))
     }
 
     @Test
@@ -462,7 +451,7 @@ class TemplateLibraryTreeTest {
     private fun folder(relative: String, children: List<LibraryEntry>): LibraryEntry.Folder = LibraryEntry.Folder(
         directory = root.resolve(relative),
         relativeDirectory = Path.of(relative),
-        displayName = Path.of(relative).fileName.toString(),
+        displayName = Path.of(relative).name,
         children = children,
     )
 

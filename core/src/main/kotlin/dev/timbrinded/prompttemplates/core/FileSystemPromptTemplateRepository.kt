@@ -1,7 +1,6 @@
 package dev.timbrinded.prompttemplates.core
 
 import java.io.IOException
-import java.nio.charset.StandardCharsets
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.DirectoryIteratorException
 import java.nio.file.Files
@@ -9,13 +8,14 @@ import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
-import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.io.path.extension
+import kotlin.io.path.name
 import kotlin.io.path.nameWithoutExtension
 import kotlin.concurrent.withLock
+import kotlin.uuid.Uuid
 
 internal enum class FolderRenameOperation {
     DIRECT,
@@ -63,7 +63,7 @@ class FileSystemPromptTemplateRepository(
         if (!Files.isRegularFile(markdownPath, NOFOLLOW_LINKS)) {
             return@protect RepositoryResult.Failure("Template is missing a regular $MARKDOWN_FILE file.")
         }
-        val markdown = Files.readString(markdownPath, StandardCharsets.UTF_8)
+        val markdown = Files.readString(markdownPath, Charsets.UTF_8)
         val metadataPath = safeDirectory.resolve(METADATA_FILE)
 
         if (!Files.exists(metadataPath, NOFOLLOW_LINKS)) {
@@ -76,7 +76,7 @@ class FileSystemPromptTemplateRepository(
             return@protect RepositoryResult.Failure("Template metadata is not a regular file.")
         }
 
-        when (val decoded = codec.decode(Files.readString(metadataPath, StandardCharsets.UTF_8))) {
+        when (val decoded = codec.decode(Files.readString(metadataPath, Charsets.UTF_8))) {
             is MetadataDecodeResult.Success -> RepositoryResult.Success(
                 StoredTemplate(PromptTemplate(decoded.metadata, markdown), safeDirectory),
             )
@@ -113,7 +113,7 @@ class FileSystemPromptTemplateRepository(
         }
         val updatedOrder = previousOrder.withNames(
             EntryKind.TEMPLATE,
-            previousOrder.templates + directory.fileName.toString(),
+            previousOrder.templates + directory.name,
         )
         val warnings = persistOrderWarnings(destination, updatedOrder)
         RepositoryResult.Success(StoredTemplate(template, directory), warnings)
@@ -150,7 +150,7 @@ class FileSystemPromptTemplateRepository(
         val parent = safeDirectory.parent
         val previousOrder = effectiveOrder(parent)
         LibraryTreeDeletion.deleteTree(safeDirectory)
-        val updated = previousOrder.removing(safeDirectory.fileName.toString(), EntryKind.TEMPLATE)
+        val updated = previousOrder.removing(safeDirectory.name, EntryKind.TEMPLATE)
         RepositoryResult.Success(Unit, persistOrderWarnings(parent, updated))
     }
 
@@ -161,7 +161,7 @@ class FileSystemPromptTemplateRepository(
         if (!Files.isRegularFile(source, NOFOLLOW_LINKS) || source.extension.lowercase() != "md") {
             return@protect RepositoryResult.Failure("Select a regular Markdown (.md) file.")
         }
-        val markdown = Files.readString(source, StandardCharsets.UTF_8)
+        val markdown = Files.readString(source, Charsets.UTF_8)
         val inferredName = firstHeading(markdown) ?: source.nameWithoutExtension
         val variables = parser.parse(markdown).placeholders
             .filterNot(PlaceholderToken::contextReference)
@@ -222,7 +222,7 @@ class FileSystemPromptTemplateRepository(
         val safeDirectory = requireOrganiserFolder(directory)
         require(safeDirectory != normalizedRoot()) { "The library root cannot be renamed." }
         val validName = requireFolderName(newName)
-        if (safeDirectory.fileName.toString() == validName) {
+        if (safeDirectory.name == validName) {
             return@mutateLibrary RepositoryResult.Success(safeDirectory)
         }
         val parent = safeDirectory.parent
@@ -248,7 +248,7 @@ class FileSystemPromptTemplateRepository(
             FolderRenameOperation.COLLISION -> error("A collision must return before filesystem mutation.")
         }
         val updatedOrder = previousOrder.replacing(
-            safeDirectory.fileName.toString(),
+            safeDirectory.name,
             validName,
             EntryKind.FOLDER,
         )
@@ -279,7 +279,7 @@ class FileSystemPromptTemplateRepository(
                 "An entry named '${directEntry.visibleName}' already exists in the destination folder.",
             )
         }
-        val target = safeDestination.resolve(safeEntry.fileName.toString())
+        val target = safeDestination.resolve(safeEntry.name)
         if (!sameParent && Files.exists(target, NOFOLLOW_LINKS)) {
             return@mutateLibrary RepositoryResult.Failure(
                 "A filesystem entry named '${safeEntry.fileName}' already exists in the destination folder.",
@@ -289,7 +289,7 @@ class FileSystemPromptTemplateRepository(
         val sourceOrder = effectiveOrder(sourceParent)
         val destinationOrder = if (sameParent) sourceOrder else effectiveOrder(safeDestination)
         val placedDestinationOrder = destinationOrder.placing(
-            safeEntry.fileName.toString(),
+            safeEntry.name,
             kind,
             placement,
             safeDestination,
@@ -313,7 +313,7 @@ class FileSystemPromptTemplateRepository(
             emptyList()
         } else {
             buildList {
-                addAll(persistOrderWarnings(sourceParent, sourceOrder.removing(safeEntry.fileName.toString(), kind)))
+                addAll(persistOrderWarnings(sourceParent, sourceOrder.removing(safeEntry.name, kind)))
                 addAll(persistOrderWarnings(safeDestination, placedDestinationOrder))
             }
         }
@@ -340,12 +340,12 @@ class FileSystemPromptTemplateRepository(
         val parent = safeDirectory.parent
         val previousOrder = effectiveOrder(parent)
         LibraryTreeDeletion.deleteTree(safeDirectory)
-        val updated = previousOrder.removing(safeDirectory.fileName.toString(), EntryKind.FOLDER)
+        val updated = previousOrder.removing(safeDirectory.name, EntryKind.FOLDER)
         RepositoryResult.Success(Unit, persistOrderWarnings(parent, updated))
     }
 
     private fun inferredMetadata(directory: Path, markdown: String): TemplateMetadata {
-        val id = UUID.nameUUIDFromBytes(directory.toAbsolutePath().normalize().toString().toByteArray()).toString()
+        val id = UUID.nameUUIDFromBytes(directory.toAbsolutePath().normalize().toString().encodeToByteArray()).toString()
         val variables = parser.parse(markdown).placeholders
             .filterNot(PlaceholderToken::contextReference)
             .map(PlaceholderToken::key)
@@ -353,7 +353,7 @@ class FileSystemPromptTemplateRepository(
             .map { key -> PromptVariable(key = key, label = defaultVariableLabel(key)) }
         return TemplateMetadata(
             id = id,
-            name = firstHeading(markdown) ?: directory.fileName.toString(),
+            name = firstHeading(markdown) ?: directory.name,
             variables = variables,
         )
     }
@@ -365,12 +365,12 @@ class FileSystemPromptTemplateRepository(
 
     private fun atomicWrite(destination: Path, content: String) {
         val parent = requireNotNull(destination.parent) { "A destination parent is required." }
-        val temporary = Files.createTempFile(parent, ".${destination.fileName}.", ".tmp")
+        val temporary = Files.createTempFile(parent, ".${destination.name}.", ".tmp")
         try {
             Files.writeString(
                 temporary,
                 content,
-                StandardCharsets.UTF_8,
+                Charsets.UTF_8,
                 StandardOpenOption.TRUNCATE_EXISTING,
             )
             try {
@@ -426,8 +426,9 @@ class FileSystemPromptTemplateRepository(
 
         var current = libraryRoot
         libraryRoot.relativize(normalPath).forEach { segment ->
-            if (segment.toString().isEmpty()) return@forEach
-            require(!isLibraryManagementDirectoryName(segment.toString())) {
+            val segmentName = segment.name
+            if (segmentName.isEmpty()) return@forEach
+            require(!isLibraryManagementDirectoryName(segmentName)) {
                 "IDE and version-control metadata directories are not part of the template library."
             }
             current = current.resolve(segment)
@@ -490,7 +491,7 @@ class FileSystemPromptTemplateRepository(
         }
         require(!trimmed.endsWith('.')) { "Folder names cannot end with a period." }
         require(
-            trimmed.lowercase(Locale.ROOT) !in RESERVED_ENTRY_NAMES,
+            trimmed.lowercase() !in RESERVED_ENTRY_NAMES,
         ) { "'$trimmed' is reserved by the prompt-template library." }
         require(!isLibraryManagementDirectoryName(trimmed)) {
             "'$trimmed' is reserved for IDE or version-control metadata."
@@ -503,8 +504,8 @@ class FileSystemPromptTemplateRepository(
         val read = LibraryFolderOrderCodec.read(folder)
         val sorted = sortDirectEntries(entries, read.value)
         return FolderOrderState(
-            folders = sorted.filter { it.kind == EntryKind.FOLDER }.map { it.path.fileName.toString() },
-            templates = sorted.filter { it.kind == EntryKind.TEMPLATE }.map { it.path.fileName.toString() },
+            folders = sorted.filter { it.kind == EntryKind.FOLDER }.map { it.path.name },
+            templates = sorted.filter { it.kind == EntryKind.TEMPLATE }.map { it.path.name },
         )
     }
 
@@ -530,7 +531,7 @@ class FileSystemPromptTemplateRepository(
             LibraryFolderOrderCodec.comparator(
                 order = order,
                 kindOf = DirectLibraryEntry::kind,
-                orderKeyOf = { it.path.fileName.toString() },
+                orderKeyOf = { it.path.name },
                 fallbackNameOf = DirectLibraryEntry::visibleName,
             ),
         )
@@ -579,7 +580,7 @@ class FileSystemPromptTemplateRepository(
         require(safeSibling.parent == destinationFolder) { "The placement target is not in the destination folder." }
         require(safeSibling != source) { "An entry cannot be placed relative to itself." }
         require(treeScanner.classify(safeSibling).kind == kind) { "Folders and templates cannot be interleaved." }
-        val siblingIndex = names.indexOf(safeSibling.fileName.toString())
+        val siblingIndex = names.indexOf(safeSibling.name)
         require(siblingIndex >= 0) { "The placement target is no longer available." }
         return siblingIndex + if (after) 1 else 0
     }
@@ -610,7 +611,7 @@ class FileSystemPromptTemplateRepository(
 
     private fun nextCaseRenameTemporaryPath(parent: Path): Path {
         while (true) {
-            val candidate = parent.resolve("$CASE_RENAME_PREFIX${UUID.randomUUID()}")
+            val candidate = parent.resolve("$CASE_RENAME_PREFIX${Uuid.random()}")
             if (!Files.exists(candidate, NOFOLLOW_LINKS)) return candidate
         }
     }
@@ -683,10 +684,16 @@ class FileSystemPromptTemplateRepository(
             existingAncestor.fileName?.let(missingSegments::addFirst)
             existingAncestor = existingAncestor.parent
         }
-        val canonicalAncestor = existingAncestor?.let { ancestor ->
-            runCatching { ancestor.toRealPath() }.getOrDefault(ancestor.toAbsolutePath().normalize())
-        } ?: path.root
+        val canonicalAncestor = existingAncestor?.let(::canonicalPathOrNormalized) ?: path.root
         return missingSegments.fold(canonicalAncestor) { current, segment -> current.resolve(segment) }.normalize()
+    }
+
+    private fun canonicalPathOrNormalized(path: Path): Path = try {
+        path.toRealPath()
+    } catch (_: IOException) {
+        path.toAbsolutePath().normalize()
+    } catch (_: SecurityException) {
+        path.toAbsolutePath().normalize()
     }
 
     companion object {
@@ -695,13 +702,13 @@ class FileSystemPromptTemplateRepository(
         const val ORDER_FILE = LIBRARY_ORDER_FILE
 
         private val RESERVED_ENTRY_NAMES = setOf(MARKDOWN_FILE, METADATA_FILE, ORDER_FILE)
-            .mapTo(mutableSetOf()) { it.lowercase(Locale.ROOT) }
+            .mapTo(mutableSetOf(), String::lowercase)
         private val LIBRARY_MANAGEMENT_DIRECTORY_NAMES = setOf(".git", ".hg", ".svn", ".idea")
         private val INVALID_FOLDER_NAME_CHARACTERS = setOf('<', '>', ':', '"', '/', '\\', '|', '?', '*')
         private val LIBRARY_MUTATION_LOCKS = ConcurrentHashMap<Path, ReentrantLock>()
         private const val CASE_RENAME_PREFIX = ".prompt-template-rename-"
 
         fun isLibraryManagementDirectoryName(name: String): Boolean =
-            name.lowercase(Locale.ROOT) in LIBRARY_MANAGEMENT_DIRECTORY_NAMES
+            name.lowercase() in LIBRARY_MANAGEMENT_DIRECTORY_NAMES
     }
 }

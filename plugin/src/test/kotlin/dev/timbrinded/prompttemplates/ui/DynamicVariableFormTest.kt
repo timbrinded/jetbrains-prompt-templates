@@ -7,6 +7,7 @@ import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 
 class DynamicVariableFormTest {
     @Test
@@ -20,7 +21,7 @@ class DynamicVariableFormTest {
             )
             form.setSize(500, 300)
             form.doLayout()
-            val row = form.components.first() as JPanel
+            val row = assertIs<JPanel>(form.components.first())
 
             assertEquals(row.preferredSize.height, row.height)
         }

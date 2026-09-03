@@ -57,6 +57,7 @@ dependencies {
 }
 
 kotlin {
+    jvmToolchain(25)
     compilerOptions.jvmDefault.set(JvmDefaultMode.NO_COMPATIBILITY)
 }
 

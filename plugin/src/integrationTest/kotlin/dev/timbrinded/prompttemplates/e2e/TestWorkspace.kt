@@ -1,14 +1,20 @@
 package dev.timbrinded.prompttemplates.e2e
 
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.security.MessageDigest
-import java.util.UUID
+import kotlin.io.path.PathWalkOption.INCLUDE_DIRECTORIES
 import kotlin.io.path.createDirectories
+import kotlin.io.path.exists
+import kotlin.io.path.isDirectory
+import kotlin.io.path.isRegularFile
+import kotlin.io.path.isSymbolicLink
 import kotlin.io.path.pathString
+import kotlin.io.path.readBytes
+import kotlin.io.path.readSymbolicLink
+import kotlin.io.path.walk
 import kotlin.io.path.writeText
+import kotlin.uuid.Uuid
 
 class TestWorkspace private constructor(
     val root: Path,
@@ -26,7 +32,7 @@ class TestWorkspace private constructor(
     fun writeLibraryManifest() {
         val destination = evidence.resolve("library-manifest.txt")
         requireInsideRoot(destination)
-        destination.writeText(templates.manifest(), StandardCharsets.UTF_8)
+        destination.writeText(templates.manifest())
     }
 
     fun writePathRecord(starterPaths: Map<String, Path>) {
@@ -39,7 +45,7 @@ class TestWorkspace private constructor(
             add("library=$library")
             starterPaths.toSortedMap().forEach { (name, path) -> add("starter.$name=$path") }
         }
-        destination.writeText(lines.joinToString("\n", postfix = "\n"), StandardCharsets.UTF_8)
+        destination.writeText(lines.joinToString("\n", postfix = "\n"))
     }
 
     fun requireInsideRoot(path: Path): Path {
@@ -59,22 +65,21 @@ class TestWorkspace private constructor(
                 ?: error("Missing -D$OUTPUT_PROPERTY. Run this test with :plugin:integrationTest.")
             val outputRoot = Path.of(configuredOutput).toAbsolutePath().normalize()
             val safeName = testName.lowercase()
-                .replace(Regex("[^a-z0-9-]+"), "-")
+                .replace(UNSAFE_TEST_NAME_CHARACTERS, "-")
                 .trim('-')
                 .ifEmpty { "ui-test" }
-            val root = outputRoot.resolve("$safeName-${UUID.randomUUID()}").createDirectories()
+            val root = outputRoot.resolve("$safeName-${Uuid.random()}").createDirectories()
             val userHome = root.resolve("home").createDirectories()
             val project = root.resolve("project").createDirectories()
             val library = userHome.resolve("Prompt Templates").createDirectories()
             val evidence = root.resolve("evidence").createDirectories()
 
-            project.resolve("README.md").writeText(
-                "# Prompt Templates UI test project\n",
-                StandardCharsets.UTF_8,
-            )
+            project.resolve("README.md").writeText("# Prompt Templates UI test project\n")
 
             return TestWorkspace(root, userHome, project, library, evidence)
         }
+
+        private val UNSAFE_TEST_NAME_CHARACTERS = Regex("[^a-z0-9-]+")
     }
 }
 
@@ -90,12 +95,11 @@ class TestLibrary(
         name: String,
         id: String,
     ): Path {
-        require(runCatching { UUID.fromString(id) }.isSuccess) { "Template ID must be a UUID: $id" }
+        require(Uuid.parseHexDashOrNull(id) != null) { "Template ID must be a UUID: $id" }
         val directory = resolve(relativeDirectory).createDirectories()
-        directory.resolve("prompt.md").writeText("# $name\n\n{{objective}}\n", StandardCharsets.UTF_8)
+        directory.resolve("prompt.md").writeText("# $name\n\n{{objective}}\n")
         directory.resolve("prompt.meta.json").writeText(
             metadataJson(id = id, name = name),
-            StandardCharsets.UTF_8,
         )
         return directory
     }
@@ -115,19 +119,14 @@ class TestLibrary(
                 appendLine("  \"templates\": ${jsonStringArray(templates)}")
                 appendLine("}")
             },
-            StandardCharsets.UTF_8,
         )
     }
 
     fun manifest(): String {
-        if (!Files.exists(root, LinkOption.NOFOLLOW_LINKS)) return "<library does not exist>\n"
-        return Files.walk(root).use { paths ->
-            paths
-                .sorted(compareBy { root.relativize(it).pathString })
-                .map(::manifestLine)
-                .toList()
-                .joinToString("\n", postfix = "\n")
-        }
+        if (!root.exists(LinkOption.NOFOLLOW_LINKS)) return "<library does not exist>\n"
+        return root.walk(INCLUDE_DIRECTORIES)
+            .sortedBy { path -> root.relativize(path).pathString }
+            .joinToString("\n", postfix = "\n", transform = ::manifestLine)
     }
 
     private fun resolve(relativePath: String): Path {
@@ -141,10 +140,10 @@ class TestLibrary(
     private fun manifestLine(path: Path): String {
         val relative = root.relativize(path).pathString.ifEmpty { "." }
         return when {
-            Files.isSymbolicLink(path) -> "L $relative -> ${Files.readSymbolicLink(path)}"
-            Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS) -> "D $relative"
-            Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) -> {
-                val bytes = Files.readAllBytes(path)
+            path.isSymbolicLink() -> "L $relative -> ${path.readSymbolicLink()}"
+            path.isDirectory(LinkOption.NOFOLLOW_LINKS) -> "D $relative"
+            path.isRegularFile(LinkOption.NOFOLLOW_LINKS) -> {
+                val bytes = path.readBytes()
                 "F $relative ${bytes.size} ${sha256(bytes)}"
             }
             else -> "O $relative"
@@ -191,5 +190,5 @@ class TestLibrary(
 
     private fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
         .digest(bytes)
-        .joinToString("") { byte -> "%02x".format(byte) }
+        .toHexString()
 }

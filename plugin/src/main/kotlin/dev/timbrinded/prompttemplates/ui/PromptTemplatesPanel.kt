@@ -1,6 +1,7 @@
 package dev.timbrinded.prompttemplates.ui
 
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.components.service
 import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
@@ -12,6 +13,7 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
+import dev.timbrinded.prompttemplates.PromptTemplatesProjectService
 import dev.timbrinded.prompttemplates.core.DiagnosticSeverity
 import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository
 import dev.timbrinded.prompttemplates.core.LibraryEntry
@@ -33,13 +35,15 @@ import javax.swing.JMenuItem
 import javax.swing.JPanel
 import javax.swing.JPopupMenu
 import javax.swing.event.DocumentEvent
+import kotlinx.coroutines.cancel
 
 class PromptTemplatesPanel(
     private val project: Project,
 ) : JPanel(), Disposable {
+    private val coroutineScope = project.service<PromptTemplatesProjectService>().childScope("PromptTemplatesPanel")
     private val settings = PromptTemplatesSettings.getInstance()
     private val controller by lazy(LazyThreadSafetyMode.NONE) {
-        PromptTemplatesController(project, ViewAdapter(), settings)
+        PromptTemplatesController(project, ViewAdapter(), settings, coroutineScope)
     }
     private val searchField = SearchTextField(false)
     private val mutationControls = mutableListOf<JButton>()
@@ -59,10 +63,7 @@ class PromptTemplatesPanel(
         },
         onCommand = { command, target -> controller.performLibraryCommand(command, target) },
         onMove = { source, destination, placement -> controller.moveEntry(source, destination, placement) },
-        onExpansionChanged = { expanded ->
-            settings.state.expandedFolderPaths.clear()
-            settings.state.expandedFolderPaths.addAll(expanded)
-        },
+        onExpansionChanged = settings::replaceExpandedFolderPaths,
     )
     private val libraryPanel = createLibraryPanel()
     private val detailLayout = CardLayout()
@@ -71,8 +72,9 @@ class PromptTemplatesPanel(
     private val backButton = JButton("‹ Library")
     private val outerLayout = CardLayout()
     private val widePanel = JPanel(BorderLayout())
-    private val wideSplitter = OnePixelSplitter(false, settings.state.splitterProportion)
-    private val narrowPanel = JPanel(CardLayout())
+    private val wideSplitter = OnePixelSplitter(false, settings.splitterProportion)
+    private val narrowLayout = CardLayout()
+    private val narrowPanel = JPanel(narrowLayout)
     private val narrowLibraryHost = JPanel(BorderLayout())
     private val narrowDetailHost = JPanel(BorderLayout())
     private var renderedDetail: RenderedDetail = RenderedDetail.None
@@ -135,7 +137,13 @@ class PromptTemplatesPanel(
         val normalizedRoot = root.toAbsolutePath().normalize()
         if (watchedLibraryRoot?.toAbsolutePath()?.normalize() == normalizedRoot) return
         libraryFileWatcher?.let(Disposer::dispose)
-        libraryFileWatcher = LibraryFileWatcher(project, normalizedRoot, this, controller::onLibraryFilesChanged)
+        libraryFileWatcher = LibraryFileWatcher(
+            project,
+            normalizedRoot,
+            this,
+            coroutineScope,
+            controller::onLibraryFilesChanged,
+        )
         watchedLibraryRoot = normalizedRoot
     }
 
@@ -216,7 +224,7 @@ class PromptTemplatesPanel(
     }
 
     private fun showNarrowDetail() {
-        if (narrowMode) (narrowPanel.layout as CardLayout).show(narrowPanel, NARROW_DETAIL_CARD)
+        if (narrowMode) narrowLayout.show(narrowPanel, NARROW_DETAIL_CARD)
     }
 
     private fun createLibraryPanel(): JPanel {
@@ -312,7 +320,7 @@ class PromptTemplatesPanel(
     }
 
     private fun showNarrowLibrary() {
-        if (narrowMode) (narrowPanel.layout as CardLayout).show(narrowPanel, NARROW_LIBRARY_CARD)
+        if (narrowMode) narrowLayout.show(narrowPanel, NARROW_LIBRARY_CARD)
     }
 
     private fun renderFolder(folder: LibraryEntry.Folder) {
@@ -501,8 +509,9 @@ class PromptTemplatesPanel(
     }
 
     override fun dispose() {
-        settings.state.splitterProportion = wideSplitter.proportion
         controller.dispose()
+        coroutineScope.cancel()
+        settings.splitterProportion = wideSplitter.proportion
         disposeRenderedDetail()
     }
 

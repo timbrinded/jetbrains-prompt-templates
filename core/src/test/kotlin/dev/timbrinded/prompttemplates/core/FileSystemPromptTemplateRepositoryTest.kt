@@ -1,6 +1,7 @@
 package dev.timbrinded.prompttemplates.core
 
 import org.junit.jupiter.api.io.TempDir
+import java.nio.charset.MalformedInputException
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.readText
@@ -9,10 +10,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
-class FileSystemPromptTemplateRepositoryTest {
-    @TempDir
-    lateinit var temporaryDirectory: Path
-
+class FileSystemPromptTemplateRepositoryTest(
+    @param:TempDir private val temporaryDirectory: Path,
+) {
     @Test
     fun `creates loads updates exports and deletes a template`() {
         val root = temporaryDirectory.resolve("library")
@@ -47,6 +47,41 @@ class FileSystemPromptTemplateRepositoryTest {
 
         assertIs<RepositoryResult.Success<Unit>>(repository.deleteTemplate(created.directory))
         assertTrue(Files.notExists(created.directory))
+    }
+
+    @Test
+    fun `rejects template Markdown that is not valid UTF-8`() {
+        val repository = FileSystemPromptTemplateRepository(temporaryDirectory.resolve("library"))
+        val stored = assertIs<RepositoryResult.Success<StoredTemplate>>(
+            repository.create(PromptTemplateDraft(name = "Invalid Markdown", markdown = "Valid")),
+        ).value
+        Files.write(
+            stored.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE),
+            byteArrayOf(0xC3.toByte()),
+        )
+
+        val failure = assertIs<RepositoryResult.Failure>(repository.load(stored.directory))
+
+        assertIs<MalformedInputException>(failure.cause)
+    }
+
+    @Test
+    fun `rejects template metadata that is not valid UTF-8`() {
+        val repository = FileSystemPromptTemplateRepository(temporaryDirectory.resolve("library"))
+        val stored = assertIs<RepositoryResult.Success<StoredTemplate>>(
+            repository.create(PromptTemplateDraft(name = "Invalid metadata", markdown = "Valid")),
+        ).value
+        Files.write(
+            stored.directory.resolve(FileSystemPromptTemplateRepository.METADATA_FILE),
+            byteArrayOf(0xC3.toByte()),
+        )
+
+        val failure = assertIs<RepositoryResult.Failure>(repository.load(stored.directory))
+        val summary = assertIs<LibraryEntry.Template>(repository.scan().children.single()).summary
+
+        assertIs<MalformedInputException>(failure.cause)
+        assertEquals(TemplateHealth.BROKEN, summary.health)
+        assertTrue(summary.diagnostic.orEmpty().startsWith("Unable to read metadata:"))
     }
 
     @Test

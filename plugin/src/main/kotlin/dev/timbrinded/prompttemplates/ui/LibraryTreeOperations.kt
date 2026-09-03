@@ -4,8 +4,8 @@ import dev.timbrinded.prompttemplates.core.EntryPlacement
 import dev.timbrinded.prompttemplates.core.LibraryEntry
 import dev.timbrinded.prompttemplates.core.LibrarySnapshot
 import dev.timbrinded.prompttemplates.core.TemplateHealth
+import java.io.IOException
 import java.nio.channels.Channels
-import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
@@ -39,11 +39,17 @@ internal fun countFolders(entries: List<LibraryEntry>): Int = flattenFolders(ent
 
 internal fun readSearchIndexBody(markdownPath: Path): String {
     if (!Files.isRegularFile(markdownPath, NOFOLLOW_LINKS)) return ""
-    return runCatching {
+    return try {
         Files.newByteChannel(markdownPath, setOf(StandardOpenOption.READ, NOFOLLOW_LINKS)).use { channel ->
-            Channels.newReader(channel, StandardCharsets.UTF_8).readText()
+            Channels.newReader(channel, Charsets.UTF_8).readText()
         }
-    }.getOrDefault("")
+    } catch (_: IOException) {
+        ""
+    } catch (_: SecurityException) {
+        ""
+    } catch (_: UnsupportedOperationException) {
+        ""
+    }
 }
 
 internal fun resolveTemplateEntry(

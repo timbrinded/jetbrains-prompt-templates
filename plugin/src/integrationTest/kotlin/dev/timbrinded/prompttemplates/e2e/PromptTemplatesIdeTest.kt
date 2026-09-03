@@ -3,7 +3,10 @@ package dev.timbrinded.prompttemplates.e2e
 import com.intellij.driver.client.Remote
 import com.intellij.driver.sdk.waitFor
 import org.junit.jupiter.api.Test
-import java.nio.file.Files
+import kotlin.io.path.exists
+import kotlin.io.path.isDirectory
+import kotlin.io.path.isRegularFile
+import kotlin.io.path.notExists
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -52,13 +55,13 @@ class PromptTemplatesIdeTest {
 
             val items = ui.rightClickPath("Reviews")
             val expectedItems = setOf(
-                "New Template Here",
-                "New Folder Here",
-                "Expand Branch",
-                "Collapse Branch",
+                "New Template",
+                "New Folder",
+                "Rename…",
+                "Move to Folder…",
                 "Delete Folder…",
             )
-            assertTrue(items.containsAll(expectedItems), "Folder menu was $items")
+            assertEquals(expectedItems, items.toSet(), "Folder menu was $items")
         }
     }
 
@@ -110,10 +113,10 @@ class PromptTemplatesIdeTest {
                 name = "Threat model",
             )
             assertTrue(
-                Files.isRegularFile(harness.workspace.library.resolve("Reviews/Security/threat-model/prompt.md")),
+                harness.workspace.library.resolve("Reviews/Security/threat-model/prompt.md").isRegularFile(),
             )
             assertTrue(
-                Files.isRegularFile(harness.workspace.library.resolve("Reviews/Security/threat-model/prompt.meta.json")),
+                harness.workspace.library.resolve("Reviews/Security/threat-model/prompt.meta.json").isRegularFile(),
             )
 
             ui.dragPathOnto(
@@ -123,11 +126,11 @@ class PromptTemplatesIdeTest {
             ui.waitForPath("Destination", "Review pull request")
             val destination = harness.workspace.library.resolve("Destination/review-pull-request")
             waitFor("template package is moved on disk", 30.seconds) {
-                Files.isRegularFile(destination.resolve("prompt.md")) && Files.notExists(source)
+                destination.resolve("prompt.md").isRegularFile() && source.notExists()
             }
             assertPathPresent(ui.selectedPaths(), "Destination/Review pull request")
 
-            ui.selectContextMenuItem("Source", item = "Move Down")
+            ui.movePathDown("Source")
             waitFor("manual folder order is visible", 30.seconds) {
                 appearsBefore(
                     paths = ui.orderedVisiblePaths(),
@@ -155,11 +158,11 @@ class PromptTemplatesIdeTest {
             val trash = harness.workspace.library.resolve("Trash")
             ui.confirmFolderDeletion(folderPath = listOf("Trash"), typedName = "wrong")
             ui.waitForVisibleText("Folder name did not match. Nothing was deleted.")
-            assertTrue(Files.isDirectory(trash))
+            assertTrue(trash.isDirectory())
 
             ui.confirmFolderDeletion(folderPath = listOf("Trash"), typedName = "Trash")
             ui.waitForPathAbsent("Trash")
-            assertFalse(Files.exists(trash))
+            assertFalse(trash.exists())
         }
     }
 

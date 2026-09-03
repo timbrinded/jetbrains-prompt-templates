@@ -13,7 +13,7 @@ Implemented workflows:
 - Search a personal prompt library by metadata and body text.
 - Organise templates in nested folders with saved manual ordering.
 - Move and reorder folders or templates with drag-and-drop or keyboard actions.
-- Use root, folder and template context menus, including branch expansion and collapse.
+- Use focused root, folder and template context menus for common library actions.
 - Create and edit templates inside a native tool window.
 - Discover and highlight `{{variable}}` placeholders while typing.
 - Configure Text, Multiline and Enum variables.

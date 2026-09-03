@@ -4,7 +4,7 @@
 
 - Added nested organiser folders for prompt templates.
 - Added portable manual order, folder and template drag-and-drop, and keyboard move actions.
-- Added root, folder and template context menus with branch expansion and collapse.
+- Added focused root, folder and template context menus for common library actions.
 - Added guarded recursive folder deletion and hierarchy-aware search and file watching.
 - Added a real IntelliJ IDEA Starter/Driver end-to-end test harness and CI job.
 

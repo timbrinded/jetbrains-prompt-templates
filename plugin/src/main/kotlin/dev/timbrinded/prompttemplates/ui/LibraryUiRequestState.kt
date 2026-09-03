@@ -57,18 +57,26 @@ internal fun activeTemplateSelection(
     root: Path,
     activeDirectory: Path,
     templateId: String?,
-): LibrarySelectionKey? = runCatching {
+): LibrarySelectionKey? = try {
     val normalizedRoot = root.toAbsolutePath().normalize()
     val normalizedDirectory = activeDirectory.toAbsolutePath().normalize()
-    if (!normalizedDirectory.startsWith(normalizedRoot)) return@runCatching null
-    val relativePath = portablePath(normalizedRoot.relativize(normalizedDirectory))
-    if (templateId == null) LibrarySelectionKey.TemplatePath(relativePath)
-    else LibrarySelectionKey.Template(templateId, relativePath)
-}.getOrNull()
+    if (!normalizedDirectory.startsWith(normalizedRoot)) null
+    else {
+        val relativePath = portablePath(normalizedRoot.relativize(normalizedDirectory))
+        if (templateId == null) LibrarySelectionKey.TemplatePath(relativePath)
+        else LibrarySelectionKey.Template(templateId, relativePath)
+    }
+} catch (_: IllegalArgumentException) {
+    null
+} catch (_: SecurityException) {
+    null
+}
 
-internal fun hasLibraryRootChanged(previousRoot: Path, currentRoot: Path): Boolean = runCatching {
+internal fun hasLibraryRootChanged(previousRoot: Path, currentRoot: Path): Boolean = try {
     previousRoot.toAbsolutePath().normalize() != currentRoot.toAbsolutePath().normalize()
-}.getOrDefault(true)
+} catch (_: SecurityException) {
+    true
+}
 
 internal fun shouldReloadSelectedDetail(
     reloadRequested: Boolean,

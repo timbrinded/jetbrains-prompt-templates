@@ -1,7 +1,6 @@
 package dev.timbrinded.prompttemplates.core
 
 import java.io.IOException
-import java.nio.charset.StandardCharsets
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
@@ -13,8 +12,8 @@ import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.attribute.BasicFileAttributeView
 import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
-import java.util.HexFormat
-import java.util.UUID
+import kotlin.io.path.invariantSeparatorsPathString
+import kotlin.uuid.Uuid
 
 internal enum class LibraryDeletionMode {
     PREFER_SECURE,
@@ -42,7 +41,7 @@ internal object LibraryTreeDeletion {
                         folderCount++
                     }
                 }
-                records += "D\u0000${directory.relativize(dir).toPortableString()}\u0000$templatePackage"
+                records += "D\u0000${directory.relativize(dir).invariantSeparatorsPathString}\u0000$templatePackage"
                 return FileVisitResult.CONTINUE
             }
 
@@ -54,7 +53,7 @@ internal object LibraryTreeDeletion {
 
             override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
                 fileCount++
-                val relative = directory.relativize(file).toPortableString()
+                val relative = directory.relativize(file).invariantSeparatorsPathString
                 records += when {
                     Files.isSymbolicLink(file) -> "L\u0000$relative\u0000${Files.readSymbolicLink(file)}"
                     attrs.isRegularFile -> "F\u0000$relative\u0000${sha256(file)}"
@@ -65,7 +64,7 @@ internal object LibraryTreeDeletion {
 
             override fun visitFileFailed(file: Path, error: IOException): FileVisitResult = throw error
         })
-        val fingerprint = sha256(records.sorted().joinToString("\n").toByteArray(StandardCharsets.UTF_8))
+        val fingerprint = sha256(records.sorted().joinToString("\n").encodeToByteArray())
         return FolderDeletionPreview(
             directory = directory,
             folderCount = folderCount,
@@ -187,7 +186,7 @@ internal object LibraryTreeDeletion {
 
     private fun nextQuarantinePath(parent: Path): Path {
         while (true) {
-            val candidate = parent.resolve("$QUARANTINE_PREFIX${UUID.randomUUID()}")
+            val candidate = parent.resolve("$QUARANTINE_PREFIX${Uuid.random()}")
             if (!Files.exists(candidate, NOFOLLOW_LINKS)) return candidate
         }
     }
@@ -214,14 +213,11 @@ internal object LibraryTreeDeletion {
                 digest.update(buffer, 0, read)
             }
         }
-        return HEX_FORMAT.formatHex(digest.digest())
+        return digest.digest().toHexString()
     }
 
     private fun sha256(bytes: ByteArray): String =
-        HEX_FORMAT.formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
+        MessageDigest.getInstance("SHA-256").digest(bytes).toHexString()
 
-    private fun Path.toPortableString(): String = iterator().asSequence().joinToString("/")
-
-    private val HEX_FORMAT = HexFormat.of()
     private const val QUARANTINE_PREFIX = ".prompt-template-delete-"
 }

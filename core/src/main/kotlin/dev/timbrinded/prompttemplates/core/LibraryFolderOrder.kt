@@ -3,7 +3,6 @@ package dev.timbrinded.prompttemplates.core
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.IOException
-import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
@@ -29,7 +28,10 @@ internal data class FolderOrderState(
     val folders: List<String>,
     val templates: List<String>,
 ) {
-    fun names(kind: EntryKind): List<String> = if (kind == EntryKind.FOLDER) folders else templates
+    fun names(kind: EntryKind): List<String> = when (kind) {
+        EntryKind.FOLDER -> folders
+        EntryKind.TEMPLATE -> templates
+    }
 
     fun withNames(kind: EntryKind, names: List<String>): FolderOrderState = when (kind) {
         EntryKind.FOLDER -> copy(folders = names)
@@ -59,7 +61,7 @@ internal object LibraryFolderOrderCodec {
             )
         }
         val decoded = try {
-            json.decodeFromString(FolderOrderFile.serializer(), Files.readString(path, StandardCharsets.UTF_8))
+            json.decodeFromString(FolderOrderFile.serializer(), Files.readString(path, Charsets.UTF_8))
         } catch (_: IllegalArgumentException) {
             return invalidOrder()
         } catch (error: IOException) {

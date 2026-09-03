@@ -1,6 +1,7 @@
 package dev.timbrinded.prompttemplates.ui
 
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
@@ -14,6 +15,7 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.util.ui.UIUtil
 import dev.timbrinded.prompttemplates.context.PromptContextResolver
 import dev.timbrinded.prompttemplates.core.DiagnosticSeverity
 import dev.timbrinded.prompttemplates.core.EntryPlacement
@@ -38,10 +40,15 @@ import dev.timbrinded.prompttemplates.destination.PromptTemplatesNotifications
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesSettings
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesSettingsListener
 import java.awt.datatransfer.StringSelection
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.concurrent.CancellationException
-import javax.swing.SwingUtilities
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.cancellation.CancellationException
 
 internal interface PromptTemplatesView {
     val searchQuery: String
@@ -67,10 +74,18 @@ internal interface PromptTemplatesView {
     fun showNarrowDetail()
 }
 
+private data class LibraryReload(
+    val snapshot: LibrarySnapshot,
+    val templates: List<LibraryEntry.Template>,
+    val folders: List<LibraryEntry.Folder>,
+    val indexedBodies: Map<Path, String>,
+)
+
 internal class PromptTemplatesController(
     private val project: Project,
     private val view: PromptTemplatesView,
     private val settings: PromptTemplatesSettings,
+    private val coroutineScope: CoroutineScope,
 ) : Disposable {
     private val state = PromptToolWindowState(settings.libraryRoot)
     private var repository = FileSystemPromptTemplateRepository(settings.libraryRoot)
@@ -99,9 +114,7 @@ internal class PromptTemplatesController(
     fun onSearchChanged() = refreshTree()
 
     fun onLibraryFilesChanged() {
-        ApplicationManager.getApplication().invokeLater {
-            if (!isDisposed()) reloadLibrary(reloadSelectedDetail = true)
-        }
+        if (!isDisposed()) reloadLibrary(reloadSelectedDetail = true)
     }
 
     fun onLibraryRootChanged(root: Path) {
@@ -111,8 +124,7 @@ internal class PromptTemplatesController(
                 reloadLibrary()
             }
         }
-        if (SwingUtilities.isEventDispatchThread()) applyChange()
-        else ApplicationManager.getApplication().invokeLater(applyChange)
+        UIUtil.invokeLaterIfNeeded(applyChange)
     }
 
     private fun applyLibraryRootTransition(root: Path, clearTree: Boolean) {
@@ -122,8 +134,8 @@ internal class PromptTemplatesController(
         preferredSelections.cancel()
         loadGenerations.invalidateDetailLoad()
         authorRequests.invalidate()
-        settings.state.selectedTemplateId = null
-        settings.state.expandedFolderPaths.clear()
+        settings.selectedTemplateId = null
+        settings.replaceExpandedFolderPaths(emptyList())
 
         val author = state.detail as? PromptDetailState.Author
         if (author == null) {
@@ -154,16 +166,23 @@ internal class PromptTemplatesController(
         preferredSelection?.let(preferredSelections::remember)
         val generation = loadGenerations.beginLibraryLoad()
         val nextRepository = FileSystemPromptTemplateRepository(settings.libraryRoot)
-        ApplicationManager.getApplication().executeOnPooledThread {
-            val scanned = nextRepository.scan()
-            val templates = flattenTemplates(scanned.children)
-            val folders = flattenFolders(scanned.children)
-            val indexedBodies = templates.associate { entry ->
-                val markdownPath = entry.summary.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE)
-                entry.summary.directory to readSearchIndexBody(markdownPath)
+        coroutineScope.launch {
+            val (scanned, templates, folders, indexedBodies) = withContext(Dispatchers.IO) {
+                val snapshot = nextRepository.scan()
+                val loadedTemplates = flattenTemplates(snapshot.children)
+                LibraryReload(
+                    snapshot = snapshot,
+                    templates = loadedTemplates,
+                    folders = flattenFolders(snapshot.children),
+                    indexedBodies = loadedTemplates.associate { entry ->
+                        val markdownPath = entry.summary.directory
+                            .resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE)
+                        entry.summary.directory to readSearchIndexBody(markdownPath)
+                    },
+                )
             }
-            ApplicationManager.getApplication().invokeLater {
-                if (isDisposed() || !loadGenerations.isCurrentLibraryLoad(generation)) return@invokeLater
+            withContext(Dispatchers.EDT) {
+                if (isDisposed() || !loadGenerations.isCurrentLibraryLoad(generation)) return@withContext
                 if (hasLibraryRootChanged(state.librarySnapshot.root, scanned.root)) {
                     applyLibraryRootTransition(scanned.root, clearTree = false)
                 }
@@ -253,7 +272,7 @@ internal class PromptTemplatesController(
             authorOpen = authorOpen,
             currentSelection = view.currentSelectionKey,
             activeSelection = activeSelection,
-            persistedTemplateId = settings.state.selectedTemplateId,
+            persistedTemplateId = settings.selectedTemplateId,
         )
     }
 
@@ -263,7 +282,7 @@ internal class PromptTemplatesController(
             snapshot = state.librarySnapshot,
             bodyIndex = state.bodyIndex,
             preferredSelection = pendingSelection ?: preferredSelection,
-            expandedPaths = settings.state.expandedFolderPaths,
+            expandedPaths = settings.expandedFolderPaths,
             preferPreferredSelection = pendingSelection != null,
         )
         preferredSelections.acknowledge(actualSelection)
@@ -277,13 +296,13 @@ internal class PromptTemplatesController(
         }
         when (selection) {
             is LibraryTreeSelection.Template -> {
-                settings.state.selectedTemplateId = selection.entry.summary.id?.value
+                settings.selectedTemplateId = selection.entry.summary.id?.value
                     ?.takeIf { selection.entry.summary.health == TemplateHealth.HEALTHY }
                 val active = state.detail as? PromptDetailState.Use
                 if (active?.stored?.directory != selection.directory) loadTemplate(selection.entry.summary)
             }
             is LibraryTreeSelection.Folder -> {
-                settings.state.selectedTemplateId = null
+                settings.selectedTemplateId = null
                 showFolder(selection.entry)
             }
             is LibraryTreeSelection.Root -> clearSelectedTemplate()
@@ -300,11 +319,12 @@ internal class PromptTemplatesController(
             intent = intent,
         )
         val repo = repository
-        ApplicationManager.getApplication().executeOnPooledThread {
-            val result = repo.load(summary.directory)
-            val directoryMissing = Files.notExists(summary.directory)
-            ApplicationManager.getApplication().invokeLater {
-                if (isDisposed() || !loadGenerations.acceptDetailLoad(request)) return@invokeLater
+        coroutineScope.launch {
+            val (result, directoryMissing) = withContext(Dispatchers.IO) {
+                repo.load(summary.directory) to Files.notExists(summary.directory)
+            }
+            withContext(Dispatchers.EDT) {
+                if (isDisposed() || !loadGenerations.acceptDetailLoad(request)) return@withContext
                 when (result) {
                     is RepositoryResult.Success -> when (intent) {
                         TemplateDetailIntent.USE -> showUse(result.value, request.target)
@@ -474,27 +494,29 @@ internal class PromptTemplatesController(
         val request = authorRequests.beginSave(author.destination) ?: return
         val repo = repository
         val libraryRootAtRequest = settings.libraryRoot
-        ApplicationManager.getApplication().executeOnPooledThread {
-            if (!authorRequests.isCurrent(request)) return@executeOnPooledThread
+        coroutineScope.launch {
+            if (!authorRequests.isCurrent(request)) return@launch
             if (existing != null) {
-                val latest = repo.load(existing.directory)
+                val latest = withContext(Dispatchers.IO) { repo.load(existing.directory) }
                 val externallyChanged = latest !is RepositoryResult.Success || latest.value.template != existing.template
                 if (externallyChanged && !confirmOverwrite(request)) {
                     authorRequests.finishSave(request)
-                    return@executeOnPooledThread
+                    return@launch
                 }
             }
-            if (!authorRequests.isCurrent(request)) return@executeOnPooledThread
-            val result = if (existing == null) {
-                repo.create(draft, request.destination)
-            } else {
-                repo.update(existing.directory, draft)
+            if (!authorRequests.isCurrent(request)) return@launch
+            val result = withContext(Dispatchers.IO) {
+                if (existing == null) {
+                    repo.create(draft, request.destination)
+                } else {
+                    repo.update(existing.directory, draft)
+                }
             }
-            ApplicationManager.getApplication().invokeLater {
-                if (isDisposed() || !authorRequests.isCurrent(request)) return@invokeLater
+            withContext(Dispatchers.EDT) {
+                if (isDisposed() || !authorRequests.isCurrent(request)) return@withContext
                 if (hasLibraryRootChanged(libraryRootAtRequest, settings.libraryRoot)) {
                     authorRequests.invalidate()
-                    return@invokeLater
+                    return@withContext
                 }
                 authorRequests.finishSave(request)
                 when (result) {
@@ -514,12 +536,11 @@ internal class PromptTemplatesController(
         }
     }
 
-    private fun confirmOverwrite(request: AuthorAsyncRequest): Boolean {
-        if (isDisposed() || !authorRequests.isCurrent(request)) return false
-        var overwrite = false
-        ApplicationManager.getApplication().invokeAndWait {
-            if (isDisposed() || !authorRequests.isCurrent(request)) return@invokeAndWait
-            overwrite = Messages.showYesNoDialog(
+    private suspend fun confirmOverwrite(request: AuthorAsyncRequest): Boolean = withContext(Dispatchers.EDT) {
+        if (isDisposed() || !authorRequests.isCurrent(request)) {
+            false
+        } else {
+            Messages.showYesNoDialog(
                 project,
                 "The template changed on disk after editing began. Overwrite those changes?",
                 "Prompt Template Changed",
@@ -528,7 +549,6 @@ internal class PromptTemplatesController(
                 Messages.getWarningIcon(),
             ) == Messages.YES
         }
-        return overwrite
     }
 
     fun importMarkdown(destination: Path = view.selectedDestinationFolder) {
@@ -537,10 +557,10 @@ internal class PromptTemplatesController(
             .withTitle("Import Prompt Template Markdown")
         val file = FileChooser.chooseFile(descriptor, project, null) ?: return
         val request = authorRequests.begin(destination)
-        ApplicationManager.getApplication().executeOnPooledThread {
-            val markdown = runCatching { Files.readString(file.toNioPath()) }
-            ApplicationManager.getApplication().invokeLater {
-                if (isDisposed() || !authorRequests.isCurrent(request)) return@invokeLater
+        coroutineScope.launch {
+            val markdown = withContext(Dispatchers.IO) { readMarkdown(file) }
+            withContext(Dispatchers.EDT) {
+                if (isDisposed() || !authorRequests.isCurrent(request)) return@withContext
                 markdown.onSuccess { body ->
                     val name = body.lineSequence().map(String::trim)
                         .firstOrNull { it.startsWith("# ") }
@@ -636,11 +656,11 @@ internal class PromptTemplatesController(
             successMessage = "Folder renamed to '$newName'.",
             afterSuccess = { directory ->
                 val newRelative = portableRelativePath(settings.libraryRoot, directory)
-                settings.state.expandedFolderPaths = remapExpandedPaths(
-                    settings.state.expandedFolderPaths,
+                settings.replaceExpandedFolderPaths(remapExpandedPaths(
+                    settings.expandedFolderPaths,
                     oldRelative,
                     newRelative,
-                ).toMutableList()
+                ))
                 reloadLibrary(LibrarySelectionKey.Folder(newRelative))
             },
         )
@@ -692,11 +712,11 @@ internal class PromptTemplatesController(
             afterSuccess = { movedDirectory ->
                 val newRelative = portableRelativePath(settings.libraryRoot, movedDirectory)
                 if (source is LibraryTreeSelection.Folder) {
-                    settings.state.expandedFolderPaths = remapExpandedPaths(
-                        settings.state.expandedFolderPaths,
+                    settings.replaceExpandedFolderPaths(remapExpandedPaths(
+                        settings.expandedFolderPaths,
                         oldRelative,
                         newRelative,
-                    ).toMutableList()
+                    ))
                 }
                 val preferred = when (keyBeforeMove) {
                     is LibrarySelectionKey.Folder -> LibrarySelectionKey.Folder(newRelative)
@@ -737,7 +757,7 @@ internal class PromptTemplatesController(
 
     private fun deleteTemplate(name: String, directory: Path) {
         if (!canChangeLibrary()) return
-        if (settings.state.confirmDeletion) {
+        if (settings.confirmDeletion) {
             val answer = Messages.showYesNoDialog(
                 project,
                 "Delete '$name' and its source files?",
@@ -760,10 +780,12 @@ internal class PromptTemplatesController(
         if (!canChangeLibrary()) return
         state.mutationInProgress = true
         updateInteractionState()
-        ApplicationManager.getApplication().executeOnPooledThread {
-            val previewResult = repository.previewFolderDeletion(target.directory)
-            ApplicationManager.getApplication().invokeLater {
-                if (isDisposed()) return@invokeLater
+        coroutineScope.launch {
+            val previewResult = withContext(Dispatchers.IO) {
+                repository.previewFolderDeletion(target.directory)
+            }
+            withContext(Dispatchers.EDT) {
+                if (isDisposed()) return@withContext
                 state.mutationInProgress = false
                 updateInteractionState()
                 when (previewResult) {
@@ -792,9 +814,9 @@ internal class PromptTemplatesController(
             successMessage = "Folder '$name' deleted.",
             afterSuccess = {
                 val deletedPath = portableRelativePath(settings.libraryRoot, target.directory)
-                settings.state.expandedFolderPaths.removeIf { path ->
+                settings.replaceExpandedFolderPaths(settings.expandedFolderPaths.filterNot { path ->
                     path == deletedPath || path.startsWith("$deletedPath/")
-                }
+                })
                 clearSelectedTemplate()
                 reloadLibrary(null)
             },
@@ -812,7 +834,8 @@ internal class PromptTemplatesController(
 
     private fun sourcePath(target: LibraryTreeSelection): Path = when (target) {
         is LibraryTreeSelection.Template -> target.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE)
-        else -> target.directory
+        is LibraryTreeSelection.Folder -> target.directory
+        is LibraryTreeSelection.Root -> target.directory
     }
 
     private fun exportTemplate() {
@@ -839,9 +862,10 @@ internal class PromptTemplatesController(
 
     private fun chooseDestination(suggestedName: String): Path? {
         val descriptor = FileSaverDescriptor("Export Markdown", "Choose where to export the Markdown file", "md")
+        val baseDirectory: VirtualFile? = null
         return FileChooserFactory.getInstance()
             .createSaveFileDialog(descriptor, project)
-            .save(null as VirtualFile?, suggestedName)
+            .save(baseDirectory, suggestedName)
             ?.file
             ?.toPath()
     }
@@ -879,9 +903,9 @@ internal class PromptTemplatesController(
         if (state.mutationInProgress) return
         state.mutationInProgress = true
         updateInteractionState()
-        ApplicationManager.getApplication().executeOnPooledThread {
+        coroutineScope.launch {
             val result = try {
-                runRepositoryOperationSafely(operation)
+                withContext(Dispatchers.IO) { runRepositoryOperationSafely(operation) }
             } catch (cancelled: ProcessCanceledException) {
                 resetMutationAfterCancellation()
                 throw cancelled
@@ -889,8 +913,8 @@ internal class PromptTemplatesController(
                 resetMutationAfterCancellation()
                 throw cancelled
             }
-            ApplicationManager.getApplication().invokeLater {
-                if (isDisposed()) return@invokeLater
+            withContext(Dispatchers.EDT) {
+                if (isDisposed()) return@withContext
                 state.mutationInProgress = false
                 updateInteractionState()
                 when (result) {
@@ -905,8 +929,8 @@ internal class PromptTemplatesController(
         }
     }
 
-    private fun resetMutationAfterCancellation() {
-        ApplicationManager.getApplication().invokeLater {
+    private suspend fun resetMutationAfterCancellation() {
+        withContext(NonCancellable + Dispatchers.EDT) {
             if (!isDisposed()) {
                 state.mutationInProgress = false
                 updateInteractionState()
@@ -940,7 +964,7 @@ internal class PromptTemplatesController(
     private fun clearSelectedTemplate() {
         loadGenerations.invalidateDetailLoad()
         view.clearLibrarySelection()
-        settings.state.selectedTemplateId = null
+        settings.selectedTemplateId = null
         showDetail(PromptDetailState.Empty)
     }
 
@@ -962,6 +986,16 @@ internal class PromptTemplatesController(
         authorRequests.invalidate()
         loadGenerations.invalidateDetailLoad()
     }
+}
+
+private fun readMarkdown(file: VirtualFile): Result<String> = try {
+    Result.success(Files.readString(file.toNioPath()))
+} catch (exception: IOException) {
+    Result.failure(exception)
+} catch (exception: SecurityException) {
+    Result.failure(exception)
+} catch (exception: UnsupportedOperationException) {
+    Result.failure(exception)
 }
 
 internal fun <T> runRepositoryOperationSafely(operation: () -> RepositoryResult<T>): RepositoryResult<T> = try {
