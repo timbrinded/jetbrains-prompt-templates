@@ -53,14 +53,17 @@ internal fun isPromptLibraryChange(root: Path, event: VFileEvent): Boolean =
 
 /** Resolve the roots once per event batch with [libraryRootsOrNull]; resolving per event costs a realpath lookup each. */
 internal fun isPromptLibraryChange(roots: List<Path>, event: VFileEvent): Boolean {
+    // The bus carries events from every virtual file system; only local files can be in the library, and
+    // VirtualFile.toNioPath() throws for file systems without an nio mapping, so work from path strings.
+    if (event.fileSystem !is LocalFileSystem) return false
     val paths = buildList {
         add(event.path)
         if (event is VFileMoveEvent) {
-            add(event.oldParent.toNioPath().resolve(event.file.name).toString())
-            add(event.newParent.toNioPath().resolve(event.file.name).toString())
+            add("${event.oldParent.path}/${event.file.name}")
+            add("${event.newParent.path}/${event.file.name}")
         }
         if (event is VFilePropertyChangeEvent && event.propertyName == VirtualFile.PROP_NAME) {
-            event.file.parent?.toNioPath()?.resolve(event.oldValue.toString())?.let { add(it.toString()) }
+            event.file.parent?.let { parent -> add("${parent.path}/${event.oldValue}") }
         }
     }
     val directoryEvent = event.file?.isDirectory == true || event is VFileCreateEvent && event.isDirectory
@@ -193,9 +196,11 @@ internal fun snapshotPromptLibrary(root: Path): LibraryPollSnapshot {
             directory = true,
         )
 
-        val children = listDirectoryNoFollow(directory)
-        val controlFiles = children.mapNotNull { child ->
-            val attributes = readAttributesNoFollow(child) ?: return@mapNotNull null
+        // One attribute read per child serves both the control-file records and the descent below.
+        val children = listDirectoryNoFollow(directory).mapNotNull { child ->
+            readAttributesNoFollow(child)?.let { attributes -> child to attributes }
+        }
+        val controlFiles = children.mapNotNull { (child, attributes) ->
             if (
                 attributes.isSymbolicLink ||
                 !attributes.isRegularFile ||
@@ -218,9 +223,8 @@ internal fun snapshotPromptLibrary(root: Path): LibraryPollSnapshot {
         if (controlFiles.any { entry -> entry.relativePath.substringAfterLast('/') in TEMPLATE_PACKAGE_FILES }) {
             continue
         }
-        children.forEach { child ->
+        children.forEach { (child, attributes) ->
             if (FileSystemPromptTemplateRepository.isInternalLibraryEntryName(child.name)) return@forEach
-            val attributes = readAttributesNoFollow(child) ?: return@forEach
             if (attributes.isDirectory && !attributes.isSymbolicLink) pendingDirectories.add(child)
         }
     }

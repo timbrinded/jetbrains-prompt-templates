@@ -39,6 +39,7 @@ import dev.timbrinded.prompttemplates.destination.DestinationResult
 import dev.timbrinded.prompttemplates.destination.PromptTemplatesNotifications
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesSettings
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesSettingsListener
+import dev.timbrinded.prompttemplates.settings.PromptTemplatesWorkspaceState
 import java.awt.datatransfer.StringSelection
 import java.io.IOException
 import java.nio.file.Files
@@ -85,6 +86,7 @@ internal class PromptTemplatesController(
     private val project: Project,
     private val view: PromptTemplatesView,
     private val settings: PromptTemplatesSettings,
+    private val workspace: PromptTemplatesWorkspaceState,
     private val coroutineScope: CoroutineScope,
 ) : Disposable {
     private val state = PromptToolWindowState(settings.libraryRoot)
@@ -108,6 +110,9 @@ internal class PromptTemplatesController(
         )
         view.bindLibraryFileWatcher(settings.libraryRoot)
         updateInteractionState()
+        // Give the tree its real root before the first scan lands, so New Template and Import started in
+        // that window target the library instead of the tree's placeholder root.
+        refreshTree(preferredSelection = null)
         reloadLibrary()
     }
 
@@ -133,9 +138,11 @@ internal class PromptTemplatesController(
         repository = FileSystemPromptTemplateRepository(normalizedRoot)
         preferredSelections.cancel()
         loadGenerations.invalidateDetailLoad()
+        // A save that is mid-flight reports its own outcome when it lands, so its draft needs no rebase warning.
+        val saveInFlight = authorRequests.isSaveInProgress()
         authorRequests.invalidate()
-        settings.selectedTemplateId = null
-        settings.replaceExpandedFolderPaths(emptyList())
+        workspace.selectedTemplateId = null
+        workspace.replaceExpandedFolderPaths(emptyList())
 
         val author = state.detail as? PromptDetailState.Author
         if (author == null) {
@@ -143,7 +150,7 @@ internal class PromptTemplatesController(
         } else {
             val rebased = author.author.rebasedAsNewTemplate(normalizedRoot)
             state.detail = PromptDetailState.Author(rebased)
-            if (rebased != author.author) {
+            if (rebased != author.author && !saveInFlight) {
                 PromptTemplatesNotifications.warning(
                     project,
                     "The library location changed. The open draft is unchanged and will save as a new template in the new library.",
@@ -272,7 +279,7 @@ internal class PromptTemplatesController(
             authorOpen = authorOpen,
             currentSelection = view.currentSelectionKey,
             activeSelection = activeSelection,
-            persistedTemplateId = settings.selectedTemplateId,
+            persistedTemplateId = workspace.selectedTemplateId,
         )
     }
 
@@ -282,7 +289,7 @@ internal class PromptTemplatesController(
             snapshot = state.librarySnapshot,
             bodyIndex = state.bodyIndex,
             preferredSelection = pendingSelection ?: preferredSelection,
-            expandedPaths = settings.expandedFolderPaths,
+            expandedPaths = workspace.expandedFolderPaths,
             preferPreferredSelection = pendingSelection != null,
         )
         preferredSelections.acknowledge(actualSelection)
@@ -291,18 +298,19 @@ internal class PromptTemplatesController(
     fun onLibrarySelection(selection: LibraryTreeSelection, userInitiated: Boolean) {
         if (userInitiated) preferredSelections.cancel()
         if (authorOpen) {
-            view.showNarrowDetail()
+            // Rebuilds re-fire the current selection; only a user's click should pull the narrow layout back to the editor.
+            if (userInitiated) view.showNarrowDetail()
             return
         }
         when (selection) {
             is LibraryTreeSelection.Template -> {
-                settings.selectedTemplateId = selection.entry.summary.id?.value
+                workspace.selectedTemplateId = selection.entry.summary.id?.value
                     ?.takeIf { selection.entry.summary.health == TemplateHealth.HEALTHY }
                 val active = state.detail as? PromptDetailState.Use
                 if (active?.stored?.directory != selection.directory) loadTemplate(selection.entry.summary)
             }
             is LibraryTreeSelection.Folder -> {
-                settings.selectedTemplateId = null
+                workspace.selectedTemplateId = null
                 showFolder(selection.entry)
             }
             is LibraryTreeSelection.Root -> clearSelectedTemplate()
@@ -514,9 +522,12 @@ internal class PromptTemplatesController(
                     }
                 }
                 withContext(Dispatchers.EDT) {
-                    if (isDisposed() || !authorRequests.isCurrent(request)) return@withContext
-                    if (hasLibraryRootChanged(libraryRootAtRequest, settings.libraryRoot)) {
-                        authorRequests.invalidate()
+                    if (isDisposed()) return@withContext
+                    val rootChanged = hasLibraryRootChanged(libraryRootAtRequest, settings.libraryRoot)
+                    if (rootChanged || !authorRequests.isCurrent(request)) {
+                        // The files are on disk already; never drop that outcome silently.
+                        if (rootChanged) authorRequests.invalidate()
+                        reportSupersededSave(result, savedAuthor = author, rootChanged = rootChanged)
                         return@withContext
                     }
                     // Release on the EDT before showing the outcome so the next Save click is accepted at once;
@@ -662,8 +673,8 @@ internal class PromptTemplatesController(
             successMessage = "Folder renamed to '$newName'.",
             afterSuccess = { directory ->
                 val newRelative = portableRelativePath(settings.libraryRoot, directory)
-                settings.replaceExpandedFolderPaths(remapExpandedPaths(
-                    settings.expandedFolderPaths,
+                workspace.replaceExpandedFolderPaths(remapExpandedPaths(
+                    workspace.expandedFolderPaths,
                     oldRelative,
                     newRelative,
                 ))
@@ -718,11 +729,9 @@ internal class PromptTemplatesController(
             afterSuccess = { movedDirectory ->
                 val newRelative = portableRelativePath(settings.libraryRoot, movedDirectory)
                 if (source is LibraryTreeSelection.Folder) {
-                    settings.replaceExpandedFolderPaths(remapExpandedPaths(
-                        settings.expandedFolderPaths,
-                        oldRelative,
-                        newRelative,
-                    ))
+                    // Keep the moved folder open by also opening the destination chain it now sits under.
+                    val remapped = remapExpandedPaths(workspace.expandedFolderPaths, oldRelative, newRelative)
+                    workspace.replaceExpandedFolderPaths((remapped + ancestorPortablePaths(newRelative)).distinct())
                 }
                 val preferred = when (keyBeforeMove) {
                     is LibrarySelectionKey.Folder -> LibrarySelectionKey.Folder(newRelative)
@@ -776,7 +785,7 @@ internal class PromptTemplatesController(
             operation = { repository.deleteTemplate(directory) },
             successMessage = "Prompt template deleted.",
             afterSuccess = {
-                clearSelectedTemplate()
+                clearDetailIfInside(directory)
                 reloadLibrary(null)
             },
         )
@@ -820,10 +829,10 @@ internal class PromptTemplatesController(
             successMessage = "Folder '$name' deleted.",
             afterSuccess = {
                 val deletedPath = portableRelativePath(settings.libraryRoot, target.directory)
-                settings.replaceExpandedFolderPaths(settings.expandedFolderPaths.filterNot { path ->
+                workspace.replaceExpandedFolderPaths(workspace.expandedFolderPaths.filterNot { path ->
                     path == deletedPath || path.startsWith("$deletedPath/")
                 })
-                clearSelectedTemplate()
+                clearDetailIfInside(target.directory)
                 reloadLibrary(null)
             },
         )
@@ -967,10 +976,54 @@ internal class PromptTemplatesController(
         showDetail(PromptDetailState.LoadError(name, message))
     }
 
+    /** After deleting [deletedDirectory], drop the detail view only when it showed something inside it. */
+    private fun clearDetailIfInside(deletedDirectory: Path) {
+        val showsDeletedEntry = when (val detail = state.detail) {
+            is PromptDetailState.Use -> detail.stored.directory.startsWith(deletedDirectory)
+            is PromptDetailState.Folder -> detail.entry.directory.startsWith(deletedDirectory)
+            // An error view names no directory and may describe the entry just deleted; dropping it is cheap.
+            is PromptDetailState.LoadError -> true
+            is PromptDetailState.Author, PromptDetailState.Empty -> false
+        }
+        if (showsDeletedEntry) {
+            clearSelectedTemplate()
+        } else {
+            // The deleted entry may still be the tree selection; drop it so the reload falls back to the active template.
+            view.clearLibrarySelection()
+        }
+    }
+
+    /**
+     * A save whose files were written before the library root changed or a newer author action superseded it.
+     * [savedAuthor] identifies the author session that issued the save; only that session's draft is closed.
+     */
+    private fun reportSupersededSave(
+        result: RepositoryResult<StoredTemplate>,
+        savedAuthor: TemplateAuthorState,
+        rootChanged: Boolean,
+    ) {
+        when (result) {
+            is RepositoryResult.Success -> {
+                val saved = result.value
+                val openAuthor = (state.detail as? PromptDetailState.Author)?.author
+                val closeDraft = rootChanged && openAuthor != null && openAuthor.draft == savedAuthor.draft
+                PromptTemplatesNotifications.warning(
+                    project,
+                    "'${saved.template.metadata.name}' was saved to '${saved.directory}'." +
+                        if (closeDraft) " The library location changed afterwards, so the draft was closed to avoid saving it twice." else "",
+                )
+                if (closeDraft) clearSelectedTemplate()
+            }
+            is RepositoryResult.Failure -> PromptTemplatesNotifications.error(project, result.message)
+        }
+        // A root change already reloads the new library; otherwise show the files that were just written.
+        if (!rootChanged) reloadLibrary(reloadSelectedDetail = true)
+    }
+
     private fun clearSelectedTemplate() {
         loadGenerations.invalidateDetailLoad()
         view.clearLibrarySelection()
-        settings.selectedTemplateId = null
+        workspace.selectedTemplateId = null
         showDetail(PromptDetailState.Empty)
     }
 

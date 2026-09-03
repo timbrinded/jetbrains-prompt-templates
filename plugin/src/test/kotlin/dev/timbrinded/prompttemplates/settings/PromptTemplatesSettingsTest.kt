@@ -12,13 +12,9 @@ class PromptTemplatesSettingsTest {
 
         settings.libraryPath = "  /tmp/prompt-library  "
         settings.confirmDeletion = false
-        settings.selectedTemplateId = "template-id"
-        settings.replaceExpandedFolderPaths(listOf("Reviews", "Reviews/Security"))
 
         assertEquals("/tmp/prompt-library", settings.state.libraryPath)
         assertFalse(settings.state.confirmDeletion)
-        assertEquals("template-id", settings.state.selectedTemplateId)
-        assertEquals(listOf("Reviews", "Reviews/Security"), settings.state.expandedFolderPaths)
     }
 
     @Test
@@ -41,8 +37,6 @@ class PromptTemplatesSettingsTest {
             pinnedTemplateIds = listOf("pinned"),
             recentTemplateIds = listOf("recent"),
             splitterProportion = 0.4f,
-            expandedFolderPaths = listOf("Reviews"),
-            selectedTemplateId = "selected",
         )
 
         val serialized = XmlSerializer.serialize(state)
@@ -59,8 +53,6 @@ class PromptTemplatesSettingsTest {
                 "pinnedTemplateIds",
                 "recentTemplateIds",
                 "splitterProportion",
-                "expandedFolderPaths",
-                "selectedTemplateId",
             ),
             propertyNames,
         )
@@ -89,8 +81,6 @@ class PromptTemplatesSettingsTest {
                 pinnedTemplateIds = listOf("pinned"),
                 recentTemplateIds = listOf("recent"),
                 splitterProportion = 0.45f,
-                expandedFolderPaths = listOf("Reviews"),
-                selectedTemplateId = "selected",
             ),
             restored,
         )
@@ -103,6 +93,7 @@ private data class LegacySettingsState(
     var pinnedTemplateIds: MutableList<String>,
     var recentTemplateIds: MutableList<String>,
     var splitterProportion: Float,
+    /** Tree state that development builds wrote into the application-level file; it now lives per project. */
     var expandedFolderPaths: MutableList<String>,
     var selectedTemplateId: String?,
 )

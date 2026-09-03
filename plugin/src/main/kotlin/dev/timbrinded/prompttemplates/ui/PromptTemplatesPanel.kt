@@ -19,6 +19,7 @@ import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository
 import dev.timbrinded.prompttemplates.core.LibraryEntry
 import dev.timbrinded.prompttemplates.core.LibrarySnapshot
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesSettings
+import dev.timbrinded.prompttemplates.settings.PromptTemplatesWorkspaceState
 import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.Component
@@ -42,8 +43,9 @@ class PromptTemplatesPanel(
 ) : JPanel(), Disposable {
     private val coroutineScope = project.service<PromptTemplatesProjectService>().childScope("PromptTemplatesPanel")
     private val settings = PromptTemplatesSettings.getInstance()
+    private val workspace = PromptTemplatesWorkspaceState.getInstance(project)
     private val controller by lazy(LazyThreadSafetyMode.NONE) {
-        PromptTemplatesController(project, ViewAdapter(), settings, coroutineScope)
+        PromptTemplatesController(project, ViewAdapter(), settings, workspace, coroutineScope)
     }
     private val searchField = SearchTextField(false)
     private val mutationControls = mutableListOf<JButton>()
@@ -63,7 +65,7 @@ class PromptTemplatesPanel(
         },
         onCommand = { command, target -> controller.performLibraryCommand(command, target) },
         onMove = { source, destination, placement -> controller.moveEntry(source, destination, placement) },
-        onExpansionChanged = settings::replaceExpandedFolderPaths,
+        onExpansionChanged = workspace::replaceExpandedFolderPaths,
     )
     private val libraryPanel = createLibraryPanel()
     private val detailLayout = CardLayout()

@@ -6,6 +6,7 @@
 - Added portable manual order, folder and template drag-and-drop, and keyboard move actions.
 - Added focused root, folder and template context menus for common library actions.
 - Added guarded recursive folder deletion and hierarchy-aware search and file watching.
+- Remembered expanded folders and the selected template per project.
 - Added a real IntelliJ IDEA Starter/Driver end-to-end test harness and CI job.
 
 ## 0.1.1 — 2026-08-07

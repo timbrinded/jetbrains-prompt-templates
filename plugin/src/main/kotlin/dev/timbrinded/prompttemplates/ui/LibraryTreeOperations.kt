@@ -108,6 +108,10 @@ internal fun siblingMove(
     }
 }
 
+/** The portable relative paths of every ancestor folder of [portablePath], nearest the root first. */
+internal fun ancestorPortablePaths(portablePath: String): List<String> =
+    portablePath.split('/').dropLast(1).runningReduce { ancestor, segment -> "$ancestor/$segment" }
+
 internal fun remapExpandedPaths(paths: Collection<String>, oldPrefix: String, newPrefix: String): List<String> =
     paths.map { path ->
         when {

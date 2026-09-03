@@ -55,9 +55,14 @@ internal object LibraryTreeDeletion {
             override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
                 fileCount++
                 val relative = directory.relativize(file).invariantSeparatorsPathString
+                // Record identity from attributes only: deletion needs no read access to the files, and
+                // reading every byte twice (preview, then the recheck under the mutation lock) does not scale.
+                // Added, removed, renamed or replaced entries are still detected; a same-size rewrite inside one
+                // timestamp tick on a coarse filesystem is the accepted blind spot.
                 records += when {
                     Files.isSymbolicLink(file) -> "L\u0000$relative\u0000${Files.readSymbolicLink(file)}"
-                    attrs.isRegularFile -> "F\u0000$relative\u0000${sha256(file)}"
+                    attrs.isRegularFile ->
+                        "F\u0000$relative\u0000${attrs.size()}\u0000${attrs.lastModifiedTime()}\u0000${attrs.fileKey()}"
                     else -> "O\u0000$relative\u0000${attrs.size()}"
                 }
                 return FileVisitResult.CONTINUE
@@ -206,19 +211,6 @@ internal object LibraryTreeDeletion {
         } catch (_: SecurityException) {
             false
         }
-    }
-
-    private fun sha256(path: Path): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        Files.newInputStream(path).use { input ->
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            while (true) {
-                val read = input.read(buffer)
-                if (read < 0) break
-                digest.update(buffer, 0, read)
-            }
-        }
-        return digest.digest().toHexString()
     }
 
     private fun sha256(bytes: ByteArray): String =

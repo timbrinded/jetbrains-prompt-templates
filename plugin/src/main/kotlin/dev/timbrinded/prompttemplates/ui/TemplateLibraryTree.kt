@@ -97,7 +97,8 @@ internal class TemplateLibraryTree(
     private var bodyIndex: Map<Path, String> = emptyMap()
     private var query = ""
     private var rebuilding = false
-    private var persistedExpandedPaths = linkedSetOf<String>()
+    /** Expanded organiser folders as portable relative paths, including folders hidden under a collapsed ancestor. */
+    private val expandedFolderPaths = linkedSetOf<String>()
     private var selectionBeforeSearch: LibrarySelectionKey? = null
     private var draggedSelection: LibraryTreeSelection? = null
     private var mutationsEnabled = true
@@ -119,8 +120,8 @@ internal class TemplateLibraryTree(
             }
         }
         addTreeExpansionListener(object : TreeExpansionListener {
-            override fun treeExpanded(event: TreeExpansionEvent) = expansionChanged()
-            override fun treeCollapsed(event: TreeExpansionEvent) = expansionChanged()
+            override fun treeExpanded(event: TreeExpansionEvent) = recordExpansion(event.path, expanded = true)
+            override fun treeCollapsed(event: TreeExpansionEvent) = recordExpansion(event.path, expanded = false)
         })
         addMouseListener(object : MouseAdapter() {
             override fun mousePressed(event: MouseEvent) = maybeShowPopup(event)
@@ -156,11 +157,13 @@ internal class TemplateLibraryTree(
         val wasSearching = query.isNotBlank()
         val willSearch = searchQuery.isNotBlank()
         val previousSelection = selectionKey(selectedSelection(), this.snapshot.root)
-        if (!wasSearching && willSearch) {
-            persistedExpandedPaths = captureExpandedFolderPaths().toCollection(linkedSetOf())
-            selectionBeforeSearch = previousSelection
+        if (!wasSearching && willSearch) selectionBeforeSearch = previousSelection
+        if (!willSearch) {
+            // Outside search mode the persisted set is the source of truth for this rebuild.
+            expandedFolderPaths.clear()
+            expandedFolderPaths.addAll(expandedPaths)
         }
-        if (!wasSearching && !willSearch) persistedExpandedPaths = expandedPaths.toCollection(linkedSetOf())
+        val expandedBeforeRebuild = expandedFolderPaths.toSet()
 
         this.snapshot = snapshot
         this.bodyIndex = bodyIndex
@@ -172,12 +175,7 @@ internal class TemplateLibraryTree(
             visibleEntries(snapshot.children, searchQuery, bodyIndex).forEach { root.add(nodeFor(it)) }
             model = DefaultTreeModel(root)
 
-            if (willSearch) {
-                expandEveryRow()
-            } else {
-                if (wasSearching) persistedExpandedPaths = expandedPaths.toCollection(linkedSetOf())
-                restoreExpandedFolderPaths(persistedExpandedPaths)
-            }
+            if (willSearch) expandEveryRow() else restoreExpandedFolderPaths(expandedBeforeRebuild)
             val selectionToRestore = if (wasSearching && !willSearch && !preferPreferredSelection) {
                 selectionBeforeSearch ?: preferredSelection ?: previousSelection
             } else {
@@ -188,11 +186,24 @@ internal class TemplateLibraryTree(
         } finally {
             rebuilding = false
         }
+        if (!willSearch && snapshot.children.isNotEmpty()) {
+            // Selecting an entry inside a collapsed folder expands its ancestors during the rebuild. Publish
+            // the folders that are really expanded now, which also drops stale and orphaned entries. An empty
+            // snapshot (the pre-scan placeholder, or a library that failed to read) must not erase the set.
+            expandedFolderPaths.retainAll(folderTreePaths().filterValues { path -> isExpanded(path) }.keys)
+            if (expandedFolderPaths != expandedBeforeRebuild) onExpansionChanged(expandedFolderPaths.toSet())
+        }
         selectedSelection()?.let(onSelection)
     }
 
-    fun selectedSelection(): LibraryTreeSelection? =
-        (lastSelectedPathComponent as? DefaultMutableTreeNode)?.userObject as? LibraryTreeSelection
+    fun selectedSelection(): LibraryTreeSelection? = nodeSelection(selectionPath)?.let(::unfilteredSelection)
+
+    /** Search mode shows folder copies with filtered children; hand callers the folder as it exists in the snapshot. */
+    private fun unfilteredSelection(selection: LibraryTreeSelection): LibraryTreeSelection {
+        if (query.isBlank() || selection !is LibraryTreeSelection.Folder) return selection
+        val original = flattenFolders(snapshot.children).firstOrNull { it.directory == selection.directory }
+        return original?.let(LibraryTreeSelection::Folder) ?: selection
+    }
 
     fun selectedDestinationFolder(): Path = when (val selected = selectedSelection()) {
         is LibraryTreeSelection.Folder -> selected.directory
@@ -208,15 +219,7 @@ internal class TemplateLibraryTree(
 
     fun currentSelectionKey(): LibrarySelectionKey? = selectionKey(selectedSelection(), snapshot.root)
 
-    fun captureExpandedFolderPaths(): Set<String> {
-        val paths = linkedSetOf<String>()
-        for (row in 0 until rowCount) {
-            if (!isExpanded(row)) continue
-            val selection = nodeSelection(getPathForRow(row)) as? LibraryTreeSelection.Folder ?: continue
-            paths += portableRelativePath(snapshot.root, selection.directory)
-        }
-        return paths
-    }
+    fun captureExpandedFolderPaths(): Set<String> = expandedFolderPaths.toSet()
 
     fun expandAll() = expandEveryRow()
 
@@ -253,17 +256,17 @@ internal class TemplateLibraryTree(
         val path = when (key) {
             is LibrarySelectionKey.Folder -> findPath { selection ->
                 selection is LibraryTreeSelection.Folder &&
-                    portableRelativePath(snapshot.root, selection.directory) == key.relativePath
+                    portablePath(selection.entry.relativeDirectory) == key.relativePath
             }
             is LibrarySelectionKey.TemplatePath -> findPath { selection ->
                 selection is LibraryTreeSelection.Template &&
-                    portableRelativePath(snapshot.root, selection.directory) == key.relativePath
+                    portablePath(selection.entry.relativeDirectory) == key.relativePath
             }
             is LibrarySelectionKey.Template -> {
                 val exactPath = key.relativePath?.let { relativePath ->
                     findPath { selection ->
                         selection is LibraryTreeSelection.Template &&
-                            portableRelativePath(snapshot.root, selection.directory) == relativePath &&
+                            portablePath(selection.entry.relativeDirectory) == relativePath &&
                             selection.entry.summary.id?.value.equals(key.templateId, ignoreCase = true)
                     }
                 }
@@ -298,19 +301,35 @@ internal class TemplateLibraryTree(
             .toList()
     }
 
-    private fun restoreExpandedFolderPaths(paths: Collection<String>) {
-        paths.forEach { relative ->
-            findPath { selection ->
-                selection is LibraryTreeSelection.Folder &&
-                    portableRelativePath(snapshot.root, selection.directory) == relative
-            }?.let(::expandPath)
-        }
+    private fun restoreExpandedFolderPaths(wanted: Set<String>) {
+        val folderPaths = folderTreePaths()
+        // expandPath expands every ancestor as well. The platform tree collapses a folder together with its
+        // descendants, so a persisted folder whose ancestor is collapsed is stale and must not reopen it.
+        wanted.filter { key -> ancestorKeys(key).all(wanted::contains) }
+            .forEach { key -> folderPaths[key]?.let(::expandPath) }
     }
 
-    private fun expansionChanged() {
-        if (rebuilding || query.isNotBlank()) return
-        persistedExpandedPaths = captureExpandedFolderPaths().toCollection(linkedSetOf())
-        onExpansionChanged(persistedExpandedPaths)
+    private fun ancestorKeys(key: String): List<String> = ancestorPortablePaths(key)
+
+    /** Every organiser folder in the current model, keyed by portable relative path, in depth-first order. */
+    private fun folderTreePaths(): Map<String, TreePath> {
+        val root = model.root as? DefaultMutableTreeNode ?: return emptyMap()
+        return root.depthFirstEnumeration().asSequence()
+            .mapNotNull { it as? DefaultMutableTreeNode }
+            .mapNotNull { node ->
+                (node.userObject as? LibraryTreeSelection.Folder)?.let { folder ->
+                    portablePath(folder.entry.relativeDirectory) to TreePath(node.path)
+                }
+            }
+            .toMap(linkedMapOf())
+    }
+
+    private fun recordExpansion(path: TreePath, expanded: Boolean) {
+        if (query.isNotBlank()) return
+        val folder = nodeSelection(path) as? LibraryTreeSelection.Folder ?: return
+        val key = portablePath(folder.entry.relativeDirectory)
+        val changed = if (expanded) expandedFolderPaths.add(key) else expandedFolderPaths.remove(key)
+        if (changed && !rebuilding) onExpansionChanged(expandedFolderPaths.toSet())
     }
 
     private fun expandEveryRow() {
@@ -447,14 +466,10 @@ internal class TemplateLibraryTree(
         } else {
             null
         }
-        val sibling = siblingNode?.userObject as? LibraryTreeSelection
-        if (sibling == null) return destination to EntryPlacement.EndOfKind
-        val sameKind = (source is LibraryTreeSelection.Folder && sibling is LibraryTreeSelection.Folder) ||
-            (source is LibraryTreeSelection.Template && sibling is LibraryTreeSelection.Template)
-        if (!sameKind) return null
-        // Swing reports an insertion gap by its next child. Before(next), or EndOfKind for the
-        // final gap, represents both visual insertion sides without ambiguous source indices.
-        return destination to EntryPlacement.Before(sibling.directory)
+        val siblings = (0 until parentNode.childCount).mapNotNull { index ->
+            (parentNode.getChildAt(index) as? DefaultMutableTreeNode)?.userObject as? LibraryTreeSelection
+        }
+        return destination to insertionGapPlacement(source, siblingNode?.userObject as? LibraryTreeSelection, siblings)
     }
 
     private fun nodeSelection(path: TreePath?): LibraryTreeSelection? =
@@ -558,20 +573,39 @@ internal fun selectionKey(selection: LibraryTreeSelection?, root: Path): Library
     is LibraryTreeSelection.Root, null -> null
 }
 
+/**
+ * Swing reports an insertion gap by its next child. Folders always precede templates, so a gap whose next
+ * child is the other kind is not refused: for a folder it is the end of the folder group, and for a template
+ * it lies above the template group, so the template goes before the first template in [siblings].
+ */
+internal fun insertionGapPlacement(
+    source: LibraryTreeSelection,
+    nextSibling: LibraryTreeSelection?,
+    siblings: List<LibraryTreeSelection>,
+): EntryPlacement = when {
+    nextSibling == null -> EntryPlacement.EndOfKind
+    source is LibraryTreeSelection.Folder && nextSibling is LibraryTreeSelection.Folder -> EntryPlacement.Before(nextSibling.directory)
+    source is LibraryTreeSelection.Template && nextSibling is LibraryTreeSelection.Template -> EntryPlacement.Before(nextSibling.directory)
+    source is LibraryTreeSelection.Template -> siblings.firstOrNull { it is LibraryTreeSelection.Template }
+        ?.let { EntryPlacement.Before(it.directory) } ?: EntryPlacement.EndOfKind
+    else -> EntryPlacement.EndOfKind
+}
+
 internal fun visibleEntries(
     entries: List<LibraryEntry>,
     query: String,
     bodyIndex: Map<Path, String>,
 ): List<LibraryEntry> {
     if (query.isBlank()) return entries
-    val terms = query.trim().split(Regex("\\s+")).filter(String::isNotEmpty)
+    val terms = query.trim().lowercase().split(Regex("\\s+")).filter(String::isNotEmpty)
 
     fun filter(entry: LibraryEntry, ancestorMatched: Boolean): LibraryEntry? = when (entry) {
         is LibraryEntry.Template -> {
             val path = portablePath(entry.relativeDirectory)
+            // Build the lowercased haystack once per template, not once per search term.
+            val haystack = TemplateSearch.haystack(entry.summary, bodyIndex[entry.summary.directory])
             val matches = terms.all { term ->
-                path.contains(term, ignoreCase = true) ||
-                    TemplateSearch.matches(entry.summary, term, bodyIndex[entry.summary.directory])
+                path.contains(term, ignoreCase = true) || haystack.contains(term)
             }
             entry.takeIf {
                 ancestorMatched || matches

@@ -117,7 +117,8 @@ flowchart TD
 - Expected validation failures are typed diagnostics rather than exceptions.
 - Files are written through same-directory temporary files and atomic replacement where the filesystem supports it.
 - The configured library root can be a symbolic link. Managed entries inside it cannot be symbolic links, and repository traversal does not follow them.
-- Folder deletion uses a fresh subtree preview, typed confirmation and a second fingerprint check before recursive removal.
+- Folder deletion uses a fresh subtree preview, typed confirmation and a second fingerprint check before recursive removal. The fingerprint records entry names, sizes, modification times and file identities, not file contents.
+- Expanded folders and the selected template are remembered per project in the workspace file.
 
 The full product and implementation rationale is in [`docs/implementation-plan.md`](docs/implementation-plan.md).
 

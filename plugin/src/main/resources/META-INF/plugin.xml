@@ -25,7 +25,7 @@
         <li>Create and manage nested organiser folders without changing the portable template format.</li>
         <li>Move folders and templates with drag-and-drop or context menus, and reorder them with drag-and-drop or keyboard actions.</li>
         <li>Search folder paths, restore tree state and detect external hierarchy changes.</li>
-        <li>Confirm recursive folder deletion against a fresh content fingerprint.</li>
+        <li>Confirm recursive folder deletion against a fresh fingerprint of the folder's contents.</li>
       </ul>
     ]]></change-notes>
 

@@ -126,6 +126,8 @@ internal class AuthorAsyncRequestTracker {
         if (saveInProgress == request.generation) saveInProgress = null
     }
 
+    fun isSaveInProgress(): Boolean = saveInProgress != null
+
     @Synchronized
     fun invalidate() {
         generation.incrementAndGet()

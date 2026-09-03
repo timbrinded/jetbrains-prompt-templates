@@ -22,8 +22,6 @@ class PromptTemplatesSettings :
         @JvmField val pinnedTemplateIds: List<String> = emptyList(),
         @JvmField val recentTemplateIds: List<String> = emptyList(),
         @JvmField @field:Property val splitterProportion: Float = 0.28f,
-        @JvmField val expandedFolderPaths: List<String> = emptyList(),
-        @JvmField @field:Property val selectedTemplateId: String? = null,
     )
 
     var libraryPath: String
@@ -38,27 +36,14 @@ class PromptTemplatesSettings :
             updateState { it.copy(confirmDeletion = value) }
         }
 
-    var selectedTemplateId: String?
-        get() = state.selectedTemplateId
-        set(value) {
-            updateState { it.copy(selectedTemplateId = value) }
-        }
-
     var splitterProportion: Float
         get() = state.splitterProportion
         set(value) {
             updateState { it.copy(splitterProportion = value) }
         }
 
-    val expandedFolderPaths: List<String>
-        get() = state.expandedFolderPaths
-
     val libraryRoot: Path
         get() = Path.of(libraryPath.ifBlank { defaultLibraryPath() }).toAbsolutePath().normalize()
-
-    fun replaceExpandedFolderPaths(paths: Collection<String>) {
-        updateState { it.copy(expandedFolderPaths = paths.toList()) }
-    }
 
     fun markRecent(id: String) {
         updateState { current ->
