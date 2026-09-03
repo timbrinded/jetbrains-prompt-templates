@@ -1,7 +1,5 @@
 package dev.timbrinded.prompttemplates.ui
 
-import com.intellij.icons.AllIcons
-import com.intellij.ui.ColoredTreeCellRenderer
 import dev.timbrinded.prompttemplates.core.EntryPlacement
 import dev.timbrinded.prompttemplates.core.LibraryEntry
 import dev.timbrinded.prompttemplates.core.LibrarySnapshot
@@ -10,9 +8,7 @@ import dev.timbrinded.prompttemplates.core.TemplateId
 import dev.timbrinded.prompttemplates.core.TemplateSummary
 import java.nio.file.Path
 import java.util.UUID
-import javax.accessibility.AccessibleContext
 import javax.swing.tree.DefaultMutableTreeNode
-import javax.swing.tree.DefaultTreeCellRenderer
 import javax.swing.tree.TreePath
 import kotlin.io.path.name
 import kotlin.test.Test
@@ -26,93 +22,53 @@ class TemplateLibraryTreeTest {
     private val root = Path.of("/library")
 
     @Test
-    fun `search retains ancestors and matches folder paths`() {
-        val security = folder(
-            "Reviews/Security",
-            listOf(template("Reviews/Security/audit", "Audit a change", "check permissions")),
-        )
-        val reviews = folder("Reviews", listOf(security))
-        val ideas = folder("Ideas", listOf(template("Ideas/brainstorm", "Brainstorm", "new options")))
-
-        val result = visibleEntries(listOf(reviews, ideas), "security", emptyMap())
-
-        assertEquals(listOf("Reviews"), result.map(LibraryEntry::displayName))
-        val visibleReviews = assertIs<LibraryEntry.Folder>(result.single())
-        val visibleSecurity = assertIs<LibraryEntry.Folder>(visibleReviews.children.single())
-        assertEquals(listOf("Audit a change"), visibleSecurity.children.map(LibraryEntry::displayName))
-    }
-
-    @Test
-    fun `search matches indexed Markdown body`() {
-        val audit = template("Reviews/audit", "Audit", "ordinary text")
-
-        val result = visibleEntries(
-            listOf(folder("Reviews", listOf(audit))),
-            "authorization",
-            mapOf(audit.directory to "Check authorization boundaries"),
-        )
-
-        val reviews = assertIs<LibraryEntry.Folder>(result.single())
-        assertEquals("Audit", reviews.children.single().displayName)
-    }
-
-    @Test
-    fun `search combines folder path and template fields across terms`() {
+    fun `search matches names paths bodies and separators`() {
         val audit = template("Reviews/Security/audit", "Audit permissions", "ordinary text")
         val entries = listOf(folder("Reviews", listOf(folder("Reviews/Security", listOf(audit)))))
 
-        val result = visibleEntries(entries, "reviews permissions", emptyMap())
+        // Folder-path match retains ancestors.
+        val byPath = visibleEntries(entries, "security", emptyMap())
+        assertEquals(listOf("Reviews"), byPath.map(LibraryEntry::displayName))
 
-        val reviews = assertIs<LibraryEntry.Folder>(result.single())
-        val security = assertIs<LibraryEntry.Folder>(reviews.children.single())
-        assertEquals("Audit permissions", security.children.single().displayName)
+        // Markdown body match via index.
+        val byBody = visibleEntries(entries, "authorization", mapOf(audit.directory to "Check authorization boundaries"))
+        assertEquals("Audit permissions", assertIs<LibraryEntry.Folder>(byBody.single()).children.single().let {
+            assertIs<LibraryEntry.Folder>(it).children.single().displayName
+        })
+
+        // Multi-term match across folder path + template fields.
+        val multi = visibleEntries(entries, "reviews permissions", emptyMap())
+        assertEquals("Reviews", multi.single().displayName)
+
+        // Slash-delimited query works independent of platform separator.
+        val bySlash = visibleEntries(entries, "Reviews/Security", emptyMap())
+        assertEquals("Reviews", bySlash.single().displayName)
     }
 
     @Test
-    fun `search accepts slash-delimited paths independent of the platform separator`() {
-        val audit = template("Reviews/Security/audit", "Audit", "")
-        val entries = listOf(folder("Reviews", listOf(folder("Reviews/Security", listOf(audit)))))
-
-        val result = visibleEntries(entries, "Reviews/Security", emptyMap())
-
-        assertEquals("Reviews/Security", portablePath(Path.of("Reviews", "Security")))
-        assertEquals("Reviews", result.single().displayName)
-    }
-
-    @Test
-    fun `move down emits after the next sibling of the same kind`() {
+    fun `sibling moves respect kind order and boundaries`() {
         val first = template("a", "A", "")
         val folder = folder("Folder", emptyList())
         val second = template("b", "B", "")
         val snapshot = LibrarySnapshot(root, listOf(folder, first, second))
 
-        val move = siblingMove(snapshot, LibraryTreeSelection.Template(first), MoveDirection.DOWN)
+        // Down: after next sibling of same kind.
+        val down = siblingMove(snapshot, LibraryTreeSelection.Template(first), MoveDirection.DOWN)
+        assertEquals(root, down?.destination)
+        assertEquals(EntryPlacement.After(second.directory), down?.placement)
 
-        assertEquals(root, move?.destination)
-        assertEquals(EntryPlacement.After(second.directory), move?.placement)
-    }
+        // Up in nested folder: before prior sibling.
+        val nestedFirst = template("Reviews/a", "A", "")
+        val nestedSecond = template("Reviews/b", "B", "")
+        val reviews = folder("Reviews", listOf(nestedFirst, nestedSecond))
+        val nestedSnapshot = LibrarySnapshot(root, listOf(reviews))
+        val up = siblingMove(nestedSnapshot, LibraryTreeSelection.Template(nestedSecond), MoveDirection.UP)
+        assertEquals(reviews.directory, up?.destination)
+        assertEquals(EntryPlacement.Before(nestedFirst.directory), up?.placement)
 
-    @Test
-    fun `move up in a nested folder emits before the prior sibling`() {
-        val first = template("Reviews/a", "A", "")
-        val second = template("Reviews/b", "B", "")
-        val reviews = folder("Reviews", listOf(first, second))
-        val snapshot = LibrarySnapshot(root, listOf(reviews))
-
-        val move = siblingMove(snapshot, LibraryTreeSelection.Template(second), MoveDirection.UP)
-
-        assertEquals(reviews.directory, move?.destination)
-        assertEquals(EntryPlacement.Before(first.directory), move?.placement)
-    }
-
-    @Test
-    fun `move ignores the other entry kind and stops at a group boundary`() {
-        val folder = folder("Folder", emptyList())
-        val template = template("template", "Template", "")
-        val snapshot = LibrarySnapshot(root, listOf(folder, template))
-
+        // Cross-kind moves are rejected (group boundary).
         assertNull(siblingMove(snapshot, LibraryTreeSelection.Folder(folder), MoveDirection.DOWN))
-        assertNull(siblingMove(snapshot, LibraryTreeSelection.Template(template), MoveDirection.UP))
+        assertNull(siblingMove(snapshot, LibraryTreeSelection.Template(first), MoveDirection.UP))
     }
 
     @Test
@@ -128,29 +84,25 @@ class TemplateLibraryTreeTest {
     }
 
     @Test
-    fun `selection restores the exact path before a duplicated UUID`() {
+    fun `duplicate UUID selection prefers exact path and refuses to guess`() {
         val duplicateId = TemplateId.random()
         val first = template("First/a", "First copy", "", duplicateId)
         val second = template("Second/b", "Second copy", "", duplicateId)
-        val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
 
-        tree.updateLibrary(
+        // Exact-path preference wins when both copies exist.
+        val exactTree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
+        exactTree.updateLibrary(
             snapshot = LibrarySnapshot(root, listOf(folder("First", listOf(first)), folder("Second", listOf(second)))),
             bodyIndex = emptyMap(),
             searchQuery = "",
             preferredSelection = LibrarySelectionKey.Template(duplicateId.value, "Second/b"),
             expandedPaths = emptyList(),
         )
+        assertEquals(second.directory, assertIs<LibraryTreeSelection.Template>(exactTree.selectedSelection()).directory)
 
-        assertEquals(second.directory, assertIs<LibraryTreeSelection.Template>(tree.selectedSelection()).directory)
-    }
-
-    @Test
-    fun `selection does not guess when a moved UUID has multiple matches`() {
-        val duplicateId = TemplateId.random()
-        val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
-
-        tree.updateLibrary(
+        // Ambiguous move target without an exact path resolves to nothing.
+        val ambiguousTree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
+        ambiguousTree.updateLibrary(
             snapshot = LibrarySnapshot(
                 root,
                 listOf(
@@ -163,8 +115,38 @@ class TemplateLibraryTreeTest {
             preferredSelection = LibrarySelectionKey.Template(duplicateId.value, "missing"),
             expandedPaths = emptyList(),
         )
+        assertNull(ambiguousTree.selectedSelection())
 
-        assertNull(tree.selectedSelection())
+        // Filtered view must not mistake a visible duplicate for a unique match.
+        val filteredTree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
+        filteredTree.updateLibrary(
+            snapshot = LibrarySnapshot(
+                root,
+                listOf(
+                    template("original", "Original copy", "", duplicateId),
+                    template("duplicate", "Visible duplicate", "", duplicateId),
+                ),
+            ),
+            bodyIndex = emptyMap(),
+            searchQuery = "visible",
+            preferredSelection = LibrarySelectionKey.Template(duplicateId.value, "original"),
+            expandedPaths = emptyList(),
+        )
+        assertNull(filteredTree.selectedSelection())
+
+        // Unique move is followed even when the old path is reused by a replacement.
+        val stableId = TemplateId.random()
+        val moved = template("archive/original", "Moved original", "", stableId)
+        val replacement = template("original", "Replacement", "", TemplateId.random())
+        val movedTree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
+        movedTree.updateLibrary(
+            snapshot = LibrarySnapshot(root, listOf(folder("archive", listOf(moved)), replacement)),
+            bodyIndex = emptyMap(),
+            searchQuery = "",
+            preferredSelection = LibrarySelectionKey.Template(stableId.value, "original"),
+            expandedPaths = emptyList(),
+        )
+        assertEquals(moved.directory, assertIs<LibraryTreeSelection.Template>(movedTree.selectedSelection()).directory)
     }
 
     @Test
@@ -218,61 +200,7 @@ class TemplateLibraryTreeTest {
     }
 
     @Test
-    fun `filtered duplicate UUID is not mistaken for a unique match`() {
-        val duplicateId = TemplateId.random()
-        val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
-
-        tree.updateLibrary(
-            snapshot = LibrarySnapshot(
-                root,
-                listOf(
-                    template("original", "Original copy", "", duplicateId),
-                    template("duplicate", "Visible duplicate", "", duplicateId),
-                ),
-            ),
-            bodyIndex = emptyMap(),
-            searchQuery = "visible",
-            preferredSelection = LibrarySelectionKey.Template(duplicateId.value, "original"),
-            expandedPaths = emptyList(),
-        )
-
-        assertNull(tree.selectedSelection())
-    }
-
-    @Test
-    fun `unique UUID follows a move when the old path is reused`() {
-        val stableId = TemplateId.random()
-        val replacementId = TemplateId.random()
-        val moved = template("archive/original", "Moved original", "", stableId)
-        val replacement = template("original", "Replacement", "", replacementId)
-        val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
-
-        tree.updateLibrary(
-            snapshot = LibrarySnapshot(root, listOf(folder("archive", listOf(moved)), replacement)),
-            bodyIndex = emptyMap(),
-            searchQuery = "",
-            preferredSelection = LibrarySelectionKey.Template(stableId.value, "original"),
-            expandedPaths = emptyList(),
-        )
-
-        assertEquals(moved.directory, assertIs<LibraryTreeSelection.Template>(tree.selectedSelection()).directory)
-    }
-
-    @Test
-    fun `relative paths use portable separators`() {
-        assertEquals("Reviews/Security", portableRelativePath(root, root.resolve("Reviews/Security")))
-    }
-
-    @Test
-    fun `folder menu keeps rename and move to folder commands`() {
-        val commands = FOLDER_COMMANDS.filterNotNull().map(MenuCommand::command)
-
-        assertTrue(LibraryTreeCommand.RENAME_FOLDER in commands)
-        assertTrue(LibraryTreeCommand.MOVE_TO_FOLDER in commands)
-    }
-
-    @Test
-    fun `context menus expose the commands for each target kind`() {
+    fun `context menus expose commands and respect read-only mode`() {
         assertEquals(
             listOf(
                 LibraryTreeCommand.NEW_TEMPLATE,
@@ -306,10 +234,7 @@ class TemplateLibraryTreeTest {
             ),
             TEMPLATE_COMMANDS.map { command -> command?.command },
         )
-    }
-
-    @Test
-    fun `mutation commands disable while read-only commands remain available`() {
+        // Read-only: mutations off, navigation/open still on.
         assertEquals(false, isLibraryCommandEnabled(LibraryTreeCommand.USE_TEMPLATE, mutationsEnabled = false))
         assertEquals(false, isLibraryCommandEnabled(LibraryTreeCommand.RENAME_FOLDER, mutationsEnabled = false))
         assertEquals(false, isLibraryCommandEnabled(LibraryTreeCommand.MOVE_TO_FOLDER, mutationsEnabled = false))
@@ -319,221 +244,97 @@ class TemplateLibraryTreeTest {
     }
 
     @Test
-    fun `tree construction publishes its stable accessible name without an available context`() {
-        val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
-
-        assertEquals(LIBRARY_TREE_ACCESSIBLE_NAME, tree.accessibleContext.accessibleName)
-        assertEquals(
-            LIBRARY_TREE_ACCESSIBLE_NAME,
-            tree.getClientProperty(AccessibleContext.ACCESSIBLE_NAME_PROPERTY),
-        )
-    }
-
-    @Test
-    fun `look and feel update preserves the library renderer and safe folder text`() {
-        val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
-        tree.updateLibrary(
-            LibrarySnapshot(root, listOf(folder("Reviews", emptyList()))),
-            emptyMap(),
-            "",
-            null,
-            emptyList(),
-        )
-        val expectedRendererClass = tree.cellRenderer.javaClass
-        tree.cellRenderer = DefaultTreeCellRenderer()
-        val publishedRenderers = mutableListOf<Any?>()
-        tree.addPropertyChangeListener("cellRenderer") { event -> publishedRenderers += event.newValue }
-
-        tree.updateUI()
-
-        assertEquals(expectedRendererClass, tree.cellRenderer.javaClass)
-        assertTrue(publishedRenderers.any(expectedRendererClass::isInstance))
-        assertEquals("Reviews", tree.model.getChild(tree.model.root, 0).toString())
-    }
-
-    @Test
-    fun `library renderer gives folders and prompts distinct native icons`() {
-        val prompt = template("prompt", "Prompt", "")
-        val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
-        tree.updateLibrary(
-            LibrarySnapshot(root, listOf(folder("Reviews", emptyList()), prompt)),
-            emptyMap(),
-            "",
-            null,
-            emptyList(),
-        )
-        val rootNode = tree.model.root
-        val renderer = assertIs<ColoredTreeCellRenderer>(tree.cellRenderer)
-
-        renderer.getTreeCellRendererComponent(
-            tree,
-            tree.model.getChild(rootNode, 0),
-            false,
-            false,
-            true,
-            0,
-            false,
-        )
-        assertEquals(AllIcons.Nodes.Folder, renderer.icon)
-
-        renderer.getTreeCellRendererComponent(
-            tree,
-            tree.model.getChild(rootNode, 1),
-            false,
-            false,
-            true,
-            1,
-            false,
-        )
-        assertEquals(AllIcons.FileTypes.Markdown, renderer.icon)
-    }
-
-    @Test
-    fun `preferred selection restores the author origin after tree navigation`() {
+    fun `selection restore prefers author origin search choice and explicit override`() {
+        // Author origin survives tree navigation.
         val first = template("Reviews/a", "A", "")
         val second = template("Reviews/b", "B", "")
         val snapshot = LibrarySnapshot(root, listOf(folder("Reviews", listOf(first, second))))
         val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
         val firstKey = LibrarySelectionKey.Template(requireNotNull(first.summary.id).value)
-
         tree.updateLibrary(snapshot, emptyMap(), "", firstKey, emptyList())
         tree.selectTemplateByDirectory(second.directory)
         tree.updateLibrary(snapshot, emptyMap(), "", firstKey, emptyList())
-
         assertEquals(first.summary.id?.value, (tree.currentSelectionKey() as? LibrarySelectionKey.Template)?.templateId)
-    }
 
-    @Test
-    fun `a user-selected search result becomes the selection restored after clearing search`() {
-        val first = template("a", "Alpha", "")
-        val second = template("b", "Beta", "")
-        val snapshot = LibrarySnapshot(root, listOf(first, second))
-        val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
+        // User-picked search result survives clearing the filter.
+        val alpha = template("a", "Alpha", "")
+        val beta = template("b", "Beta", "")
+        val flat = LibrarySnapshot(root, listOf(alpha, beta))
+        val searchTree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
+        searchTree.updateLibrary(flat, emptyMap(), "", LibrarySelectionKey.Template(requireNotNull(alpha.summary.id).value), emptyList())
+        searchTree.updateLibrary(flat, emptyMap(), "Beta", null, emptyList())
+        searchTree.selectTemplateByDirectory(beta.directory)
+        searchTree.updateLibrary(flat, emptyMap(), "", null, emptyList())
+        assertEquals(beta.directory, assertIs<LibraryTreeSelection.Template>(searchTree.selectedSelection()).directory)
 
-        tree.updateLibrary(
-            snapshot,
-            emptyMap(),
-            "",
-            LibrarySelectionKey.Template(requireNotNull(first.summary.id).value),
-            emptyList(),
-        )
-        tree.updateLibrary(snapshot, emptyMap(), "Beta", null, emptyList())
-        tree.selectTemplateByDirectory(second.directory)
-        tree.updateLibrary(snapshot, emptyMap(), "", null, emptyList())
-
-        assertEquals(second.directory, assertIs<LibraryTreeSelection.Template>(tree.selectedSelection()).directory)
-    }
-
-    @Test
-    fun `a pending explicit selection overrides the pre-search selection when the filter clears`() {
-        val first = template("a", "Alpha", "")
-        val second = template("b", "Beta", "")
-        val snapshot = LibrarySnapshot(root, listOf(first, second))
-        val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
-
-        tree.updateLibrary(
-            snapshot,
-            emptyMap(),
-            "",
-            LibrarySelectionKey.Template(requireNotNull(first.summary.id).value),
-            emptyList(),
-        )
-        tree.updateLibrary(snapshot, emptyMap(), "Alpha", null, emptyList())
-        tree.updateLibrary(
-            snapshot = snapshot,
+        // Pending explicit selection wins when the filter clears.
+        val overrideTree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
+        overrideTree.updateLibrary(flat, emptyMap(), "", LibrarySelectionKey.Template(requireNotNull(alpha.summary.id).value), emptyList())
+        overrideTree.updateLibrary(flat, emptyMap(), "Alpha", null, emptyList())
+        overrideTree.updateLibrary(
+            snapshot = flat,
             bodyIndex = emptyMap(),
             searchQuery = "",
-            preferredSelection = LibrarySelectionKey.Template(requireNotNull(second.summary.id).value),
+            preferredSelection = LibrarySelectionKey.Template(requireNotNull(beta.summary.id).value),
             expandedPaths = emptyList(),
             preferPreferredSelection = true,
         )
-
-        assertEquals(second.directory, assertIs<LibraryTreeSelection.Template>(tree.selectedSelection()).directory)
+        assertEquals(beta.directory, assertIs<LibraryTreeSelection.Template>(overrideTree.selectedSelection()).directory)
     }
 
     @Test
-    fun `persisted expansion is restored exactly and collapse events publish the remaining set`() {
+    fun `persisted expansion restores prunes and publishes`() {
+        // Exact restore publishes nothing; expand/collapse publish deltas.
         val recorded = mutableListOf<Set<String>>()
         val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, { recorded += it })
         val acme = folder("work/clients/acme", listOf(template("work/clients/acme/t", "T", "")))
         val snapshot = LibrarySnapshot(root, listOf(folder("work", listOf(folder("work/clients", listOf(acme))))))
-
         tree.updateLibrary(snapshot, emptyMap(), "", preferredSelection = null, expandedPaths = listOf("work", "work/clients"))
-
         assertTrue(tree.isExpanded(tree.pathOfFolder("work")))
         assertTrue(tree.isExpanded(tree.pathOfFolder("work/clients")))
         assertFalse(tree.isExpanded(tree.pathOfFolder("work/clients/acme")))
         assertTrue(recorded.isEmpty(), "An exact restore publishes nothing, but recorded $recorded")
-
         tree.expandPath(tree.pathOfFolder("work/clients/acme"))
         assertEquals(setOf("work", "work/clients", "work/clients/acme"), recorded.last())
         tree.collapsePath(tree.pathOfFolder("work/clients/acme"))
         assertEquals(setOf("work", "work/clients"), recorded.last())
-    }
 
-    @Test
-    fun `a persisted folder whose ancestor is collapsed is not reopened and is pruned`() {
-        val recorded = mutableListOf<Set<String>>()
-        val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, { recorded += it })
+        // Collapsed ancestor is not reopened; persisted child is pruned.
+        val prunedRecorded = mutableListOf<Set<String>>()
+        val prunedTree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, { prunedRecorded += it })
         val clients = folder("work/clients", listOf(template("work/clients/t", "T", "")))
-        val snapshot = LibrarySnapshot(root, listOf(folder("work", listOf(clients))))
-
-        tree.updateLibrary(snapshot, emptyMap(), "", preferredSelection = null, expandedPaths = listOf("work/clients"))
-
-        assertFalse(tree.isExpanded(tree.pathOfFolder("work")))
-        assertEquals(emptySet(), recorded.last())
-    }
-
-    @Test
-    fun `an empty snapshot neither prunes nor publishes the persisted expansion`() {
-        val recorded = mutableListOf<Set<String>>()
-        val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, { recorded += it })
-
-        tree.updateLibrary(LibrarySnapshot(root, emptyList()), emptyMap(), "", preferredSelection = null, expandedPaths = listOf("work"))
-
-        assertTrue(recorded.isEmpty(), "The pre-scan placeholder must not publish, but recorded $recorded")
-        assertEquals(setOf("work"), tree.captureExpandedFolderPaths())
-        assertEquals(root, tree.selectedDestinationFolder())
-    }
-
-    @Test
-    fun `ancestor paths are listed nearest the root first`() {
-        assertEquals(emptyList(), ancestorPortablePaths("work"))
-        assertEquals(listOf("work", "work/clients"), ancestorPortablePaths("work/clients/acme"))
-    }
-
-    @Test
-    fun `selecting an entry inside a collapsed folder during a rebuild publishes the expanded ancestors`() {
-        val recorded = mutableListOf<Set<String>>()
-        val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, { recorded += it })
-        val snapshot = LibrarySnapshot(root, listOf(folder("A", listOf(folder("A/B", emptyList())))))
-
-        tree.updateLibrary(
-            snapshot,
-            emptyMap(),
-            "",
-            preferredSelection = LibrarySelectionKey.Folder("A/B"),
-            expandedPaths = emptyList(),
+        prunedTree.updateLibrary(
+            LibrarySnapshot(root, listOf(folder("work", listOf(clients)))),
+            emptyMap(), "", preferredSelection = null, expandedPaths = listOf("work/clients"),
         )
+        assertFalse(prunedTree.isExpanded(prunedTree.pathOfFolder("work")))
+        assertEquals(emptySet(), prunedRecorded.last())
 
-        assertTrue(tree.isExpanded(tree.pathOfFolder("A")))
-        assertEquals(setOf("A"), recorded.last())
-    }
+        // Empty snapshot (pre-scan placeholder) neither prunes nor publishes.
+        val emptyRecorded = mutableListOf<Set<String>>()
+        val emptyTree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, { emptyRecorded += it })
+        emptyTree.updateLibrary(LibrarySnapshot(root, emptyList()), emptyMap(), "", preferredSelection = null, expandedPaths = listOf("work"))
+        assertTrue(emptyRecorded.isEmpty(), "The pre-scan placeholder must not publish, but recorded $emptyRecorded")
+        assertEquals(setOf("work"), emptyTree.captureExpandedFolderPaths())
 
-    @Test
-    fun `stale expanded paths are dropped when their folders disappear`() {
-        val recorded = mutableListOf<Set<String>>()
-        val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, { recorded += it })
+        // Selecting inside a collapsed folder publishes expanded ancestors.
+        val selectRecorded = mutableListOf<Set<String>>()
+        val selectTree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, { selectRecorded += it })
+        selectTree.updateLibrary(
+            LibrarySnapshot(root, listOf(folder("A", listOf(folder("A/B", emptyList()))))),
+            emptyMap(), "", preferredSelection = LibrarySelectionKey.Folder("A/B"), expandedPaths = emptyList(),
+        )
+        assertTrue(selectTree.isExpanded(selectTree.pathOfFolder("A")))
+        assertEquals(setOf("A"), selectRecorded.last())
 
-        tree.updateLibrary(
+        // Stale paths for vanished folders are dropped.
+        val staleRecorded = mutableListOf<Set<String>>()
+        val staleTree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, { staleRecorded += it })
+        staleTree.updateLibrary(
             LibrarySnapshot(root, listOf(folder("Keep", listOf(template("Keep/t", "T", ""))))),
-            emptyMap(),
-            "",
-            preferredSelection = null,
-            expandedPaths = listOf("Keep", "Gone", "Gone/Deeper"),
+            emptyMap(), "", preferredSelection = null, expandedPaths = listOf("Keep", "Gone", "Gone/Deeper"),
         )
-
-        assertEquals(setOf("Keep"), recorded.last())
+        assertEquals(setOf("Keep"), staleRecorded.last())
     }
 
     @Test

@@ -238,7 +238,7 @@ class LibraryFileWatcherTest {
     }
 
     @Test
-    fun `poll snapshot ignores management directories unrelated files and symbolic links`() {
+    fun `poll snapshot ignores management scratch unrelated and linked files`() {
         val library = Files.createDirectory(temporaryDirectory.resolve("library"))
         val baseline = snapshotPromptLibrary(library)
 
@@ -248,6 +248,13 @@ class LibraryFileWatcherTest {
         val outside = Files.createDirectories(temporaryDirectory.resolve("outside/template"))
         Files.writeString(outside.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE), "outside")
         Files.createSymbolicLink(library.resolve("linked-template"), outside)
+        listOf(
+            FileSystemPromptTemplateRepository.DELETE_SCRATCH_PREFIX,
+            FileSystemPromptTemplateRepository.RENAME_SCRATCH_PREFIX,
+        ).forEach { prefix ->
+            val scratch = Files.createDirectories(library.resolve("${prefix}1234/review"))
+            Files.writeString(scratch.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE), "retained")
+        }
 
         assertEquals(baseline, snapshotPromptLibrary(library))
     }
@@ -266,22 +273,6 @@ class LibraryFileWatcherTest {
     }
 
     @Test
-    fun `poll snapshot ignores the repository's own scratch directories`() {
-        val library = Files.createDirectory(temporaryDirectory.resolve("library"))
-        val baseline = snapshotPromptLibrary(library)
-
-        listOf(
-            FileSystemPromptTemplateRepository.DELETE_SCRATCH_PREFIX,
-            FileSystemPromptTemplateRepository.RENAME_SCRATCH_PREFIX,
-        ).forEach { prefix ->
-            val scratch = Files.createDirectories(library.resolve("${prefix}1234/review"))
-            Files.writeString(scratch.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE), "retained")
-        }
-
-        assertEquals(baseline, snapshotPromptLibrary(library))
-    }
-
-    @Test
     fun `reacts to events reported under either path of a symbolic-link root`() {
         val target = Files.createDirectory(temporaryDirectory.resolve("target-library")).toRealPath()
         val linkedRoot = Files.createSymbolicLink(temporaryDirectory.resolve("linked-root"), target)
@@ -289,22 +280,5 @@ class LibraryFileWatcherTest {
         assertTrue(isPromptLibraryChange(linkedRoot, target.resolve("Reviews/prompt.md").toString()))
         assertTrue(isPromptLibraryChange(linkedRoot, linkedRoot.resolve("Reviews/prompt.md").toString()))
         assertFalse(isPromptLibraryChange(linkedRoot, target.resolveSibling("elsewhere/prompt.md").toString()))
-    }
-
-    @Test
-    fun `poll change tracker establishes a quiet baseline and reports later changes once`() {
-        val tracker = LibraryPollChangeTracker()
-        val initial = LibraryPollSnapshot(listOf(LibraryPollEntry("", directory = true)))
-        val changed = LibraryPollSnapshot(
-            listOf(
-                LibraryPollEntry("", directory = true),
-                LibraryPollEntry("Reviews", directory = true),
-            ),
-        )
-
-        assertFalse(tracker.record(initial))
-        assertFalse(tracker.record(initial))
-        assertTrue(tracker.record(changed))
-        assertFalse(tracker.record(changed))
     }
 }

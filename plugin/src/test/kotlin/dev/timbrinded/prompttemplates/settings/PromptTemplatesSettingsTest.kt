@@ -30,7 +30,7 @@ class PromptTemplatesSettingsTest {
     }
 
     @Test
-    fun `immutable state keeps the existing XML property names`() {
+    fun `immutable state keeps stable XML names and reads legacy beans`() {
         val state = PromptTemplatesSettings.SettingsState(
             libraryPath = "/tmp/library",
             confirmDeletion = false,
@@ -38,14 +38,12 @@ class PromptTemplatesSettingsTest {
             recentTemplateIds = listOf("recent"),
             splitterProportion = 0.4f,
         )
-
         val serialized = XmlSerializer.serialize(state)
         val propertyNames = buildSet {
             serialized.attributes.mapTo(this) { it.name }
             serialized.children.mapNotNullTo(this) { it.getAttributeValue("name") }
         }
         val restored = XmlSerializer.deserialize(serialized, PromptTemplatesSettings.SettingsState::class.java)
-
         assertEquals(
             setOf(
                 "libraryPath",
@@ -57,10 +55,8 @@ class PromptTemplatesSettingsTest {
             propertyNames,
         )
         assertEquals(state, restored)
-    }
 
-    @Test
-    fun `immutable state reads XML written by the previous mutable bean`() {
+        // Backward compat: XML written by the previous mutable bean still reads.
         val legacy = LegacySettingsState(
             libraryPath = "/tmp/legacy-library",
             confirmDeletion = false,
@@ -70,10 +66,7 @@ class PromptTemplatesSettingsTest {
             expandedFolderPaths = mutableListOf("Reviews"),
             selectedTemplateId = "selected",
         )
-
         val legacyXml = XmlSerializer.serialize(legacy)
-        val restored = XmlSerializer.deserialize(legacyXml, PromptTemplatesSettings.SettingsState::class.java)
-
         assertEquals(
             PromptTemplatesSettings.SettingsState(
                 libraryPath = "/tmp/legacy-library",
@@ -82,7 +75,7 @@ class PromptTemplatesSettingsTest {
                 recentTemplateIds = listOf("recent"),
                 splitterProportion = 0.45f,
             ),
-            restored,
+            XmlSerializer.deserialize(legacyXml, PromptTemplatesSettings.SettingsState::class.java),
         )
     }
 }

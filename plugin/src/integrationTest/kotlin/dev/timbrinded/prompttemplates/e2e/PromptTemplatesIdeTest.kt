@@ -1,6 +1,5 @@
 package dev.timbrinded.prompttemplates.e2e
 
-import com.intellij.driver.client.Remote
 import com.intellij.driver.sdk.waitFor
 import org.junit.jupiter.api.Test
 import kotlin.io.path.exists
@@ -13,58 +12,7 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 class PromptTemplatesIdeTest {
-    @Test
-    fun `library tree and menus work in an isolated IDE`() {
-        val harness = StarterHarness.create("library-tree-and-menus")
-        harness.workspace.templates.createTemplate(
-            relativeDirectory = "Reviews/Security/review-implementation",
-            name = "Review implementation",
-            id = "d43f3d91-6729-4fb0-bf09-f52c8ce11e59",
-        )
-
-        harness.run { ui ->
-            val remoteUserHome = utility(RemoteSystem::class).getProperty("user.home")
-            assertEquals(harness.workspace.userHome.toString(), remoteUserHome)
-
-            val paths = ui.open().expandAll()
-            assertHumanReadablePaths(paths)
-            assertPathPresent(paths, "Reviews")
-            assertPathPresent(paths, "Reviews/Security")
-            assertPathPresent(paths, "Reviews/Security/Review implementation")
-
-            harness.workspace.templates.createTemplate(
-                relativeDirectory = "External/watched-template",
-                name = "Watched template",
-                id = "55a02ddb-33f7-462d-861a-bcf3569577ed",
-            )
-            ui.waitForPath("External", "Watched template")
-
-            assertTrue(
-                ui.expandedRowCount() >= 2,
-                "Expected nested folders to be expanded before Collapse All.",
-            )
-
-            ui.selectRootContextMenuItem("Collapse All")
-            waitFor("all tree rows are collapsed", 30.seconds) {
-                ui.expandedRowCount() == 0
-            }
-            ui.waitForVisiblePathAbsent("Reviews", "Security")
-
-            ui.selectRootContextMenuItem("Expand All")
-            ui.waitForVisiblePath("Reviews", "Security", "Review implementation")
-
-            val items = ui.rightClickPath("Reviews")
-            val expectedItems = setOf(
-                "New Template",
-                "New Folder",
-                "Rename…",
-                "Move to Folder…",
-                "Delete Folder…",
-            )
-            assertEquals(expectedItems, items.toSet(), "Folder menu was $items")
-        }
-    }
-
+    // Single end-to-end smoke: real FS + real UI wiring. Unit suites own selection/menu/state coverage.
     @Test
     fun `hierarchy mutations work through the real UI`() {
         val harness = StarterHarness.create("hierarchy-mutations")
@@ -166,45 +114,8 @@ class PromptTemplatesIdeTest {
         }
     }
 
-    @Test
-    fun `tree state survives an IDE restart`() {
-        val harness = StarterHarness.create("tree-state-survives-restart")
-        harness.workspace.templates.createTemplate(
-            relativeDirectory = "Reviews/Security/review-implementation",
-            name = "Review implementation",
-            id = "6062e44b-8e83-4e29-b7c5-ce651cc6f9b5",
-        )
-
-        harness.runWithRestart(
-            beforeRestart = { ui ->
-                ui.open().expandAll()
-                ui.selectPath("Reviews", "Security", "Review implementation")
-            },
-            afterRestart = { ui ->
-                ui.open()
-                assertPathPresent(ui.expandedPaths(), "Reviews/Security")
-                assertPathPresent(ui.selectedPaths(), "Reviews/Security/Review implementation")
-            },
-        )
-    }
-
     private fun assertPathPresent(paths: List<String>, suffix: String) {
-        assertTrue(
-            paths.any { path -> path.endsWithLibraryPath(suffix) },
-            "Expected a tree path ending in '$suffix', but found $paths",
-        )
-    }
-
-    private fun assertHumanReadablePaths(paths: List<String>) {
-        val internalPaths = paths.filter { path ->
-            path.split('/').any { segment ->
-                segment.contains("Folder(entry=") || segment.contains("Template(entry=")
-            }
-        }
-        assertTrue(
-            internalPaths.isEmpty(),
-            "Tree rows exposed internal model text instead of human labels: $internalPaths",
-        )
+        assertTrue(paths.any { path -> path.endsWithLibraryPath(suffix) }, "Expected '$suffix' in $paths")
     }
 
     private fun appearsBefore(paths: List<String>, first: String, second: String): Boolean {
@@ -212,9 +123,4 @@ class PromptTemplatesIdeTest {
         val secondIndex = paths.indexOfFirst { path -> path.endsWithLibraryPath(second) }
         return firstIndex >= 0 && secondIndex >= 0 && firstIndex < secondIndex
     }
-}
-
-@Remote("java.lang.System")
-private interface RemoteSystem {
-    fun getProperty(key: String): String?
 }

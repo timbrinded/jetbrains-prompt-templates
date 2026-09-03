@@ -142,13 +142,40 @@ class FileSystemPromptTemplateHierarchyTest(
         writeTemplate(root.resolve("aaa"), "Zulu", TemplateId.random())
         writeTemplate(root.resolve("zzz"), "Alpha", TemplateId.random())
 
-        val repository = FileSystemPromptTemplateRepository(root)
-        assertEquals(listOf("Alpha", "Zulu"), repository.scan().children.map(LibraryEntry::displayName))
+        assertEquals(listOf("Alpha", "Zulu"), FileSystemPromptTemplateRepository(root).scan().children.map(LibraryEntry::displayName))
+    }
 
-        Files.writeString(root.resolve(FileSystemPromptTemplateRepository.ORDER_FILE), "invalid")
-        val invalidOrder = repository.scan()
-        assertTrue(invalidOrder.diagnostic.orEmpty().contains("invalid"))
-        assertEquals(listOf("Alpha", "Zulu"), invalidOrder.children.map(LibraryEntry::displayName))
+    @Test
+    fun `falls back to alphabetical order for unreadable order data`() {
+        val root = temporaryDirectory.resolve("library")
+        Files.createDirectories(root.resolve("Zulu"))
+        Files.createDirectories(root.resolve("Alpha"))
+        val repository = FileSystemPromptTemplateRepository(root)
+        val orderPath = root.resolve(FileSystemPromptTemplateRepository.ORDER_FILE)
+
+        // Not JSON.
+        Files.writeString(orderPath, "not-json")
+        val malformed = repository.scan()
+        assertEquals(listOf("Alpha", "Zulu"), malformed.children.map(LibraryEntry::displayName))
+        assertTrue(malformed.diagnostic.orEmpty().contains("invalid"))
+
+        // Unsupported schema version.
+        Files.writeString(orderPath, """{"schemaVersion": 2, "folders": ["Zulu"]}""")
+        val unsupported = repository.scan()
+        assertEquals(listOf("Alpha", "Zulu"), unsupported.children.map(LibraryEntry::displayName))
+        assertTrue(unsupported.diagnostic.orEmpty().contains("Unsupported"))
+
+        // Legacy invalid string.
+        Files.writeString(orderPath, "invalid")
+        val invalid = repository.scan()
+        assertEquals(listOf("Alpha", "Zulu"), invalid.children.map(LibraryEntry::displayName))
+        assertTrue(invalid.diagnostic.orEmpty().contains("invalid"))
+
+        // Not valid UTF-8.
+        Files.write(orderPath, byteArrayOf(0xC3.toByte()))
+        val unreadable = repository.scan()
+        assertEquals(listOf("Alpha", "Zulu"), unreadable.children.map(LibraryEntry::displayName))
+        assertTrue(unreadable.diagnostic.orEmpty().startsWith("Unable to read"))
     }
 
     @Test
@@ -178,42 +205,6 @@ class FileSystemPromptTemplateHierarchyTest(
             snapshot.children.map(LibraryEntry::displayName),
         )
         assertNull(snapshot.diagnostic)
-    }
-
-    @Test
-    fun `falls back to alphabetical order for malformed or unsupported order data`() {
-        val root = temporaryDirectory.resolve("library")
-        Files.createDirectories(root.resolve("Zulu"))
-        Files.createDirectories(root.resolve("Alpha"))
-        val repository = FileSystemPromptTemplateRepository(root)
-        val orderPath = root.resolve(FileSystemPromptTemplateRepository.ORDER_FILE)
-        Files.writeString(orderPath, "not-json")
-
-        val malformed = repository.scan()
-
-        assertEquals(listOf("Alpha", "Zulu"), malformed.children.map(LibraryEntry::displayName))
-        assertTrue(malformed.diagnostic.orEmpty().contains("invalid"))
-
-        Files.writeString(orderPath, """{"schemaVersion": 2, "folders": ["Zulu"]}""")
-        val unsupported = repository.scan()
-        assertEquals(listOf("Alpha", "Zulu"), unsupported.children.map(LibraryEntry::displayName))
-        assertTrue(unsupported.diagnostic.orEmpty().contains("Unsupported"))
-    }
-
-    @Test
-    fun `falls back to alphabetical order when the order file is not valid UTF-8`() {
-        val root = temporaryDirectory.resolve("library")
-        Files.createDirectories(root.resolve("Zulu"))
-        Files.createDirectories(root.resolve("Alpha"))
-        Files.write(
-            root.resolve(FileSystemPromptTemplateRepository.ORDER_FILE),
-            byteArrayOf(0xC3.toByte()),
-        )
-
-        val snapshot = FileSystemPromptTemplateRepository(root).scan()
-
-        assertEquals(listOf("Alpha", "Zulu"), snapshot.children.map(LibraryEntry::displayName))
-        assertTrue(snapshot.diagnostic.orEmpty().startsWith("Unable to read"))
     }
 
     @Test

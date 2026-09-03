@@ -107,81 +107,55 @@ class PromptTemplatesPanelTest {
     }
 
     @Test
-    fun `detail activity does not invalidate an in-flight library scan`() {
+    fun `detail loads track generations and invalidate only prior results`() {
         val generations = LoadGenerationTracker()
         val libraryGeneration = generations.beginLibraryLoad()
         val target = TemplateDetailTarget(Path.of("library", "prompt"), "template-id")
 
+        // Detail activity alone does not invalidate the in-flight library scan.
         generations.beginDetailLoad(target, TemplateDetailIntent.USE)
         generations.invalidateDetailLoad()
-
         assertTrue(generations.isCurrentLibraryLoad(libraryGeneration))
-    }
 
-    @Test
-    fun `a newer detail request invalidates only the prior detail result`() {
-        val generations = LoadGenerationTracker()
-        val libraryGeneration = generations.beginLibraryLoad()
-        val target = TemplateDetailTarget(Path.of("library", "prompt"), "template-id")
+        // A newer detail request invalidates only the prior detail result.
         val firstDetailRequest = generations.beginDetailLoad(target, TemplateDetailIntent.USE)
-
         val secondDetailRequest = generations.beginDetailLoad(target, TemplateDetailIntent.EDIT)
-
         assertTrue(generations.isCurrentLibraryLoad(libraryGeneration))
         assertFalse(generations.acceptDetailLoad(firstDetailRequest))
         assertTrue(generations.acceptDetailLoad(secondDetailRequest))
     }
 
     @Test
-    fun `preferred mutation selection survives a superseding watcher reload until applied`() {
+    fun `preferred selection tracks pending until acknowledged`() {
         val tracker = PreferredLibrarySelectionTracker()
         val created = LibrarySelectionKey.Folder("Reviews/New folder")
         val stale = LibrarySelectionKey.Folder("Reviews/Old folder")
-
         tracker.remember(created)
-
         assertEquals(created, tracker.preferredOr(stale))
         tracker.acknowledge(stale)
         assertEquals(created, tracker.pendingSelection())
         assertEquals(created, tracker.preferredOr(stale))
         tracker.acknowledge(created)
         assertNull(tracker.pendingSelection())
-    }
 
-    @Test
-    fun `preferred template selection is acknowledged after a second unique move`() {
-        val tracker = PreferredLibrarySelectionTracker()
+        // Case-insensitive UUID match on a moved template also acknowledges.
         val templateId = "92ee5ce7-2448-4875-89a7-bd574eacc9e1"
-        tracker.remember(
-            LibrarySelectionKey.Template(templateId, "Reviews/original"),
-        )
-
-        tracker.acknowledge(
-            LibrarySelectionKey.Template(templateId.uppercase(), "Archive/original"),
-        )
-
+        tracker.remember(LibrarySelectionKey.Template(templateId, "Reviews/original"))
+        tracker.acknowledge(LibrarySelectionKey.Template(templateId.uppercase(), "Archive/original"))
         assertNull(tracker.pendingSelection())
     }
 
     @Test
-    fun `a newer author draft rejects an older save callback`() {
+    fun `author callbacks reject stale requests and retain destinations`() {
         val tracker = AuthorAsyncRequestTracker()
         val save = requireNotNull(tracker.beginSave(Path.of("library", "original")))
-
         tracker.invalidate()
-
         assertFalse(tracker.isCurrent(save))
-    }
 
-    @Test
-    fun `concurrent imports retain their own destinations and only the newest callback is current`() {
-        val tracker = AuthorAsyncRequestTracker()
         val firstDestination = Path.of("library", "First")
         val secondDestination = Path.of("library", "Second")
-
         val first = tracker.begin(firstDestination)
         val second = tracker.begin(secondDestination)
-
         assertEquals(firstDestination, first.destination)
         assertEquals(secondDestination, second.destination)
         assertFalse(tracker.isCurrent(first))
@@ -203,9 +177,8 @@ class PromptTemplatesPanelTest {
     }
 
     @Test
-    fun `watcher reload refreshes an open template only when it is still selected`() {
+    fun `reload and scan restart detail only when still selected`() {
         val active = Path.of("library", "reviews", "audit")
-
         assertTrue(
             shouldReloadSelectedDetail(
                 reloadRequested = true,
@@ -214,16 +187,16 @@ class PromptTemplatesPanelTest {
                 activeDirectory = active,
             ),
         )
-        assertTrue(
-            !shouldReloadSelectedDetail(
+        assertFalse(
+            shouldReloadSelectedDetail(
                 reloadRequested = false,
                 authorOpen = false,
                 selectedDirectory = active,
                 activeDirectory = active,
             ),
         )
-        assertTrue(
-            !shouldReloadSelectedDetail(
+        assertFalse(
+            shouldReloadSelectedDetail(
                 reloadRequested = true,
                 authorOpen = true,
                 selectedDirectory = active,
@@ -238,12 +211,8 @@ class PromptTemplatesPanelTest {
                 activeDirectory = active,
             ),
         )
-    }
 
-    @Test
-    fun `a scan restarts a pending detail only when the same template remains selected`() {
         val pending = Path.of("library", "Reviews", "audit")
-
         assertTrue(
             shouldRestartPendingDetailAfterReload(
                 resolvedPendingDirectory = pending,
@@ -251,15 +220,15 @@ class PromptTemplatesPanelTest {
                 authorOpen = false,
             ),
         )
-        assertTrue(
-            !shouldRestartPendingDetailAfterReload(
+        assertFalse(
+            shouldRestartPendingDetailAfterReload(
                 resolvedPendingDirectory = pending,
                 selectedTemplateDirectory = null,
                 authorOpen = false,
             ),
         )
-        assertTrue(
-            !shouldRestartPendingDetailAfterReload(
+        assertFalse(
+            shouldRestartPendingDetailAfterReload(
                 resolvedPendingDirectory = pending,
                 selectedTemplateDirectory = Path.of("library", "Other", "prompt"),
                 authorOpen = false,
@@ -268,20 +237,15 @@ class PromptTemplatesPanelTest {
     }
 
     @Test
-    fun `search indexing does not follow a symbolic link masquerading as template Markdown`() {
+    fun `search indexing only reads regular template files`() {
         val outside = temporaryDirectory.resolve("outside.md")
         val linkedMarkdown = temporaryDirectory.resolve("prompt.md")
         Files.writeString(outside, "private outside content")
         Files.createSymbolicLink(linkedMarkdown, outside)
-
         assertEquals("private outside content", readSearchIndexBody(outside))
         assertEquals("", readSearchIndexBody(linkedMarkdown))
-    }
 
-    @Test
-    fun `search indexing rejects a non-regular path before opening it`() {
         val directoryNamedMarkdown = Files.createDirectory(temporaryDirectory.resolve("special-prompt.md"))
-
         assertEquals("", readSearchIndexBody(directoryNamedMarkdown))
     }
 
