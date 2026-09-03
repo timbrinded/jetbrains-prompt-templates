@@ -91,7 +91,7 @@ Requirements are JDK 25 and the included Gradle wrapper. Gradle can provision th
 
 The installable ZIP is written to `plugin/build/distributions/`. Install it with **Settings | Plugins | ⚙ | Install Plugin from Disk…**.
 
-The integration task installs the built plugin into an isolated unified IntelliJ IDEA 2026.2.0.1 instance, uses a temporary project and user home, and drives the real Swing UI with JetBrains Starter and Driver. Screenshots, Swing hierarchies, tree state, isolated paths and library manifests are written below `plugin/build/ui-test/`. On headless Linux, run the task under Xvfb for physical drag-and-drop. Local desktop sessions can use their native display; Xvfb is not a Wayland requirement. The `ui-e2e` CI job runs this complete task under Xvfb.
+The integration task is a local E2E check. It installs the built plugin into an isolated unified IntelliJ IDEA 2026.2.0.1 instance, uses a temporary project and user home, and drives the real Swing UI with JetBrains Starter and Driver. Screenshots, Swing hierarchies, tree state, isolated paths and library manifests are written below `plugin/build/ui-test/`. On headless Linux, run the task under Xvfb for physical drag-and-drop. Local desktop sessions can use their native display; Xvfb is not a Wayland requirement.
 
 The core module has no IntelliJ dependency, so its parser, renderer, codec and repository tests run independently:
 
@@ -130,7 +130,7 @@ The plugin has no networking, telemetry or prompt execution. Current variable va
 
 The plugin declares only the shared `com.intellij.modules.platform` dependency. Product compatibility therefore covers standalone JetBrains IDEs that provide that module, with minimum platform build 262. It does not depend on a product-specific language or framework module.
 
-CI uses two independent jobs. The build job compiles, tests and builds the plugin ZIP on JDK 25, then runs Plugin Verifier against RustRover 2026.2 and WebStorm 2026.2. The UI job runs the unified IntelliJ IDEA Starter/Driver suite under Xvfb. Those verified hosts are not a product whitelist. Before a public 1.0 release, the verifier and manual UI matrix should expand across representative compatible products. Remote-development topology remains a separate, unverified target.
+CI compiles, tests and builds the plugin ZIP on JDK 25, then runs Plugin Verifier against RustRover 2026.2 and WebStorm 2026.2. The slower IntelliJ IDEA Starter/Driver E2E suite is a local check. Those verified hosts are not a product whitelist. Before a public 1.0 release, the verifier and manual UI matrix should expand across representative compatible products. Remote-development topology remains a separate, unverified target.
 
 ## License
 
