@@ -495,43 +495,49 @@ internal class PromptTemplatesController(
         val repo = repository
         val libraryRootAtRequest = settings.libraryRoot
         coroutineScope.launch {
-            if (!authorRequests.isCurrent(request)) return@launch
-            if (existing != null) {
-                val latest = withContext(Dispatchers.IO) { repo.load(existing.directory) }
-                val externallyChanged = latest !is RepositoryResult.Success || latest.value.template != existing.template
-                if (externallyChanged && !confirmOverwrite(request)) {
-                    authorRequests.finishSave(request)
-                    return@launch
+            // Every exit from this block, including early returns, exceptions and cancellation, must
+            // release the save latch; otherwise later Save clicks are silently ignored.
+            try {
+                if (!authorRequests.isCurrent(request)) return@launch
+                if (existing != null) {
+                    val latest = withContext(Dispatchers.IO) { repo.load(existing.directory) }
+                    val externallyChanged =
+                        latest !is RepositoryResult.Success || latest.value.template != existing.template
+                    if (externallyChanged && !confirmOverwrite(request)) return@launch
                 }
-            }
-            if (!authorRequests.isCurrent(request)) return@launch
-            val result = withContext(Dispatchers.IO) {
-                if (existing == null) {
-                    repo.create(draft, request.destination)
-                } else {
-                    repo.update(existing.directory, draft)
-                }
-            }
-            withContext(Dispatchers.EDT) {
-                if (isDisposed() || !authorRequests.isCurrent(request)) return@withContext
-                if (hasLibraryRootChanged(libraryRootAtRequest, settings.libraryRoot)) {
-                    authorRequests.invalidate()
-                    return@withContext
-                }
-                authorRequests.finishSave(request)
-                when (result) {
-                    is RepositoryResult.Success -> {
-                        showWarnings(result.warnings)
-                        showUse(result.value)
-                        reloadLibrary(
-                            LibrarySelectionKey.Template(
-                                result.value.template.id.value,
-                                portableRelativePath(libraryRootAtRequest, result.value.directory),
-                            ),
-                        )
+                if (!authorRequests.isCurrent(request)) return@launch
+                val result = withContext(Dispatchers.IO) {
+                    if (existing == null) {
+                        repo.create(draft, request.destination)
+                    } else {
+                        repo.update(existing.directory, draft)
                     }
-                    is RepositoryResult.Failure -> PromptTemplatesNotifications.error(project, result.message)
                 }
+                withContext(Dispatchers.EDT) {
+                    if (isDisposed() || !authorRequests.isCurrent(request)) return@withContext
+                    if (hasLibraryRootChanged(libraryRootAtRequest, settings.libraryRoot)) {
+                        authorRequests.invalidate()
+                        return@withContext
+                    }
+                    // Release on the EDT before showing the outcome so the next Save click is accepted at once;
+                    // the finally below covers every other exit.
+                    authorRequests.finishSave(request)
+                    when (result) {
+                        is RepositoryResult.Success -> {
+                            showWarnings(result.warnings)
+                            showUse(result.value)
+                            reloadLibrary(
+                                LibrarySelectionKey.Template(
+                                    result.value.template.id.value,
+                                    portableRelativePath(libraryRootAtRequest, result.value.directory),
+                                ),
+                            )
+                        }
+                        is RepositoryResult.Failure -> PromptTemplatesNotifications.error(project, result.message)
+                    }
+                }
+            } finally {
+                authorRequests.finishSave(request)
             }
         }
     }

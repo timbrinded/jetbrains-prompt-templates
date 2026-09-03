@@ -38,25 +38,21 @@ import kotlin.io.path.name
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
-internal fun isPromptLibraryChange(root: Path, eventPath: String): Boolean {
-    val normalizedRoot = try {
-        root.toAbsolutePath().normalize()
-    } catch (_: SecurityException) {
-        return false
-    }
-    val changedPath = try {
-        Path.of(eventPath).toAbsolutePath().normalize()
-    } catch (_: InvalidPathException) {
-        return false
-    } catch (_: SecurityException) {
-        return false
-    }
-    if (!isManagedLibraryPath(normalizedRoot, changedPath)) return false
+internal fun isPromptLibraryChange(root: Path, eventPath: String): Boolean =
+    libraryRootsOrNull(root)?.let { roots -> isPromptLibraryChange(roots, eventPath) } ?: false
+
+internal fun isPromptLibraryChange(roots: List<Path>, eventPath: String): Boolean {
+    val changedPath = eventPathOrNull(eventPath) ?: return false
+    if (!isManagedLibraryPath(roots, changedPath)) return false
 
     return changedPath.name in LIBRARY_CONTROL_FILES
 }
 
-internal fun isPromptLibraryChange(root: Path, event: VFileEvent): Boolean {
+internal fun isPromptLibraryChange(root: Path, event: VFileEvent): Boolean =
+    libraryRootsOrNull(root)?.let { roots -> isPromptLibraryChange(roots, event) } ?: false
+
+/** Resolve the roots once per event batch with [libraryRootsOrNull]; resolving per event costs a realpath lookup each. */
+internal fun isPromptLibraryChange(roots: List<Path>, event: VFileEvent): Boolean {
     val paths = buildList {
         add(event.path)
         if (event is VFileMoveEvent) {
@@ -68,37 +64,60 @@ internal fun isPromptLibraryChange(root: Path, event: VFileEvent): Boolean {
         }
     }
     val directoryEvent = event.file?.isDirectory == true || event is VFileCreateEvent && event.isDirectory
-    return isPromptLibraryChange(root, paths, directoryEvent)
+    return isPromptLibraryChange(roots, paths, directoryEvent)
 }
 
 internal fun isPromptLibraryChange(
     root: Path,
     eventPaths: Collection<String>,
     directoryEvent: Boolean,
+): Boolean = libraryRootsOrNull(root)?.let { roots -> isPromptLibraryChange(roots, eventPaths, directoryEvent) } ?: false
+
+internal fun isPromptLibraryChange(
+    roots: List<Path>,
+    eventPaths: Collection<String>,
+    directoryEvent: Boolean,
 ): Boolean {
-    if (eventPaths.any { isPromptLibraryChange(root, it) }) return true
+    if (eventPaths.any { isPromptLibraryChange(roots, it) }) return true
     if (!directoryEvent) return false
-    val normalizedRoot = try {
-        root.toAbsolutePath().normalize()
-    } catch (_: SecurityException) {
-        return false
-    }
     return eventPaths.any { eventPath ->
-        val changedPath = try {
-            Path.of(eventPath).toAbsolutePath().normalize()
-        } catch (_: InvalidPathException) {
-            return@any false
-        } catch (_: SecurityException) {
-            return@any false
-        }
-        isManagedLibraryPath(normalizedRoot, changedPath)
+        val changedPath = eventPathOrNull(eventPath) ?: return@any false
+        isManagedLibraryPath(roots, changedPath)
     }
 }
 
-private fun isManagedLibraryPath(root: Path, candidate: Path): Boolean {
-    if (!candidate.startsWith(root)) return false
+/**
+ * The configured root and, when the root is a symbolic link, its real path. VFS and native watcher
+ * events may report either form, and README documents that the configured root may be a link.
+ */
+internal fun libraryRootsOrNull(root: Path): List<Path>? {
+    val normalizedRoot = try {
+        root.toAbsolutePath().normalize()
+    } catch (_: SecurityException) {
+        return null
+    }
+    val realRoot = try {
+        normalizedRoot.toRealPath()
+    } catch (_: IOException) {
+        null
+    } catch (_: SecurityException) {
+        null
+    }
+    return if (realRoot == null || realRoot == normalizedRoot) listOf(normalizedRoot) else listOf(normalizedRoot, realRoot)
+}
+
+private fun eventPathOrNull(eventPath: String): Path? = try {
+    Path.of(eventPath).toAbsolutePath().normalize()
+} catch (_: InvalidPathException) {
+    null
+} catch (_: SecurityException) {
+    null
+}
+
+private fun isManagedLibraryPath(roots: List<Path>, candidate: Path): Boolean {
+    val root = roots.firstOrNull(candidate::startsWith) ?: return false
     return root.relativize(candidate).none { segment ->
-        FileSystemPromptTemplateRepository.isLibraryManagementDirectoryName(segment.toString())
+        FileSystemPromptTemplateRepository.isInternalLibraryEntryName(segment.toString())
     }
 }
 
@@ -148,6 +167,14 @@ internal class LibraryPollChangeTracker {
     }
 }
 
+private fun readRootAttributes(root: Path): BasicFileAttributes? = try {
+    Files.readAttributes(root, BasicFileAttributes::class.java)
+} catch (_: IOException) {
+    null
+} catch (_: SecurityException) {
+    null
+}
+
 internal fun snapshotPromptLibrary(root: Path): LibraryPollSnapshot {
     val normalizedRoot = root.toAbsolutePath().normalize()
     val pendingDirectories = ArrayDeque<Path>()
@@ -156,8 +183,11 @@ internal fun snapshotPromptLibrary(root: Path): LibraryPollSnapshot {
 
     while (pendingDirectories.isNotEmpty()) {
         val directory = pendingDirectories.removeFirst()
-        val directoryAttributes = readAttributesNoFollow(directory) ?: continue
-        if (!directoryAttributes.isDirectory || directoryAttributes.isSymbolicLink) continue
+        // The configured root may itself be a symbolic link (see README); entries below it may not.
+        val isRoot = directory == normalizedRoot
+        val directoryAttributes = (if (isRoot) readRootAttributes(directory) else readAttributesNoFollow(directory))
+            ?: continue
+        if (!directoryAttributes.isDirectory || (!isRoot && directoryAttributes.isSymbolicLink)) continue
         entries += LibraryPollEntry(
             relativePath = relativePollPath(normalizedRoot, directory),
             directory = true,
@@ -189,7 +219,7 @@ internal fun snapshotPromptLibrary(root: Path): LibraryPollSnapshot {
             continue
         }
         children.forEach { child ->
-            if (FileSystemPromptTemplateRepository.isLibraryManagementDirectoryName(child.name)) return@forEach
+            if (FileSystemPromptTemplateRepository.isInternalLibraryEntryName(child.name)) return@forEach
             val attributes = readAttributesNoFollow(child) ?: return@forEach
             if (attributes.isDirectory && !attributes.isSymbolicLink) pendingDirectories.add(child)
         }
@@ -256,7 +286,8 @@ internal class LibraryFileWatcher(
             VirtualFileManager.VFS_CHANGES_BG,
             object : BulkFileListenerBackgroundable {
                 override fun after(events: List<VFileEvent>) {
-                    if (events.any { event -> isPromptLibraryChange(normalizedRoot, event) }) {
+                    val roots = libraryRootsOrNull(normalizedRoot) ?: return
+                    if (events.any { event -> isPromptLibraryChange(roots, event) }) {
                         queueReload()
                     }
                 }

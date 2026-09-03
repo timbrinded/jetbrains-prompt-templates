@@ -52,7 +52,13 @@ internal object LibraryFolderOrderCodec {
         ignoreUnknownKeys = true
     }
 
-    fun read(folder: Path): ReadOrder {
+    fun read(folder: Path): ReadOrder = try {
+        readOrderFile(folder)
+    } catch (_: SecurityException) {
+        ReadOrder(diagnostic = "Unable to read $LIBRARY_ORDER_FILE: permission denied; alphabetical order is in use.")
+    }
+
+    private fun readOrderFile(folder: Path): ReadOrder {
         val path = folder.resolve(LIBRARY_ORDER_FILE)
         if (!Files.exists(path, NOFOLLOW_LINKS)) return ReadOrder()
         if (!Files.isRegularFile(path, NOFOLLOW_LINKS)) {

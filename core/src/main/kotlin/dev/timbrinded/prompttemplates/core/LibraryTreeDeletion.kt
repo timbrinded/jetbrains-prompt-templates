@@ -2,6 +2,7 @@ package dev.timbrinded.prompttemplates.core
 
 import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.DirectoryIteratorException
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
@@ -135,6 +136,9 @@ internal object LibraryTreeDeletion {
             deleteFreshEntry(quarantine, emptyList())
         } catch (error: IOException) {
             throw quarantineFailure(error, quarantine, target)
+        } catch (error: DirectoryIteratorException) {
+            // Directory iteration reports I/O failures as an unchecked exception; treat it like the IOException it wraps.
+            throw quarantineFailure(error.cause ?: error, quarantine, target)
         } catch (error: SecurityException) {
             throw quarantineFailure(error, quarantine, target)
         }
@@ -172,7 +176,8 @@ internal object LibraryTreeDeletion {
         val outcome = if (restored) {
             "The remaining entry was restored to '$target'."
         } else {
-            "The remaining entry is retained at '$quarantine' for recovery."
+            "The remaining entry is retained at '$quarantine'. It is hidden from the library; " +
+                "restore or remove it in a file manager."
         }
         return IOException("Safe deletion did not complete. $outcome", error)
     }
@@ -186,7 +191,7 @@ internal object LibraryTreeDeletion {
 
     private fun nextQuarantinePath(parent: Path): Path {
         while (true) {
-            val candidate = parent.resolve("$QUARANTINE_PREFIX${Uuid.random()}")
+            val candidate = parent.resolve("${FileSystemPromptTemplateRepository.DELETE_SCRATCH_PREFIX}${Uuid.random()}")
             if (!Files.exists(candidate, NOFOLLOW_LINKS)) return candidate
         }
     }
@@ -218,6 +223,4 @@ internal object LibraryTreeDeletion {
 
     private fun sha256(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes).toHexString()
-
-    private const val QUARANTINE_PREFIX = ".prompt-template-delete-"
 }

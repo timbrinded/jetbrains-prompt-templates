@@ -89,7 +89,15 @@ class LibraryFileWatcherTest {
 
     @Test
     fun `ignores files and directories inside IDE and version-control metadata`() {
-        listOf(".git", ".hg", ".svn", ".idea").forEach { directory ->
+        val internalDirectories = listOf(
+            ".git",
+            ".hg",
+            ".svn",
+            ".idea",
+            "${FileSystemPromptTemplateRepository.DELETE_SCRATCH_PREFIX}1",
+            "${FileSystemPromptTemplateRepository.RENAME_SCRATCH_PREFIX}1",
+        )
+        internalDirectories.forEach { directory ->
             assertFalse(isPromptLibraryChange(root, "/library/$directory/deep/prompt.md"))
             assertFalse(
                 isPromptLibraryChange(
@@ -242,6 +250,45 @@ class LibraryFileWatcherTest {
         Files.createSymbolicLink(library.resolve("linked-template"), outside)
 
         assertEquals(baseline, snapshotPromptLibrary(library))
+    }
+
+    @Test
+    fun `poll snapshot follows a symbolic-link library root`() {
+        val target = Files.createDirectory(temporaryDirectory.resolve("target-library"))
+        val template = Files.createDirectories(target.resolve("Reviews/review-implementation"))
+        Files.writeString(template.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE), "content")
+        val linkedRoot = Files.createSymbolicLink(temporaryDirectory.resolve("linked-root"), target)
+
+        val linkedSnapshot = snapshotPromptLibrary(linkedRoot)
+
+        assertTrue("Reviews" in linkedSnapshot.entries.map(LibraryPollEntry::relativePath), "Snapshot was $linkedSnapshot")
+        assertEquals(snapshotPromptLibrary(target), linkedSnapshot)
+    }
+
+    @Test
+    fun `poll snapshot ignores the repository's own scratch directories`() {
+        val library = Files.createDirectory(temporaryDirectory.resolve("library"))
+        val baseline = snapshotPromptLibrary(library)
+
+        listOf(
+            FileSystemPromptTemplateRepository.DELETE_SCRATCH_PREFIX,
+            FileSystemPromptTemplateRepository.RENAME_SCRATCH_PREFIX,
+        ).forEach { prefix ->
+            val scratch = Files.createDirectories(library.resolve("${prefix}1234/review"))
+            Files.writeString(scratch.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE), "retained")
+        }
+
+        assertEquals(baseline, snapshotPromptLibrary(library))
+    }
+
+    @Test
+    fun `reacts to events reported under either path of a symbolic-link root`() {
+        val target = Files.createDirectory(temporaryDirectory.resolve("target-library")).toRealPath()
+        val linkedRoot = Files.createSymbolicLink(temporaryDirectory.resolve("linked-root"), target)
+
+        assertTrue(isPromptLibraryChange(linkedRoot, target.resolve("Reviews/prompt.md").toString()))
+        assertTrue(isPromptLibraryChange(linkedRoot, linkedRoot.resolve("Reviews/prompt.md").toString()))
+        assertFalse(isPromptLibraryChange(linkedRoot, target.resolveSibling("elsewhere/prompt.md").toString()))
     }
 
     @Test

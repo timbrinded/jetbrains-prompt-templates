@@ -72,6 +72,32 @@ class FileSystemPromptTemplateHierarchyTest(
     }
 
     @Test
+    fun `hides the repository's own scratch directories and refuses to manage them`() {
+        val root = temporaryDirectory.resolve("library")
+        val scratchNames = listOf(
+            "${FileSystemPromptTemplateRepository.DELETE_SCRATCH_PREFIX}1234",
+            "${FileSystemPromptTemplateRepository.RENAME_SCRATCH_PREFIX}5678",
+        )
+        scratchNames.forEach { name ->
+            val retained = root.resolve("$name/review")
+            Files.createDirectories(retained)
+            Files.writeString(retained.resolve("prompt.md"), "retained for recovery")
+        }
+        Files.createDirectories(root.resolve("Visible"))
+        val repository = FileSystemPromptTemplateRepository(root)
+
+        assertEquals(listOf("Visible"), repository.scan().children.map(LibraryEntry::displayName))
+        scratchNames.forEach { name ->
+            assertIs<RepositoryResult.Failure>(repository.createFolder(root, "$name-new"))
+            assertFalse(Files.exists(root.resolve("$name-new")))
+            assertIs<RepositoryResult.Failure>(repository.renameFolder(root.resolve("Visible"), name))
+            assertTrue(Files.isDirectory(root.resolve("Visible")))
+            assertIs<RepositoryResult.Failure>(repository.moveEntry(root.resolve(name), root.resolve("Visible")))
+            assertIs<RepositoryResult.Failure>(repository.previewFolderDeletion(root.resolve(name)))
+        }
+    }
+
+    @Test
     fun `classifies a package from either canonical entry and rejects canonical symlinks`() {
         val root = temporaryDirectory.resolve("library")
         val metadataOnly = root.resolve("metadata-only")
@@ -503,7 +529,7 @@ class FileSystemPromptTemplateHierarchyTest(
 
         assertFalse(Files.exists(target))
         val hasQuarantine = temporaryDirectory.useDirectoryEntries { entries ->
-            entries.any { it.name.startsWith(".prompt-template-delete-") }
+            entries.any { it.name.startsWith(FileSystemPromptTemplateRepository.DELETE_SCRATCH_PREFIX) }
         }
         assertFalse(hasQuarantine)
     }

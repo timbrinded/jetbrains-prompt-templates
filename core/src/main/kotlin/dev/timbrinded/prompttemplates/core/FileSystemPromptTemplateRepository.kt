@@ -428,8 +428,8 @@ class FileSystemPromptTemplateRepository(
         libraryRoot.relativize(normalPath).forEach { segment ->
             val segmentName = segment.name
             if (segmentName.isEmpty()) return@forEach
-            require(!isLibraryManagementDirectoryName(segmentName)) {
-                "IDE and version-control metadata directories are not part of the template library."
+            require(!isInternalLibraryEntryName(segmentName)) {
+                "IDE metadata, version-control and library working directories are not part of the template library."
             }
             current = current.resolve(segment)
             require(!Files.isSymbolicLink(current)) { "Symbolic-link paths are not supported." }
@@ -495,6 +495,9 @@ class FileSystemPromptTemplateRepository(
         ) { "'$trimmed' is reserved by the prompt-template library." }
         require(!isLibraryManagementDirectoryName(trimmed)) {
             "'$trimmed' is reserved for IDE or version-control metadata."
+        }
+        require(!isLibraryScratchDirectoryName(trimmed)) {
+            "'$trimmed' uses a prefix reserved for the library's working directories."
         }
         return trimmed
     }
@@ -611,7 +614,7 @@ class FileSystemPromptTemplateRepository(
 
     private fun nextCaseRenameTemporaryPath(parent: Path): Path {
         while (true) {
-            val candidate = parent.resolve("$CASE_RENAME_PREFIX${Uuid.random()}")
+            val candidate = parent.resolve("$RENAME_SCRATCH_PREFIX${Uuid.random()}")
             if (!Files.exists(candidate, NOFOLLOW_LINKS)) return candidate
         }
     }
@@ -623,7 +626,7 @@ class FileSystemPromptTemplateRepository(
     ): IOException {
         if (!Files.exists(temporary, NOFOLLOW_LINKS) || Files.exists(source, NOFOLLOW_LINKS)) {
             return IOException(
-                "Unable to apply the requested folder-name casing. The folder remains at '$temporary'.",
+                "Unable to apply the requested folder-name casing. ${retainedScratchFolderHint(temporary)}",
                 renameError,
             )
         }
@@ -633,17 +636,20 @@ class FileSystemPromptTemplateRepository(
         } catch (rollbackError: IOException) {
             IOException(
                 "Unable to apply the requested folder-name casing or restore the original name. " +
-                    "The folder remains at '$temporary'.",
+                    retainedScratchFolderHint(temporary),
                 renameError,
             ).apply { addSuppressed(rollbackError) }
         } catch (rollbackError: SecurityException) {
             IOException(
                 "Unable to apply the requested folder-name casing or restore the original name. " +
-                    "The folder remains at '$temporary'.",
+                    retainedScratchFolderHint(temporary),
                 renameError,
             ).apply { addSuppressed(rollbackError) }
         }
     }
+
+    private fun retainedScratchFolderHint(temporary: Path): String =
+        "The folder remains at '$temporary'. It is hidden from the library; rename it in a file manager to restore it."
 
     private fun ensureDestinationParent(destination: Path) {
         destination.parent?.let(Files::createDirectories)
@@ -706,9 +712,20 @@ class FileSystemPromptTemplateRepository(
         private val LIBRARY_MANAGEMENT_DIRECTORY_NAMES = setOf(".git", ".hg", ".svn", ".idea")
         private val INVALID_FOLDER_NAME_CHARACTERS = setOf('<', '>', ':', '"', '/', '\\', '|', '?', '*')
         private val LIBRARY_MUTATION_LOCKS = ConcurrentHashMap<Path, ReentrantLock>()
-        private const val CASE_RENAME_PREFIX = ".prompt-template-rename-"
+
+        /** Prefixes of the working directories the repository creates beside an entry it is deleting or renaming. */
+        const val DELETE_SCRATCH_PREFIX = ".prompt-template-delete-"
+        const val RENAME_SCRATCH_PREFIX = ".prompt-template-rename-"
 
         fun isLibraryManagementDirectoryName(name: String): Boolean =
             name.lowercase() in LIBRARY_MANAGEMENT_DIRECTORY_NAMES
+
+        fun isLibraryScratchDirectoryName(name: String): Boolean =
+            name.startsWith(DELETE_SCRATCH_PREFIX, ignoreCase = true) ||
+                name.startsWith(RENAME_SCRATCH_PREFIX, ignoreCase = true)
+
+        /** Entries the library never shows or manages: version-control metadata and the repository's own scratch directories. */
+        fun isInternalLibraryEntryName(name: String): Boolean =
+            isLibraryManagementDirectoryName(name) || isLibraryScratchDirectoryName(name)
     }
 }

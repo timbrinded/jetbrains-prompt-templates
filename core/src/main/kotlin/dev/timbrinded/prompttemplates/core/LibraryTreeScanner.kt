@@ -3,7 +3,7 @@ package dev.timbrinded.prompttemplates.core
 import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository.Companion.MARKDOWN_FILE
 import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository.Companion.METADATA_FILE
 import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository.Companion.ORDER_FILE
-import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository.Companion.isLibraryManagementDirectoryName
+import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository.Companion.isInternalLibraryEntryName
 import java.io.IOException
 import java.nio.file.DirectoryIteratorException
 import java.nio.file.Files
@@ -238,7 +238,7 @@ internal class LibraryTreeScanner(
 
     private fun isScannableDirectoryEntry(path: Path): Boolean =
         path.name != ORDER_FILE &&
-            !isLibraryManagementDirectoryName(path.name) &&
+            !isInternalLibraryEntryName(path.name) &&
             (Files.isDirectory(path, NOFOLLOW_LINKS) || Files.isSymbolicLink(path))
 
     private fun sortEntries(entries: List<LibraryEntry>, order: FolderOrderFile?): List<LibraryEntry> =
