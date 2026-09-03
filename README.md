@@ -93,6 +93,21 @@ The installable ZIP is written to `plugin/build/distributions/`. Install it with
 
 The integration task is a local E2E check. It installs the built plugin into an isolated unified IntelliJ IDEA 2026.2.0.1 instance, uses a temporary project and user home, and drives the real Swing UI with JetBrains Starter and Driver. Screenshots, Swing hierarchies, tree state, isolated paths and library manifests are written below `plugin/build/ui-test/`. On headless Linux, run the task under Xvfb for physical drag-and-drop. Local desktop sessions can use their native display; Xvfb is not a Wayland requirement.
 
+Install [`gh-signoff`](https://github.com/basecamp/gh-signoff) once:
+
+```bash
+gh extension install basecamp/gh-signoff
+```
+
+Run the E2E task before you sign off the current commit:
+
+```bash
+./gradlew :plugin:integrationTest
+gh signoff e2e
+```
+
+Run `gh signoff e2e` only after the E2E task passes. If it fails, report the result with `gh signoff fail e2e --description "local E2E failed"`. The `signoff/e2e` status is required on pull requests to `main`.
+
 The core module has no IntelliJ dependency, so its parser, renderer, codec and repository tests run independently:
 
 ```bash
