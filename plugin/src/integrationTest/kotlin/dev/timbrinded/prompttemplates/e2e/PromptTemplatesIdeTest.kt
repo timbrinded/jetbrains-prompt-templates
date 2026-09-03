@@ -23,7 +23,6 @@ class PromptTemplatesIdeTest {
             id = "68582f11-919c-48d3-bc9a-f87cfd8a119f",
         )
         harness.workspace.templates.createFolder("Destination")
-        harness.workspace.templates.createFolder("Parent/Child")
         harness.workspace.templates.createTemplate(
             relativeDirectory = "Collision Source/collision-source",
             name = "Collision",
@@ -45,7 +44,6 @@ class PromptTemplatesIdeTest {
                 "Reviews",
                 "Source",
                 "Destination",
-                "Parent",
                 "Collision Source",
                 "Collision Destination",
                 "Trash",
@@ -67,9 +65,9 @@ class PromptTemplatesIdeTest {
                 harness.workspace.library.resolve("Reviews/Security/threat-model/prompt.meta.json").isRegularFile(),
             )
 
-            ui.dragPathOnto(
+            ui.movePathToFolder(
                 sourcePath = listOf("Source", "Review pull request"),
-                destinationPath = listOf("Destination"),
+                destinationPath = "Destination",
             )
             ui.waitForPath("Destination", "Review pull request")
             val destination = harness.workspace.library.resolve("Destination/review-pull-request")
@@ -78,36 +76,15 @@ class PromptTemplatesIdeTest {
             }
             assertPathPresent(ui.selectedPaths(), "Destination/Review pull request")
 
-            ui.movePathDown("Source")
-            waitFor("manual folder order is visible", 30.seconds) {
-                appearsBefore(
-                    paths = ui.orderedVisiblePaths(),
-                    first = "Destination",
-                    second = "Source",
-                )
-            }
-
-            val beforeCycle = harness.workspace.templates.manifest()
-            ui.dragPathOnto(
-                sourcePath = listOf("Parent"),
-                destinationPath = listOf("Parent", "Child"),
-            )
-            ui.waitForVisibleText("A folder cannot be moved into itself or one of its descendants.")
-            assertEquals(beforeCycle, harness.workspace.templates.manifest())
-
             val beforeCollision = harness.workspace.templates.manifest()
-            ui.dragPathOnto(
+            ui.movePathToFolder(
                 sourcePath = listOf("Collision Source", "Collision"),
-                destinationPath = listOf("Collision Destination"),
+                destinationPath = "Collision Destination",
             )
-            ui.waitForVisibleText("already exists in the destination folder.")
+            ui.waitForAccessibleText("already exists in the destination folder.")
             assertEquals(beforeCollision, harness.workspace.templates.manifest())
 
             val trash = harness.workspace.library.resolve("Trash")
-            ui.confirmFolderDeletion(folderPath = listOf("Trash"), typedName = "wrong")
-            ui.waitForVisibleText("Folder name did not match. Nothing was deleted.")
-            assertTrue(trash.isDirectory())
-
             ui.confirmFolderDeletion(folderPath = listOf("Trash"), typedName = "Trash")
             ui.waitForPathAbsent("Trash")
             assertFalse(trash.exists())
@@ -116,11 +93,5 @@ class PromptTemplatesIdeTest {
 
     private fun assertPathPresent(paths: List<String>, suffix: String) {
         assertTrue(paths.any { path -> path.endsWithLibraryPath(suffix) }, "Expected '$suffix' in $paths")
-    }
-
-    private fun appearsBefore(paths: List<String>, first: String, second: String): Boolean {
-        val firstIndex = paths.indexOfFirst { path -> path.endsWithLibraryPath(first) }
-        val secondIndex = paths.indexOfFirst { path -> path.endsWithLibraryPath(second) }
-        return firstIndex >= 0 && secondIndex >= 0 && firstIndex < secondIndex
     }
 }

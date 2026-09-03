@@ -12,13 +12,14 @@ import com.intellij.driver.sdk.ui.components.elements.JTreeUiComponent
 import com.intellij.driver.sdk.ui.components.elements.accessibleTree
 import com.intellij.driver.sdk.ui.components.elements.button
 import com.intellij.driver.sdk.ui.components.elements.dialog
+import com.intellij.driver.sdk.ui.components.elements.list
+import com.intellij.driver.sdk.ui.components.elements.popup
 import com.intellij.driver.sdk.ui.components.elements.textField
 import com.intellij.driver.sdk.ui.components.elements.waitForNoOpenedDialogs
 import com.intellij.driver.sdk.ui.ui
 import com.intellij.driver.sdk.waitFor
 import java.awt.Point
 import java.awt.event.InputEvent
-import java.awt.event.KeyEvent
 import java.awt.event.MouseEvent
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -140,27 +141,25 @@ class PromptTemplatesUi(
         }
     }
 
-    @Suppress("OPT_IN_USAGE")
-    fun movePathDown(vararg path: String) {
-        selectPath(*path)
-        libraryTree().keyboard {
-            hotKey(KeyEvent.VK_ALT, KeyEvent.VK_DOWN)
+    fun movePathToFolder(sourcePath: List<String>, destinationPath: String) {
+        selectContextMenuItem(*sourcePath.toTypedArray(), item = "Move to Folder…")
+        driver.ui.popup().apply {
+            waitFound(30.seconds)
+            val destinations = list()
+            val destinationIndex = destinations.items.indexOf(destinationPath)
+            check(destinationIndex >= 0) {
+                "Move destination '$destinationPath' not found in ${destinations.items}"
+            }
+            val destinationBounds = destinations.getCellBounds(destinationIndex)
+            clickComponentAt(
+                destinations,
+                Point(
+                    destinationBounds.x + destinationBounds.width / 2,
+                    destinationBounds.y + destinationBounds.height / 2,
+                ),
+            )
+            waitNotFound(30.seconds)
         }
-    }
-
-    fun dragPathOnto(sourcePath: List<String>, destinationPath: List<String>) {
-        val tree = libraryTree().expandAll()
-        val sourceRow = rowFor(tree, sourcePath)
-        val destinationRow = rowFor(tree, destinationPath)
-        val targetWithinTree = tree.fixture.scrollToRowAndGetVisibleCenter(destinationRow)
-        val treeBounds = tree.boundsOnScreen
-        tree.dragAndDropRowByNumberToPoint(
-            sourceRow,
-            Point(
-                treeBounds.x + targetWithinTree.x,
-                treeBounds.y + targetWithinTree.y,
-            ),
-        )
     }
 
     fun waitForPath(vararg path: String) {
@@ -187,8 +186,8 @@ class PromptTemplatesUi(
         }
     }
 
-    fun waitForVisibleText(text: String) {
-        driver.ui.x { contains(byVisibleText(text)) }.waitFound(30.seconds)
+    fun waitForAccessibleText(text: String) {
+        driver.ui.x { contains(byAccessibleName(text)) }.waitFound(30.seconds)
     }
 
     fun confirmFolderDeletion(folderPath: List<String>, typedName: String) {
@@ -200,12 +199,6 @@ class PromptTemplatesUi(
         }
         driver.ui.waitForNoOpenedDialogs()
     }
-
-    fun orderedVisiblePaths(): List<String> = libraryTree()
-        .expandAll()
-        .collectExpandedPaths()
-        .sortedBy { it.row }
-        .map { it.path.joinToString("/") }
 
     fun expandedRowCount(): Int = driver.withContext(OnDispatcher.EDT) {
         val tree = cast(libraryTree().component, TreeState::class)
