@@ -141,7 +141,7 @@ Use **compatible products** for products admitted by the descriptor dependencies
 
 1. Open the `Prompt Templates` tool window.
 2. Focus lands in the search field.
-3. Recent and pinned templates are visible immediately.
+3. The nested library tree restores its saved expansion and selection state.
 4. Type part of a template name, description, tag or body text.
 5. Select a template.
 6. The right-hand pane displays generated fields for its user variables.
@@ -210,12 +210,12 @@ Use a bottom-anchored master-detail layout when enough width is available.
 ┌ Prompt Templates ───────────────────────────────────────────────────┐
 │ [ Search templates…                         ] [+ New] [Import] [⋮] │
 ├────────────────────┬────────────────────────────────────────────────┤
-│ Recent             │ Review implementation                          │
-│                    │ ~/Prompt Templates/review/prompt.md            │
-│ Review change      │                                                │
-│ Diagnose failure   │ Objective                                      │
-│ Write plan         │ [ Review correctness and edge cases         ] │
-│ Security review    │                                                │
+│ ▾ Reviews          │ Review implementation                          │
+│   ▾ Security       │ ~/Prompt Templates/Reviews/Security/…          │
+│     Review impl…   │                                                │
+│   Review change    │ Objective                                      │
+│ ▸ Ideas            │ [ Review correctness and edge cases         ] │
+│ Diagnose failure   │                                                │
 │                    │ Review depth                                   │
 │                    │ [ Thorough                                  ▾ ]│
 │                    │                                                │
@@ -231,6 +231,8 @@ Use a bottom-anchored master-detail layout when enough width is available.
 │                    │ [Copy Prompt] [Insert…] [Export…] [Edit]      │
 └────────────────────┴────────────────────────────────────────────────┘
 ```
+
+The library pane uses a native tree. It shows organiser folders before template leaves. Users can create, rename, move, manually reorder, expand and collapse entries through matching pointer and keyboard actions. Root, folder and template context menus expose only valid actions for their target.
 
 ### 6.2 Narrow layout
 
@@ -394,13 +396,12 @@ Use one directory per template.
 
 ```text
 prompt-library/
-  review-implementation/
-    prompt.md
-    prompt.meta.json
-
-  diagnose-failure/
-    prompt.md
-    prompt.meta.json
+  .prompt-templates-order.json
+  Reviews/
+    Security/
+      review-implementation/
+        prompt.md
+        prompt.meta.json
 ```
 
 Reasons:
@@ -410,6 +411,10 @@ Reasons:
 - A template can later contain examples or supporting resources.
 - The directory can be copied or committed as one unit.
 - The Markdown remains independently useful.
+
+A directory containing either canonical template path is a template package and a leaf. A directory containing neither canonical path is an organiser folder. Scan recursively without following symbolic links, and exclude `.git`, `.hg`, `.svn` and `.idea` management directories. Existing top-level libraries need no migration.
+
+Each organiser folder can contain `.prompt-templates-order.json`. It stores child directory segments in separate folder and template arrays. Folders remain before templates, with manual order inside each group. Missing order files use alphabetical order. Invalid files must not hide library content.
 
 ### 8.2 Markdown file
 
@@ -972,8 +977,8 @@ src/main/kotlin/com/example/prompttemplates/
       PromptToolWindowController.kt
       PromptToolWindowState.kt
     library/
-      TemplateLibraryPanel.kt
-      TemplateListRenderer.kt
+      TemplateLibraryTree.kt
+      LibraryTreeOperations.kt
     use/
       TemplateUsePanel.kt
       DynamicVariableForm.kt
@@ -1047,9 +1052,9 @@ Register the tool window declaratively and construct it lazily on first use.
 
 | Need | API |
 |---|---|
-| Template results | `JBList` |
-| Rich result rows | `ColoredListCellRenderer` |
-| Keyboard speed search | `ListSpeedSearch` |
+| Template hierarchy | `Tree` and `DefaultTreeModel` |
+| Rich hierarchy rows | `ColoredTreeCellRenderer` |
+| Keyboard navigation | Native tree navigation plus explicit move shortcuts |
 | Explicit filtering field | `SearchTextField` |
 | Scroll containers | `JBScrollPane` |
 | Variable definition table/list | `JBTable` or `JBList` |
@@ -1243,7 +1248,7 @@ JSON serialisation should use stable field ordering and two-space indentation to
 At startup of the tool window, not IDE startup:
 
 1. Validate the configured library root.
-2. Enumerate direct child template directories.
+2. Recursively classify organiser folders and template-package leaves.
 3. Read lightweight metadata summaries in a background coroutine.
 4. Publish results to the UI on the EDT.
 5. Load full Markdown only when needed for body search, preview or selection.
@@ -1255,6 +1260,7 @@ Search across:
 - Name.
 - Description.
 - Tags.
+- Relative organiser path.
 - Variable keys and labels.
 - Optionally body text after lazy indexing.
 
@@ -1262,13 +1268,7 @@ Initial search can use normalised substring matching. Fuzzy matching should use 
 
 ### 16.3 Ordering
 
-Default sections:
-
-1. Pinned.
-2. Recent.
-3. All templates alphabetically.
-
-Recent-use and pinned state live in application settings, keyed by UUID. They do not modify template metadata.
+Folders appear before templates. Each group uses the portable order stored in its organiser folder. Entries that are not in an order file follow listed entries alphabetically. Virtual pinned and recent sections are deferred; if added later, they must remain independent from physical tree order.
 
 ### 16.4 File watching
 
@@ -1637,6 +1637,11 @@ Use temporary directories to cover:
 - External file changes.
 - Permission failures where practical.
 - Atomic-write recovery.
+- Recursive folder classification and legacy flat-library compatibility.
+- Manual order files, stale entries and alphabetical fallback.
+- Folder create, rename, move, reorder and confirmed recursive deletion.
+- Collision, cycle, traversal and symbolic-link rejection.
+- Byte and UUID preservation across moves.
 
 ### 25.3 Platform tests
 
@@ -1667,6 +1672,7 @@ Use IntelliJ Starter and Driver to cover:
 12. Reveal source where test environment supports it.
 13. Validate narrow and wide modes.
 14. Test keyboard-only navigation.
+15. Run one representative hierarchy smoke that creates entries, moves one entry, rejects a colliding move and deletes a nested folder.
 
 Custom controls should expose stable accessible names to make UI tests robust.
 
@@ -1965,7 +1971,7 @@ Candidate work, ordered by likely value:
 | PT-011 | Implement filesystem repository | PT-010 |
 | PT-012 | Implement application settings | PT-011 |
 | PT-013 | Implement template file watcher | PT-011 |
-| PT-014 | Build library list and search | PT-002, PT-011 |
+| PT-014 | Build library tree and hierarchy-aware search | PT-002, PT-011 |
 | PT-015 | Build generated variable form | PT-009, PT-014 |
 | PT-016 | Implement context-provider registry | PT-009 |
 | PT-017 | Build preview panel | PT-009, PT-015 |
@@ -1978,7 +1984,7 @@ Candidate work, ordered by likely value:
 | PT-024 | Implement standalone Markdown import | PT-008, PT-011 |
 | PT-025 | Integrate clipboard and editor destinations | PT-005, PT-006, PT-017 |
 | PT-026 | Build responsive narrow layout | PT-014, PT-015, PT-019 |
-| PT-027 | Add UI Driver tests | PT-025, PT-026 |
+| PT-027 | Add real Starter/Driver UI tests | PT-025, PT-026 |
 | PT-028 | Run full product verifier matrix | PT-027 |
 | PT-029 | Accessibility and lifecycle audit | PT-027 |
 | PT-030 | Marketplace beta release | PT-028, PT-029 |

@@ -45,6 +45,8 @@ object ActiveEditorDestination {
 object PromptTemplatesNotifications {
     fun info(project: Project, message: String) = notify(project, message, NotificationType.INFORMATION)
 
+    fun warning(project: Project, message: String) = notify(project, message, NotificationType.WARNING)
+
     fun error(project: Project, message: String) = notify(project, message, NotificationType.ERROR)
 
     private fun notify(project: Project, message: String, type: NotificationType) {

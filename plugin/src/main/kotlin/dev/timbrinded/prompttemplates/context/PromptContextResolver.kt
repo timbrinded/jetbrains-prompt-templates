@@ -56,12 +56,16 @@ object PromptContextResolver {
 
     private fun relativePath(project: Project, filePath: String): ContextValue {
         val basePath = project.basePath ?: return ContextValue.unavailable("The project has no base path.")
-        return runCatching {
+        return try {
             val relative = Path.of(basePath).toAbsolutePath().normalize()
                 .relativize(Path.of(filePath).toAbsolutePath().normalize())
                 .toString()
             ContextValue.available(relative, relative)
-        }.getOrElse { ContextValue.unavailable("The active file is outside the project.") }
+        } catch (_: IllegalArgumentException) {
+            ContextValue.unavailable("The active file is outside the project.")
+        } catch (_: SecurityException) {
+            ContextValue.unavailable("The active file is outside the project.")
+        }
     }
 
     private fun clipboardValue(): ContextValue {

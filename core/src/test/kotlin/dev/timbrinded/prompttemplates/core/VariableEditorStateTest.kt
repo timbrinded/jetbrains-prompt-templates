@@ -2,6 +2,7 @@ package dev.timbrinded.prompttemplates.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class VariableEditorStateTest {
@@ -73,7 +74,7 @@ class VariableEditorStateTest {
 
         val variable = state.variables.single()
         assertEquals(PromptVariableType.MULTILINE, variable.type)
-        assertEquals(null, variable.defaultValue)
+        assertNull(variable.defaultValue)
         assertEquals(emptyList(), variable.options)
     }
 

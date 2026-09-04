@@ -3,7 +3,6 @@ package dev.timbrinded.prompttemplates.core
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
-import java.util.UUID
 
 sealed interface MetadataDecodeResult {
     data class Success(val metadata: TemplateMetadata) : MetadataDecodeResult
@@ -50,7 +49,7 @@ class TemplateMetadataCodec(
         if (metadata.schemaVersion != CURRENT_SCHEMA_VERSION) {
             return "Unsupported metadata schema version ${metadata.schemaVersion}."
         }
-        if (runCatching { UUID.fromString(metadata.id) }.isFailure) {
+        if (!TemplateId.isValid(metadata.id)) {
             return "Template id must be a UUID."
         }
         if (metadata.name.isBlank()) return "Template name is required."

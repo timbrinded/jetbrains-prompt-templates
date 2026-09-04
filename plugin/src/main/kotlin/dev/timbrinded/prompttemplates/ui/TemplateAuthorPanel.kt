@@ -190,7 +190,8 @@ class TemplateAuthorPanel(
         })
         typeField.addActionListener {
             if (!updatingInspector) {
-                changeSelectedType(typeField.selectedItem as PromptVariableType)
+                val selectedType = typeField.selectedItem as? PromptVariableType ?: return@addActionListener
+                changeSelectedType(selectedType)
                 loadInspector()
             }
         }

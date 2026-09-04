@@ -1,8 +1,10 @@
 package dev.timbrinded.prompttemplates.core
 
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class TemplateMetadataCodecTest {
@@ -51,7 +53,14 @@ class TemplateMetadataCodecTest {
             ),
         )
 
-        assertTrue(codec.validate(invalid)!!.contains("unknown default"))
+        assertContains(assertNotNull(codec.validate(invalid)), "unknown default")
+    }
+
+    @Test
+    fun `rejects malformed template ids`() {
+        val metadata = TemplateMetadata(id = "not-a-uuid", name = "Invalid")
+
+        assertEquals("Template id must be a UUID.", codec.validate(metadata))
     }
 
     @Test
