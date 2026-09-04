@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 — Unreleased
+## 0.2.0 — 2026-09-04
 
 - Added nested organiser folders for prompt templates.
 - Added portable manual order, folder and template drag-and-drop, and keyboard move actions.
