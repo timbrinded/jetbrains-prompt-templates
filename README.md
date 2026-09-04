@@ -102,8 +102,7 @@ gh extension install basecamp/gh-signoff
 Run the E2E task before you sign off the current commit:
 
 ```bash
-./gradlew :plugin:integrationTest
-gh signoff e2e
+./gradlew :plugin:integrationTest && gh signoff e2e
 ```
 
 Run `gh signoff e2e` only after the E2E task passes. If it fails, report the result with `gh signoff fail e2e --description "local E2E failed"`. The `signoff/e2e` status is required on pull requests to `main`.

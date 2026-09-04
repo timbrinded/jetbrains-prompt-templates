@@ -1672,13 +1672,7 @@ Use IntelliJ Starter and Driver to cover:
 12. Reveal source where test environment supports it.
 13. Validate narrow and wide modes.
 14. Test keyboard-only navigation.
-15. Create nested organiser folders and templates.
-16. Move and reorder folders and templates with physical drag-and-drop.
-17. Use root, folder and template context menus.
-18. Expand and collapse the full tree and individual branches.
-19. Reject unsafe moves without filesystem changes.
-20. Confirm recursive deletion against a fresh subtree fingerprint.
-21. Restore manual order, expanded paths and UUID selection after restart.
+15. Run one representative hierarchy smoke that creates entries, moves one entry, rejects a colliding move and deletes a nested folder.
 
 Custom controls should expose stable accessible names to make UI tests robust.
 

@@ -38,18 +38,12 @@ import kotlin.io.path.name
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
-internal fun isPromptLibraryChange(root: Path, eventPath: String): Boolean =
-    libraryRootsOrNull(root)?.let { roots -> isPromptLibraryChange(roots, eventPath) } ?: false
-
 internal fun isPromptLibraryChange(roots: List<Path>, eventPath: String): Boolean {
     val changedPath = eventPathOrNull(eventPath) ?: return false
     if (!isManagedLibraryPath(roots, changedPath)) return false
 
     return changedPath.name in LIBRARY_CONTROL_FILES
 }
-
-internal fun isPromptLibraryChange(root: Path, event: VFileEvent): Boolean =
-    libraryRootsOrNull(root)?.let { roots -> isPromptLibraryChange(roots, event) } ?: false
 
 /** Resolve the roots once per event batch with [libraryRootsOrNull]; resolving per event costs a realpath lookup each. */
 internal fun isPromptLibraryChange(roots: List<Path>, event: VFileEvent): Boolean {
@@ -69,12 +63,6 @@ internal fun isPromptLibraryChange(roots: List<Path>, event: VFileEvent): Boolea
     val directoryEvent = event.file?.isDirectory == true || event is VFileCreateEvent && event.isDirectory
     return isPromptLibraryChange(roots, paths, directoryEvent)
 }
-
-internal fun isPromptLibraryChange(
-    root: Path,
-    eventPaths: Collection<String>,
-    directoryEvent: Boolean,
-): Boolean = libraryRootsOrNull(root)?.let { roots -> isPromptLibraryChange(roots, eventPaths, directoryEvent) } ?: false
 
 internal fun isPromptLibraryChange(
     roots: List<Path>,

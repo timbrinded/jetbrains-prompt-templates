@@ -12,7 +12,7 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class LibraryFileWatcherTest {
-    private val root = Path.of("/library").toAbsolutePath().normalize()
+    private val roots = listOf(Path.of("/library").toAbsolutePath().normalize())
 
     @TempDir
     lateinit var temporaryDirectory: Path
@@ -27,17 +27,17 @@ class LibraryFileWatcherTest {
 
     @Test
     fun `reacts to canonical template and order files`() {
-        assertTrue(isPromptLibraryChange(root, "/library/review/prompt.md"))
-        assertTrue(isPromptLibraryChange(root, "/library/review/prompt.meta.json"))
-        assertTrue(isPromptLibraryChange(root, "/library/reviews/.prompt-templates-order.json"))
+        assertTrue(isPromptLibraryChange(roots, "/library/review/prompt.md"))
+        assertTrue(isPromptLibraryChange(roots, "/library/review/prompt.meta.json"))
+        assertTrue(isPromptLibraryChange(roots, "/library/reviews/.prompt-templates-order.json"))
     }
 
     @Test
     fun `ignores temporary files unrelated root files nested extras and sibling directories`() {
-        assertFalse(isPromptLibraryChange(root, "/library/review/.prompt.md.123.tmp"))
-        assertFalse(isPromptLibraryChange(root, "/library/review/notes.txt"))
-        assertFalse(isPromptLibraryChange(root, "/library/readme.txt"))
-        assertFalse(isPromptLibraryChange(root, "/library-backup/review/prompt.md"))
+        assertFalse(isPromptLibraryChange(roots, "/library/review/.prompt.md.123.tmp"))
+        assertFalse(isPromptLibraryChange(roots, "/library/review/notes.txt"))
+        assertFalse(isPromptLibraryChange(roots, "/library/readme.txt"))
+        assertFalse(isPromptLibraryChange(roots, "/library-backup/review/prompt.md"))
     }
 
     @Test
@@ -51,10 +51,10 @@ class LibraryFileWatcherTest {
             "${FileSystemPromptTemplateRepository.RENAME_SCRATCH_PREFIX}1",
         )
         internalDirectories.forEach { directory ->
-            assertFalse(isPromptLibraryChange(root, "/library/$directory/deep/prompt.md"))
+            assertFalse(isPromptLibraryChange(roots, "/library/$directory/deep/prompt.md"))
             assertFalse(
                 isPromptLibraryChange(
-                    root,
+                    roots,
                     eventPaths = listOf("/library/$directory/objects/new-directory"),
                     directoryEvent = true,
                 ),
@@ -66,14 +66,14 @@ class LibraryFileWatcherTest {
     fun `reacts to deep directory create delete and rename events`() {
         assertTrue(
             isPromptLibraryChange(
-                root,
+                roots,
                 eventPaths = listOf("/library/reviews/security"),
                 directoryEvent = true,
             ),
         )
         assertTrue(
             isPromptLibraryChange(
-                root,
+                roots,
                 eventPaths = listOf("/library/reviews/security", "/library/reviews/audits"),
                 directoryEvent = true,
             ),
@@ -84,21 +84,21 @@ class LibraryFileWatcherTest {
     fun `reacts when a directory move crosses the library boundary using old and new paths`() {
         assertTrue(
             isPromptLibraryChange(
-                root,
+                roots,
                 eventPaths = listOf("/library/reviews", "/archive/reviews"),
                 directoryEvent = true,
             ),
         )
         assertTrue(
             isPromptLibraryChange(
-                root,
+                roots,
                 eventPaths = listOf("/archive/ideas", "/library/ideas"),
                 directoryEvent = true,
             ),
         )
         assertFalse(
             isPromptLibraryChange(
-                root,
+                roots,
                 eventPaths = listOf("/archive/a", "/archive/b"),
                 directoryEvent = true,
             ),
@@ -229,9 +229,10 @@ class LibraryFileWatcherTest {
     fun `reacts to events reported under either path of a symbolic-link root`() {
         val target = Files.createDirectory(temporaryDirectory.resolve("target-library")).toRealPath()
         val linkedRoot = Files.createSymbolicLink(temporaryDirectory.resolve("linked-root"), target)
+        val roots = requireNotNull(libraryRootsOrNull(linkedRoot))
 
-        assertTrue(isPromptLibraryChange(linkedRoot, target.resolve("Reviews/prompt.md").toString()))
-        assertTrue(isPromptLibraryChange(linkedRoot, linkedRoot.resolve("Reviews/prompt.md").toString()))
-        assertFalse(isPromptLibraryChange(linkedRoot, target.resolveSibling("elsewhere/prompt.md").toString()))
+        assertTrue(isPromptLibraryChange(roots, target.resolve("Reviews/prompt.md").toString()))
+        assertTrue(isPromptLibraryChange(roots, linkedRoot.resolve("Reviews/prompt.md").toString()))
+        assertFalse(isPromptLibraryChange(roots, target.resolveSibling("elsewhere/prompt.md").toString()))
     }
 }

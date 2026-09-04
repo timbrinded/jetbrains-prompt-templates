@@ -87,7 +87,6 @@ internal class TemplateLibraryTree(
     private val onExpansionChanged: (Set<String>) -> Unit,
 ) : Tree(DefaultTreeModel(DefaultMutableTreeNode())) {
     private var snapshot = LibrarySnapshot(Path.of("."), emptyList())
-    private var bodyIndex: Map<Path, String> = emptyMap()
     private var query = ""
     private var rebuilding = false
     /** Expanded organiser folders as portable relative paths, including folders hidden under a collapsed ancestor. */
@@ -153,7 +152,6 @@ internal class TemplateLibraryTree(
         val expandedBeforeRebuild = expandedFolderPaths.toSet()
 
         this.snapshot = snapshot
-        this.bodyIndex = bodyIndex
         query = searchQuery
         emptyText.text = snapshot.diagnostic ?: "No prompt templates yet"
         rebuilding = true
@@ -247,11 +245,9 @@ internal class TemplateLibraryTree(
         val folderPaths = folderTreePaths()
         // expandPath expands every ancestor as well. The platform tree collapses a folder together with its
         // descendants, so a persisted folder whose ancestor is collapsed is stale and must not reopen it.
-        wanted.filter { key -> ancestorKeys(key).all(wanted::contains) }
+        wanted.filter { key -> ancestorPortablePaths(key).all(wanted::contains) }
             .forEach { key -> folderPaths[key]?.let(::expandPath) }
     }
-
-    private fun ancestorKeys(key: String): List<String> = ancestorPortablePaths(key)
 
     /** Every organiser folder in the current model, keyed by portable relative path, in depth-first order. */
     private fun folderTreePaths(): Map<String, TreePath> {
@@ -310,7 +306,7 @@ internal class TemplateLibraryTree(
     }
 
     private fun runCommand(command: LibraryTreeCommand, target: LibraryTreeSelection) {
-        if (!mutationsEnabled && command in MUTATION_COMMANDS) return
+        if (!isLibraryCommandEnabled(command, mutationsEnabled)) return
         when (command) {
             LibraryTreeCommand.EXPAND_ALL -> expandAll()
             LibraryTreeCommand.COLLAPSE_ALL -> collapseAll()
@@ -473,20 +469,14 @@ internal val TEMPLATE_COMMANDS: List<MenuCommand?> = listOf(
     MenuCommand(LibraryTreeCommand.DELETE_TEMPLATE, "Delete Template"),
 )
 
-private val MUTATION_COMMANDS = setOf(
-    LibraryTreeCommand.NEW_TEMPLATE,
-    LibraryTreeCommand.NEW_FOLDER,
-    LibraryTreeCommand.RENAME_FOLDER,
-    LibraryTreeCommand.EDIT_TEMPLATE,
-    LibraryTreeCommand.MOVE_TO_FOLDER,
-    LibraryTreeCommand.MOVE_UP,
-    LibraryTreeCommand.MOVE_DOWN,
-    LibraryTreeCommand.DELETE_FOLDER,
-    LibraryTreeCommand.DELETE_TEMPLATE,
+private val NON_MUTATION_COMMANDS = setOf(
+    LibraryTreeCommand.EXPAND_ALL,
+    LibraryTreeCommand.COLLAPSE_ALL,
+    LibraryTreeCommand.OPEN_MARKDOWN,
 )
 
 internal fun isLibraryCommandEnabled(command: LibraryTreeCommand, mutationsEnabled: Boolean): Boolean =
-    mutationsEnabled || command !in MUTATION_COMMANDS
+    mutationsEnabled || command in NON_MUTATION_COMMANDS
 
 internal fun portableRelativePath(root: Path, directory: Path): String =
     portablePath(root.toAbsolutePath().normalize().relativize(directory.toAbsolutePath().normalize()))

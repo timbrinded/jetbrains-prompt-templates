@@ -68,8 +68,7 @@ internal class PromptTemplatesPanel(
         onExpansionChanged = workspace::replaceExpandedFolderPaths,
     )
     private val libraryPanel = createLibraryPanel()
-    private val detailLayout = CardLayout()
-    private val detailCards = JPanel(detailLayout)
+    private val detailCards = JPanel(BorderLayout())
     private val detailWrapper = JPanel(BorderLayout())
     private val backButton = JButton("‹ Library")
     private val outerLayout = CardLayout()
@@ -93,7 +92,7 @@ internal class PromptTemplatesPanel(
 
         backButton.isVisible = false
         backButton.addActionListener { showNarrowLibrary() }
-        detailCards.add(createEmptyState(), EMPTY_CARD)
+        detailCards.add(createEmptyState(), BorderLayout.CENTER)
         detailWrapper.add(backButton, BorderLayout.NORTH)
         detailWrapper.add(detailCards, BorderLayout.CENTER)
 
@@ -177,7 +176,7 @@ internal class PromptTemplatesPanel(
         disposeRenderedDetail()
         when (detail) {
             PromptDetailState.Empty -> {
-                replaceDetail(EMPTY_CARD, createEmptyState())
+                replaceDetail(createEmptyState())
                 showNarrowLibrary()
             }
             is PromptDetailState.Folder -> renderFolder(detail.entry)
@@ -358,7 +357,7 @@ internal class PromptTemplatesPanel(
         panel.add(title, BorderLayout.NORTH)
         panel.add(details, BorderLayout.CENTER)
         panel.add(actions, BorderLayout.SOUTH)
-        replaceDetail(FOLDER_CARD, panel)
+        replaceDetail(panel)
         showNarrowLibrary()
     }
 
@@ -427,7 +426,7 @@ internal class PromptTemplatesPanel(
             dynamicForm,
             RenderedVariableHighlightController(previewField, variableAccents),
         )
-        replaceDetail(USE_CARD, panel)
+        replaceDetail(panel)
         updateUsePreview(detail)
         showNarrowDetail()
     }
@@ -473,7 +472,7 @@ internal class PromptTemplatesPanel(
             onCancel = controller::cancelAuthor,
         )
         renderedDetail = RenderedDetail.Author(panel)
-        replaceDetail(AUTHOR_CARD, panel)
+        replaceDetail(panel)
         showNarrowDetail()
     }
 
@@ -483,14 +482,13 @@ internal class PromptTemplatesPanel(
             add(JBLabel("Unable to open ${error.templateName}"), BorderLayout.NORTH)
             add(JBLabel(error.message), BorderLayout.CENTER)
         }
-        replaceDetail(ERROR_CARD, panel)
+        replaceDetail(panel)
         showNarrowDetail()
     }
 
-    private fun replaceDetail(card: String, component: JComponent) {
+    private fun replaceDetail(component: JComponent) {
         detailCards.removeAll()
-        detailCards.add(component, card)
-        detailLayout.show(detailCards, card)
+        detailCards.add(component, BorderLayout.CENTER)
         detailCards.revalidate()
         detailCards.repaint()
     }
@@ -530,11 +528,6 @@ internal class PromptTemplatesPanel(
         const val NARROW_CARD = "narrow"
         const val NARROW_LIBRARY_CARD = "narrow-library"
         const val NARROW_DETAIL_CARD = "narrow-detail"
-        const val EMPTY_CARD = "empty"
-        const val FOLDER_CARD = "folder"
-        const val USE_CARD = "use"
-        const val AUTHOR_CARD = "author"
-        const val ERROR_CARD = "error"
     }
 }
 

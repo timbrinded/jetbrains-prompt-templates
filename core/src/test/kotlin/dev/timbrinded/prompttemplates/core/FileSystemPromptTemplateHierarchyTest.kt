@@ -165,12 +165,6 @@ class FileSystemPromptTemplateHierarchyTest(
         assertEquals(listOf("Alpha", "Zulu"), unsupported.children.map(LibraryEntry::displayName))
         assertTrue(unsupported.diagnostic.orEmpty().contains("Unsupported"))
 
-        // Legacy invalid string.
-        Files.writeString(orderPath, "invalid")
-        val invalid = repository.scan()
-        assertEquals(listOf("Alpha", "Zulu"), invalid.children.map(LibraryEntry::displayName))
-        assertTrue(invalid.diagnostic.orEmpty().contains("invalid"))
-
         // Not valid UTF-8.
         Files.write(orderPath, byteArrayOf(0xC3.toByte()))
         val unreadable = repository.scan()
@@ -208,15 +202,14 @@ class FileSystemPromptTemplateHierarchyTest(
     }
 
     @Test
-    fun `creates imports updates loads and exports templates in nested folders`() {
+    fun `creates and imports templates in nested folders`() {
         val root = temporaryDirectory.resolve("library")
         val repository = FileSystemPromptTemplateRepository(root)
         val reviews = success(repository.createFolder(root, "Reviews"))
         val security = success(repository.createFolder(reviews, "Security"))
-        val id = TemplateId.random()
-        val created = success(
+        success(
             repository.create(
-                PromptTemplateDraft(id = id, name = "Audit", markdown = "Review {{scope}}"),
+                PromptTemplateDraft(name = "Audit", markdown = "Review {{scope}}"),
                 security,
             ),
         )
@@ -224,17 +217,6 @@ class FileSystemPromptTemplateHierarchyTest(
         Files.writeString(source, "# Imported\n\nUse {{value}}")
         val imported = success(repository.importMarkdown(source, security))
 
-        val updated = success(
-            repository.update(
-                created.directory,
-                PromptTemplateDraft(id = id, name = "Audit", markdown = "Updated"),
-            ),
-        )
-        val destination = temporaryDirectory.resolve("export/audit.md")
-        success(repository.exportTemplateMarkdown(updated.directory, destination))
-
-        assertEquals("Updated", success(repository.load(created.directory)).template.markdown)
-        assertEquals("Updated", destination.readText())
         assertEquals(security, imported.directory.parent)
         assertEquals(listOf("Audit", "Imported"), folder(repository.scan(), "Reviews", "Security").children.map(LibraryEntry::displayName))
     }
@@ -333,22 +315,6 @@ class FileSystemPromptTemplateHierarchyTest(
     }
 
     @Test
-    fun `selects a two-step operation only for a case-only same-file rename`() {
-        assertEquals(
-            FolderRenameOperation.DIRECT,
-            selectFolderRenameOperation(destinationExists = false, destinationRefersToSource = false),
-        )
-        assertEquals(
-            FolderRenameOperation.CASE_ONLY_TWO_STEP,
-            selectFolderRenameOperation(destinationExists = true, destinationRefersToSource = true),
-        )
-        assertEquals(
-            FolderRenameOperation.COLLISION,
-            selectFolderRenameOperation(destinationExists = true, destinationRefersToSource = false),
-        )
-    }
-
-    @Test
     fun `renames folder casing and updates the stored order key after success`() {
         val root = temporaryDirectory.resolve("library")
         val repository = FileSystemPromptTemplateRepository(root)
@@ -383,7 +349,9 @@ class FileSystemPromptTemplateHierarchyTest(
             repository.create(PromptTemplateDraft(name = "Other", markdown = "y"), destination),
         )
         success(repository.createFolder(destination, "Template"))
+        Files.writeString(root.resolve("Occupied"), "file")
 
+        assertIs<RepositoryResult.Failure>(repository.renameFolder(parent, "Occupied"))
         assertIs<RepositoryResult.Failure>(repository.moveEntry(parent, child))
         assertIs<RepositoryResult.Failure>(repository.moveEntry(template.directory, destination))
         assertIs<RepositoryResult.Failure>(

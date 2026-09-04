@@ -51,8 +51,6 @@ class PromptTemplatesSettingsTest {
             pinnedTemplateIds = mutableListOf("pinned"),
             recentTemplateIds = mutableListOf("recent"),
             splitterProportion = 0.45f,
-            expandedFolderPaths = mutableListOf("Reviews"),
-            selectedTemplateId = "selected",
         )
         val legacyXml = XmlSerializer.serialize(legacy)
         assertEquals(
@@ -74,7 +72,4 @@ private data class LegacySettingsState(
     var pinnedTemplateIds: MutableList<String>,
     var recentTemplateIds: MutableList<String>,
     var splitterProportion: Float,
-    /** Tree state that development builds wrote into the application-level file; it now lives per project. */
-    var expandedFolderPaths: MutableList<String>,
-    var selectedTemplateId: String?,
 )

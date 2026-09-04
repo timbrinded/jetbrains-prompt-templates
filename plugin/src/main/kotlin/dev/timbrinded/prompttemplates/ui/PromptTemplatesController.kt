@@ -282,7 +282,7 @@ internal class PromptTemplatesController(
                 if (isDisposed() || !loadGenerations.acceptDetailLoad(request)) return@withContext
                 when (result) {
                     is RepositoryResult.Success -> when (intent) {
-                        TemplateDetailIntent.USE -> showUse(result.value, request.target)
+                        TemplateDetailIntent.USE -> showUse(result.value)
                         TemplateDetailIntent.EDIT -> editStored(result.value)
                     }
                     is RepositoryResult.Failure -> if (directoryMissing) {
@@ -301,10 +301,7 @@ internal class PromptTemplatesController(
         showDetail(PromptDetailState.Folder(folder))
     }
 
-    private fun showUse(
-        stored: StoredTemplate,
-        target: TemplateDetailTarget = TemplateDetailTarget(stored.directory, stored.template.id.value),
-    ) {
+    private fun showUse(stored: StoredTemplate) {
         loadGenerations.invalidateDetailLoad()
         val values = state.sessionValues.getOrPut(stored.template.id) { mutableMapOf() }
         val context = PromptContextResolver.resolve(project)
@@ -313,7 +310,7 @@ internal class PromptTemplatesController(
             .filter { it.contextReference }
             .map { it.key }
             .distinct()
-        showDetail(PromptDetailState.Use(stored, target, values, context, render, referencedContext))
+        showDetail(PromptDetailState.Use(stored, values, context, render, referencedContext))
     }
 
     fun refreshPreview() {
@@ -701,7 +698,7 @@ internal class PromptTemplatesController(
             operation = { repository.deleteTemplate(directory) },
             successMessage = "Prompt template deleted.",
             afterSuccess = {
-                clearDetailIfInside(directory)
+                clearSelectedTemplate()
                 reloadLibrary(null)
             },
         )
@@ -748,7 +745,7 @@ internal class PromptTemplatesController(
                 workspace.replaceExpandedFolderPaths(workspace.expandedFolderPaths.filterNot { path ->
                     path == deletedPath || path.startsWith("$deletedPath/")
                 })
-                clearDetailIfInside(target.directory)
+                clearSelectedTemplate()
                 reloadLibrary(null)
             },
         )
@@ -875,36 +872,6 @@ internal class PromptTemplatesController(
     private fun showError(name: String, message: String) {
         loadGenerations.invalidateDetailLoad()
         showDetail(PromptDetailState.LoadError(name, message))
-    }
-
-    /** After deleting [deletedDirectory], drop the detail view only when it showed something inside it. */
-    private fun clearDetailIfInside(deletedDirectory: Path) {
-        val showsDeletedEntry = when (val detail = state.detail) {
-            is PromptDetailState.Use -> detail.stored.directory.startsWith(deletedDirectory)
-            is PromptDetailState.Folder -> detail.entry.directory.startsWith(deletedDirectory)
-            // An error view names no directory and may describe the entry just deleted; dropping it is cheap.
-            is PromptDetailState.LoadError -> true
-            is PromptDetailState.Author, PromptDetailState.Empty -> false
-        }
-        if (showsDeletedEntry) {
-            clearSelectedTemplate()
-        } else {
-            selectedKey = when (val detail = state.detail) {
-                is PromptDetailState.Use -> LibrarySelectionKey.Template(
-                    detail.stored.template.id.value,
-                    portableRelativePath(state.librarySnapshot.root, detail.stored.directory),
-                )
-                is PromptDetailState.Folder -> selectionKey(
-                    LibraryTreeSelection.Folder(detail.entry),
-                    state.librarySnapshot.root,
-                )
-                is PromptDetailState.Author,
-                is PromptDetailState.LoadError,
-                PromptDetailState.Empty,
-                -> null
-            }
-            view.clearLibrarySelection()
-        }
     }
 
     /**

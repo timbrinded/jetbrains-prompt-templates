@@ -19,20 +19,13 @@ repositories {
     }
 }
 
-sourceSets {
-    create("integrationTest") {
-        compileClasspath += sourceSets.main.get().output
-        runtimeClasspath += sourceSets.main.get().output
-    }
-}
+sourceSets.create("integrationTest")
 
 val integrationTestImplementation by configurations.getting {
     extendsFrom(configurations.testImplementation.get())
 }
 
-val integrationTestRuntimeOnly by configurations.getting {
-    extendsFrom(configurations.testRuntimeOnly.get())
-}
+val integrationTestRuntimeOnly by configurations.getting
 
 dependencies {
     implementation(project(":core")) {

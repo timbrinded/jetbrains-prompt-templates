@@ -115,7 +115,7 @@ class StarterHarness private constructor(
         }
 
         require(System.getenv("XDG_SESSION_TYPE") != "wayland") {
-            "Driver screenshot capture is unavailable in this Wayland session; CI uses Xvfb"
+            "Driver screenshot capture is unavailable in this Wayland session; run the E2E task under Xvfb"
         }
         val screen = Toolkit.getDefaultToolkit().screenSize
         val image = Robot().createScreenCapture(Rectangle(screen))

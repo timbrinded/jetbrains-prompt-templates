@@ -16,21 +16,6 @@ import kotlin.io.path.nameWithoutExtension
 import kotlin.concurrent.withLock
 import kotlin.uuid.Uuid
 
-internal enum class FolderRenameOperation {
-    DIRECT,
-    CASE_ONLY_TWO_STEP,
-    COLLISION,
-}
-
-internal fun selectFolderRenameOperation(
-    destinationExists: Boolean,
-    destinationRefersToSource: Boolean,
-): FolderRenameOperation = when {
-    !destinationExists -> FolderRenameOperation.DIRECT
-    destinationRefersToSource -> FolderRenameOperation.CASE_ONLY_TWO_STEP
-    else -> FolderRenameOperation.COLLISION
-}
-
 internal inline fun <T> protectRepositoryOperation(
     operation: String,
     block: () -> RepositoryResult<T>,
@@ -230,21 +215,17 @@ class FileSystemPromptTemplateRepository(
         }
         val destination = parent.resolve(validName)
         val destinationExists = Files.exists(destination, NOFOLLOW_LINKS)
-        val operation = selectFolderRenameOperation(
-            destinationExists = destinationExists,
-            destinationRefersToSource = destinationExists && Files.isSameFile(safeDirectory, destination),
-        )
-        if (operation == FolderRenameOperation.COLLISION) {
+        if (destinationExists && !Files.isSameFile(safeDirectory, destination)) {
             return@mutateLibrary RepositoryResult.Failure(
                 "A filesystem entry named '$validName' already exists.",
             )
         }
 
         val previousOrder = effectiveOrder(parent)
-        when (operation) {
-            FolderRenameOperation.DIRECT -> moveWithoutReplacement(safeDirectory, destination)
-            FolderRenameOperation.CASE_ONLY_TWO_STEP -> moveCaseOnlyFolder(safeDirectory, destination)
-            FolderRenameOperation.COLLISION -> error("A collision must return before filesystem mutation.")
+        if (destinationExists) {
+            moveCaseOnlyFolder(safeDirectory, destination)
+        } else {
+            moveWithoutReplacement(safeDirectory, destination)
         }
         val updatedOrder = previousOrder.replacing(
             safeDirectory.name,

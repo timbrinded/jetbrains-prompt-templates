@@ -16,7 +16,6 @@ internal sealed interface PromptDetailState {
 
     data class Use(
         val stored: StoredTemplate,
-        val target: TemplateDetailTarget,
         val values: MutableMap<String, String>,
         val context: Map<String, ContextValue>,
         val render: RenderResult,
