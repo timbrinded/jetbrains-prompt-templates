@@ -229,16 +229,11 @@ internal class TemplateLibraryTree(
     }
 
     private fun findPath(predicate: (LibraryTreeSelection) -> Boolean): TreePath? {
-        return findPaths(predicate).firstOrNull()
-    }
-
-    private fun findPaths(predicate: (LibraryTreeSelection) -> Boolean): List<TreePath> {
-        val root = model.root as? DefaultMutableTreeNode ?: return emptyList()
+        val root = model.root as? DefaultMutableTreeNode ?: return null
         return root.depthFirstEnumeration().asSequence()
             .mapNotNull { it as? DefaultMutableTreeNode }
-            .filter { node -> (node.userObject as? LibraryTreeSelection)?.let(predicate) == true }
-            .map { TreePath(it.path) }
-            .toList()
+            .firstOrNull { node -> (node.userObject as? LibraryTreeSelection)?.let(predicate) == true }
+            ?.let { node -> TreePath(node.path) }
     }
 
     private fun restoreExpandedFolderPaths(wanted: Set<String>) {

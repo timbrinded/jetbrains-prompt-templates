@@ -8,7 +8,6 @@ import com.intellij.openapi.project.Project
 import dev.timbrinded.prompttemplates.core.BUILT_IN_CONTEXT_KEYS
 import dev.timbrinded.prompttemplates.core.ContextValue
 import java.awt.datatransfer.DataFlavor
-import java.nio.file.InvalidPathException
 import java.nio.file.Path
 
 object PromptContextResolver {
@@ -62,8 +61,6 @@ object PromptContextResolver {
                 .relativize(Path.of(filePath).toAbsolutePath().normalize())
                 .toString()
             ContextValue.available(relative, relative)
-        } catch (_: InvalidPathException) {
-            ContextValue.unavailable("The active file is outside the project.")
         } catch (_: IllegalArgumentException) {
             ContextValue.unavailable("The active file is outside the project.")
         } catch (_: SecurityException) {

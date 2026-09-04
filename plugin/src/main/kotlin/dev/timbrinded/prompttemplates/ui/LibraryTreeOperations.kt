@@ -63,8 +63,6 @@ internal fun resolveLibrarySelection(
     }
 }
 
-internal fun countFolders(entries: List<LibraryEntry>): Int = flattenFolders(entries).size
-
 internal fun readSearchIndexBody(markdownPath: Path): String {
     if (!Files.isRegularFile(markdownPath, NOFOLLOW_LINKS)) return ""
     return try {

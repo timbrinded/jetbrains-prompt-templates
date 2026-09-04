@@ -119,12 +119,6 @@ internal class PromptTemplatesPanel(
 
     fun hasValidRenderedPrompt(): Boolean = controller.hasValidRenderedPrompt()
 
-    private val searchQuery: String
-        get() = searchField.text
-
-    private val selectedLibrarySelection: LibraryTreeSelection?
-        get() = libraryTree.selectedSelection()
-
     override val selectedDestinationFolder: Path
         get() = libraryTree.selectedDestinationFolder()
 
@@ -156,7 +150,7 @@ internal class PromptTemplatesPanel(
         libraryTree.updateLibrary(
             snapshot = snapshot,
             bodyIndex = bodyIndex,
-            searchQuery = searchQuery,
+            searchQuery = searchField.text,
             selectedKey = selectedKey,
             expandedPaths = expandedPaths,
         )
@@ -225,7 +219,8 @@ internal class PromptTemplatesPanel(
                     addActionListener {
                         controller.performLibraryCommand(
                             LibraryTreeCommand.NEW_FOLDER,
-                            selectedLibrarySelection ?: LibraryTreeSelection.Root(selectedDestinationFolder),
+                            libraryTree.selectedSelection()
+                                ?: LibraryTreeSelection.Root(selectedDestinationFolder),
                         )
                     }
                 })
@@ -312,7 +307,7 @@ internal class PromptTemplatesPanel(
 
     private fun renderFolder(folder: LibraryEntry.Folder) {
         val templateCount = flattenTemplates(folder.children).size
-        val folderCount = countFolders(folder.children)
+        val folderCount = flattenFolders(folder.children).size
         val panel = JPanel(BorderLayout(JBUI.scale(8), JBUI.scale(8))).apply {
             border = JBUI.Borders.empty(18)
         }

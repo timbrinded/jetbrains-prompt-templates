@@ -195,14 +195,7 @@ internal fun snapshotPromptLibrary(root: Path): LibraryPollSnapshot {
         }
     }
 
-    return LibraryPollSnapshot(
-        entries.sortedWith(
-            compareBy<LibraryPollEntry>(
-                { entry -> entry.relativePath },
-                { entry -> if (entry.directory) 0 else 1 },
-            ),
-        ),
-    )
+    return LibraryPollSnapshot(entries.sortedBy(LibraryPollEntry::relativePath))
 }
 
 private fun relativePollPath(root: Path, path: Path): String =
