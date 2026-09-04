@@ -209,6 +209,13 @@ private object StarterFailureReporter {
             listOf(
                 "\tat com.intellij.openapi.editor.colors.impl.EditorColorsManagerImpl.getSchemeForCurrentUITheme",
             ),
+        "java.util.ConcurrentModificationException: null" to
+            listOf(
+                "\tat java.base/java.util.ArrayList\$Itr.checkForComodification",
+                "\tat com.intellij.configurationStore.schemeManager.SchemeManagerImpl.findSchemeByName",
+                "\tat com.intellij.openapi.editor.colors.impl.EditorColorsManagerImpl.getSchemeForCurrentUITheme",
+                "\tat com.intellij.openapi.vcs.FileStatusImpl.getColor",
+            ),
         "java.lang.ClassNotFoundException: " +
             "com.intellij.lang.javascript.linter.tslint.editor.TsLintCodeStyleEditorNotificationProvider" to
             listOf(
