@@ -3,102 +3,11 @@ package dev.timbrinded.prompttemplates.ui
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicInteger
 
-/** Retains a mutation's target selection across reloads until the rebuilt tree can select it. */
-internal class PreferredLibrarySelectionTracker {
-    private var pending: LibrarySelectionKey? = null
-
-    @Synchronized
-    fun remember(selection: LibrarySelectionKey) {
-        pending = selection
-    }
-
-    @Synchronized
-    fun preferredOr(fallback: LibrarySelectionKey?): LibrarySelectionKey? = pending ?: fallback
-
-    @Synchronized
-    fun acknowledge(actual: LibrarySelectionKey?) {
-        val expected = pending ?: return
-        if (matchesLibrarySelection(expected, actual)) pending = null
-    }
-
-    @Synchronized
-    fun cancel() {
-        pending = null
-    }
-
-    @Synchronized
-    fun pendingSelection(): LibrarySelectionKey? = pending
-}
-
-internal fun matchesLibrarySelection(expected: LibrarySelectionKey, actual: LibrarySelectionKey?): Boolean {
-    actual ?: return false
-    return when (expected) {
-        is LibrarySelectionKey.Folder -> actual is LibrarySelectionKey.Folder &&
-            expected.relativePath == actual.relativePath
-        is LibrarySelectionKey.Template -> actual is LibrarySelectionKey.Template &&
-            expected.templateId.equals(actual.templateId, ignoreCase = true)
-        is LibrarySelectionKey.TemplatePath -> actual is LibrarySelectionKey.TemplatePath &&
-            expected.relativePath == actual.relativePath
-    }
-}
-
-internal fun selectLibrarySelectionAfterReload(
-    authorOpen: Boolean,
-    currentSelection: LibrarySelectionKey?,
-    activeSelection: LibrarySelectionKey?,
-    persistedTemplateId: String?,
-): LibrarySelectionKey? = if (authorOpen) {
-    null
-} else {
-    currentSelection ?: activeSelection ?: persistedTemplateId?.let(LibrarySelectionKey::Template)
-}
-
-internal fun activeTemplateSelection(
-    root: Path,
-    activeDirectory: Path,
-    templateId: String?,
-): LibrarySelectionKey? = try {
-    val normalizedRoot = root.toAbsolutePath().normalize()
-    val normalizedDirectory = activeDirectory.toAbsolutePath().normalize()
-    if (!normalizedDirectory.startsWith(normalizedRoot)) null
-    else {
-        val relativePath = portablePath(normalizedRoot.relativize(normalizedDirectory))
-        if (templateId == null) LibrarySelectionKey.TemplatePath(relativePath)
-        else LibrarySelectionKey.Template(templateId, relativePath)
-    }
-} catch (_: IllegalArgumentException) {
-    null
-} catch (_: SecurityException) {
-    null
-}
-
 internal fun hasLibraryRootChanged(previousRoot: Path, currentRoot: Path): Boolean = try {
     previousRoot.toAbsolutePath().normalize() != currentRoot.toAbsolutePath().normalize()
 } catch (_: SecurityException) {
     true
 }
-
-internal fun shouldReloadSelectedDetail(
-    reloadRequested: Boolean,
-    authorOpen: Boolean,
-    selectedDirectory: Path?,
-    activeDirectory: Path?,
-): Boolean = reloadRequested && !authorOpen && selectedDirectory != null && selectedDirectory == activeDirectory
-
-internal fun shouldReloadHiddenActiveDetail(
-    reloadRequested: Boolean,
-    authorOpen: Boolean,
-    selectedDirectory: Path?,
-    activeDirectory: Path?,
-): Boolean = reloadRequested && !authorOpen && selectedDirectory == null && activeDirectory != null
-
-internal fun shouldRestartPendingDetailAfterReload(
-    resolvedPendingDirectory: Path?,
-    selectedTemplateDirectory: Path?,
-    authorOpen: Boolean,
-): Boolean = !authorOpen &&
-    resolvedPendingDirectory != null &&
-    resolvedPendingDirectory == selectedTemplateDirectory
 
 internal data class AuthorAsyncRequest(
     val generation: Int,

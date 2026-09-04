@@ -34,24 +34,11 @@ import kotlin.time.Duration.Companion.minutes
 class StarterHarness private constructor(
     val workspace: TestWorkspace,
 ) {
-    private var runNumber = 0
-
     fun run(block: Driver.(PromptTemplatesUi) -> Unit) {
-        runSessions(listOf(block))
-    }
-
-    fun runWithRestart(
-        beforeRestart: Driver.(PromptTemplatesUi) -> Unit,
-        afterRestart: Driver.(PromptTemplatesUi) -> Unit,
-    ) {
-        runSessions(listOf(beforeRestart, afterRestart))
-    }
-
-    private fun runSessions(blocks: List<Driver.(PromptTemplatesUi) -> Unit>) {
         val context = createContext()
         StarterFailureReporter.ensureInstalled(PINNED_IDE_BUILD)
         try {
-            blocks.forEach { block -> runSession(context, block) }
+            runSession(context, block)
         } finally {
             workspace.writeLibraryManifest()
         }
@@ -90,7 +77,6 @@ class StarterHarness private constructor(
         context: IDETestContext,
         block: Driver.(PromptTemplatesUi) -> Unit,
     ) {
-        runNumber += 1
         context.runIdeWithDriver(runTimeout = 8.minutes)
             .useDriverAndCloseIde(closeIdeTimeout = 2.minutes) {
                 val ui = PromptTemplatesUi(this)
@@ -98,7 +84,7 @@ class StarterHarness private constructor(
                     waitForIndicators(5.minutes)
                     block(ui)
                 } finally {
-                    captureEvidence(ui, "run-$runNumber")
+                    captureEvidence(ui, "run-1")
                 }
             }
     }

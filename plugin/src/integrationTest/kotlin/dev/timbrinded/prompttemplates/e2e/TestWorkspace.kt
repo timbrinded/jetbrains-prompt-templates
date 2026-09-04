@@ -104,24 +104,6 @@ class TestLibrary(
         return directory
     }
 
-    fun writeOrder(
-        relativeFolder: String,
-        folders: List<String>,
-        templates: List<String>,
-    ) {
-        val folder = resolve(relativeFolder).createDirectories()
-        val destination = folder.resolve(".prompt-templates-order.json")
-        destination.writeText(
-            buildString {
-                appendLine("{")
-                appendLine("  \"schemaVersion\": 1,")
-                appendLine("  \"folders\": ${jsonStringArray(folders)},")
-                appendLine("  \"templates\": ${jsonStringArray(templates)}")
-                appendLine("}")
-            },
-        )
-    }
-
     fun manifest(): String {
         if (!root.exists(LinkOption.NOFOLLOW_LINKS)) return "<library does not exist>\n"
         return root.walk(INCLUDE_DIRECTORIES)
@@ -169,11 +151,6 @@ class TestLibrary(
           ]
         }
         """.trimIndent() + "\n"
-
-    private fun jsonStringArray(values: List<String>): String = values.joinToString(
-        prefix = "[",
-        postfix = "]",
-    ) { value -> "\"${jsonEscape(value)}\"" }
 
     private fun jsonEscape(value: String): String = buildString(value.length) {
         value.forEach { character ->

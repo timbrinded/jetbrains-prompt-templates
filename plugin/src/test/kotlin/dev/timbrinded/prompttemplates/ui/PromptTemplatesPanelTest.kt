@@ -21,66 +21,6 @@ class PromptTemplatesPanelTest {
     lateinit var temporaryDirectory: Path
 
     @Test
-    fun `library refresh does not replace an open new-template draft with the prior selection`() {
-        val previouslySelected = LibrarySelectionKey.TemplatePath("existing-prompt")
-
-        val selected = selectLibrarySelectionAfterReload(
-            authorOpen = true,
-            currentSelection = previouslySelected,
-            activeSelection = null,
-            persistedTemplateId = null,
-        )
-
-        assertNull(selected)
-    }
-
-    @Test
-    fun `library refresh keeps a newly selected tree entry ahead of stale active detail`() {
-        val selected = LibrarySelectionKey.TemplatePath("reviews/new-selection")
-        val staleActive = LibrarySelectionKey.TemplatePath("reviews/old-selection")
-
-        assertEquals(
-            selected,
-            selectLibrarySelectionAfterReload(
-                authorOpen = false,
-                currentSelection = selected,
-                activeSelection = staleActive,
-                persistedTemplateId = "persisted-id",
-            ),
-        )
-    }
-
-    @Test
-    fun `active detail selection is ignored after the configured library root changes`() {
-        val oldRoot = Path.of("workspace", "old-library").toAbsolutePath()
-        val newRoot = Path.of("workspace", "new-library").toAbsolutePath()
-
-        assertNull(
-            activeTemplateSelection(
-                root = newRoot,
-                activeDirectory = oldRoot.resolve("template"),
-                templateId = "template-id",
-            ),
-        )
-        assertEquals(
-            "nested/template",
-            activeTemplateSelection(
-                root = newRoot,
-                activeDirectory = newRoot.resolve("nested/template"),
-                templateId = "template-id",
-            )?.relativePath,
-        )
-        assertEquals(
-            LibrarySelectionKey.TemplatePath("legacy"),
-            activeTemplateSelection(
-                root = newRoot,
-                activeDirectory = newRoot.resolve("legacy"),
-                templateId = null,
-            ),
-        )
-    }
-
-    @Test
     fun `library root change preserves the draft but rebases an existing edit as a new template`() {
         val oldRoot = temporaryDirectory.resolve("old-library")
         val newRoot = temporaryDirectory.resolve("new-library")
@@ -88,20 +28,15 @@ class PromptTemplatesPanelTest {
             PromptTemplateDraft(name = "Draft", markdown = "version one").toTemplate(),
             oldRoot.resolve("reviews/draft"),
         )
-        val target = TemplateDetailTarget(existing.directory, existing.template.id.value)
         val author = TemplateAuthorState(
             draft = PromptTemplateDraft(name = "Draft", markdown = "version one"),
             existing = existing,
-            existingTarget = target,
-            selectionBefore = LibrarySelectionKey.Template(existing.template.id.value, "reviews/draft"),
             destination = oldRoot.resolve("reviews"),
         )
 
         val rebased = author.rebasedAsNewTemplate(newRoot)
 
         assertNull(rebased.existing)
-        assertNull(rebased.existingTarget)
-        assertNull(rebased.selectionBefore)
         assertEquals(newRoot.toAbsolutePath().normalize(), rebased.destination)
         assertEquals(rebased, rebased.rebasedAsNewTemplate(newRoot.resolve(".")))
     }
@@ -123,26 +58,6 @@ class PromptTemplatesPanelTest {
         assertTrue(generations.isCurrentLibraryLoad(libraryGeneration))
         assertFalse(generations.acceptDetailLoad(firstDetailRequest))
         assertTrue(generations.acceptDetailLoad(secondDetailRequest))
-    }
-
-    @Test
-    fun `preferred selection tracks pending until acknowledged`() {
-        val tracker = PreferredLibrarySelectionTracker()
-        val created = LibrarySelectionKey.Folder("Reviews/New folder")
-        val stale = LibrarySelectionKey.Folder("Reviews/Old folder")
-        tracker.remember(created)
-        assertEquals(created, tracker.preferredOr(stale))
-        tracker.acknowledge(stale)
-        assertEquals(created, tracker.pendingSelection())
-        assertEquals(created, tracker.preferredOr(stale))
-        tracker.acknowledge(created)
-        assertNull(tracker.pendingSelection())
-
-        // Case-insensitive UUID match on a moved template also acknowledges.
-        val templateId = "92ee5ce7-2448-4875-89a7-bd574eacc9e1"
-        tracker.remember(LibrarySelectionKey.Template(templateId, "Reviews/original"))
-        tracker.acknowledge(LibrarySelectionKey.Template(templateId.uppercase(), "Archive/original"))
-        assertNull(tracker.pendingSelection())
     }
 
     @Test
@@ -174,66 +89,6 @@ class PromptTemplatesPanelTest {
         assertNull(second)
         tracker.finishSave(first)
         assertEquals(nestedDestination, tracker.beginSave(nestedDestination)?.destination)
-    }
-
-    @Test
-    fun `reload and scan restart detail only when still selected`() {
-        val active = Path.of("library", "reviews", "audit")
-        assertTrue(
-            shouldReloadSelectedDetail(
-                reloadRequested = true,
-                authorOpen = false,
-                selectedDirectory = active,
-                activeDirectory = active,
-            ),
-        )
-        assertFalse(
-            shouldReloadSelectedDetail(
-                reloadRequested = false,
-                authorOpen = false,
-                selectedDirectory = active,
-                activeDirectory = active,
-            ),
-        )
-        assertFalse(
-            shouldReloadSelectedDetail(
-                reloadRequested = true,
-                authorOpen = true,
-                selectedDirectory = active,
-                activeDirectory = active,
-            ),
-        )
-        assertTrue(
-            shouldReloadHiddenActiveDetail(
-                reloadRequested = true,
-                authorOpen = false,
-                selectedDirectory = null,
-                activeDirectory = active,
-            ),
-        )
-
-        val pending = Path.of("library", "Reviews", "audit")
-        assertTrue(
-            shouldRestartPendingDetailAfterReload(
-                resolvedPendingDirectory = pending,
-                selectedTemplateDirectory = pending,
-                authorOpen = false,
-            ),
-        )
-        assertFalse(
-            shouldRestartPendingDetailAfterReload(
-                resolvedPendingDirectory = pending,
-                selectedTemplateDirectory = null,
-                authorOpen = false,
-            ),
-        )
-        assertFalse(
-            shouldRestartPendingDetailAfterReload(
-                resolvedPendingDirectory = pending,
-                selectedTemplateDirectory = Path.of("library", "Other", "prompt"),
-                authorOpen = false,
-            ),
-        )
     }
 
     @Test

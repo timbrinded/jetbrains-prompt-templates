@@ -38,14 +38,14 @@ import javax.swing.JPopupMenu
 import javax.swing.event.DocumentEvent
 import kotlinx.coroutines.cancel
 
-class PromptTemplatesPanel(
+internal class PromptTemplatesPanel(
     private val project: Project,
-) : JPanel(), Disposable {
+) : JPanel(), Disposable, PromptTemplatesView {
     private val coroutineScope = project.service<PromptTemplatesProjectService>().childScope("PromptTemplatesPanel")
     private val settings = PromptTemplatesSettings.getInstance()
     private val workspace = PromptTemplatesWorkspaceState.getInstance(project)
     private val controller by lazy(LazyThreadSafetyMode.NONE) {
-        PromptTemplatesController(project, ViewAdapter(), settings, workspace, coroutineScope)
+        PromptTemplatesController(project, this, settings, workspace, coroutineScope)
     }
     private val searchField = SearchTextField(false)
     private val mutationControls = mutableListOf<JButton>()
@@ -126,16 +126,13 @@ class PromptTemplatesPanel(
     private val searchQuery: String
         get() = searchField.text
 
-    private val currentSelectionKey: LibrarySelectionKey?
-        get() = libraryTree.currentSelectionKey()
-
     private val selectedLibrarySelection: LibraryTreeSelection?
         get() = libraryTree.selectedSelection()
 
-    private val selectedDestinationFolder: Path
+    override val selectedDestinationFolder: Path
         get() = libraryTree.selectedDestinationFolder()
 
-    private fun bindLibraryFileWatcher(root: Path) {
+    override fun bindLibraryFileWatcher(root: Path) {
         val normalizedRoot = root.toAbsolutePath().normalize()
         if (watchedLibraryRoot?.toAbsolutePath()?.normalize() == normalizedRoot) return
         libraryFileWatcher?.let(Disposer::dispose)
@@ -149,13 +146,12 @@ class PromptTemplatesPanel(
         watchedLibraryRoot = normalizedRoot
     }
 
-    private fun renderLibrary(
+    override fun renderLibrary(
         snapshot: LibrarySnapshot,
         bodyIndex: Map<Path, String>,
-        preferredSelection: LibrarySelectionKey?,
+        selectedKey: LibrarySelectionKey?,
         expandedPaths: Collection<String>,
-        preferPreferredSelection: Boolean,
-    ): LibrarySelectionKey? {
+    ) {
         val diagnostic = snapshot.diagnostic?.takeIf(String::isNotBlank)
         libraryDiagnosticLabel.text = diagnostic.orEmpty()
         libraryDiagnosticLabel.toolTipText = diagnostic
@@ -167,19 +163,17 @@ class PromptTemplatesPanel(
                 snapshot = snapshot,
                 bodyIndex = bodyIndex,
                 searchQuery = searchQuery,
-                preferredSelection = preferredSelection,
+                selectedKey = selectedKey,
                 expandedPaths = expandedPaths,
-                preferPreferredSelection = preferPreferredSelection,
             )
         } finally {
             refreshingLibraryTree = false
         }
-        return libraryTree.currentSelectionKey()
     }
 
-    private fun clearLibrarySelection() = libraryTree.clearSelection()
+    override fun clearLibrarySelection() = libraryTree.clearSelection()
 
-    private fun renderDetail(detail: PromptDetailState) {
+    override fun renderDetail(detail: PromptDetailState) {
         disposeRenderedDetail()
         when (detail) {
             PromptDetailState.Empty -> {
@@ -193,7 +187,7 @@ class PromptTemplatesPanel(
         }
     }
 
-    private fun updateUsePreview(detail: PromptDetailState.Use) {
+    override fun updateUsePreview(detail: PromptDetailState.Use) {
         val useView = renderedDetail as? RenderedDetail.Use ?: return
         useView.previewField.text = detail.render.renderedText
         useView.highlights.update(detail.render)
@@ -215,17 +209,17 @@ class PromptTemplatesPanel(
         }
     }
 
-    private fun focusVariable(key: String) {
+    override fun focusVariable(key: String) {
         (renderedDetail as? RenderedDetail.Use)?.dynamicForm?.focusVariable(key)
     }
 
-    private fun setInteractionState(mutationsEnabled: Boolean, authorOpen: Boolean) {
+    override fun setInteractionState(mutationsEnabled: Boolean, authorOpen: Boolean) {
         libraryTree.setMutationsEnabled(mutationsEnabled)
         mutationControls.forEach { it.isEnabled = mutationsEnabled }
         returnToAuthorButton.isVisible = narrowMode && authorOpen
     }
 
-    private fun showNarrowDetail() {
+    override fun showNarrowDetail() {
         if (narrowMode) narrowLayout.show(narrowPanel, NARROW_DETAIL_CARD)
     }
 
@@ -515,42 +509,6 @@ class PromptTemplatesPanel(
         coroutineScope.cancel()
         settings.splitterProportion = wideSplitter.proportion
         disposeRenderedDetail()
-    }
-
-    private inner class ViewAdapter : PromptTemplatesView {
-        override val searchQuery: String
-            get() = this@PromptTemplatesPanel.searchQuery
-        override val currentSelectionKey: LibrarySelectionKey?
-            get() = this@PromptTemplatesPanel.currentSelectionKey
-        override val selectedLibrarySelection: LibraryTreeSelection?
-            get() = this@PromptTemplatesPanel.selectedLibrarySelection
-        override val selectedDestinationFolder: Path
-            get() = this@PromptTemplatesPanel.selectedDestinationFolder
-
-        override fun bindLibraryFileWatcher(root: Path) = this@PromptTemplatesPanel.bindLibraryFileWatcher(root)
-
-        override fun renderLibrary(
-            snapshot: LibrarySnapshot,
-            bodyIndex: Map<Path, String>,
-            preferredSelection: LibrarySelectionKey?,
-            expandedPaths: Collection<String>,
-            preferPreferredSelection: Boolean,
-        ): LibrarySelectionKey? = this@PromptTemplatesPanel.renderLibrary(
-            snapshot,
-            bodyIndex,
-            preferredSelection,
-            expandedPaths,
-            preferPreferredSelection,
-        )
-
-        override fun clearLibrarySelection() = this@PromptTemplatesPanel.clearLibrarySelection()
-        override fun renderDetail(detail: PromptDetailState) = this@PromptTemplatesPanel.renderDetail(detail)
-        override fun updateUsePreview(detail: PromptDetailState.Use) =
-            this@PromptTemplatesPanel.updateUsePreview(detail)
-        override fun focusVariable(key: String) = this@PromptTemplatesPanel.focusVariable(key)
-        override fun setInteractionState(mutationsEnabled: Boolean, authorOpen: Boolean) =
-            this@PromptTemplatesPanel.setInteractionState(mutationsEnabled, authorOpen)
-        override fun showNarrowDetail() = this@PromptTemplatesPanel.showNarrowDetail()
     }
 
     private sealed interface RenderedDetail {

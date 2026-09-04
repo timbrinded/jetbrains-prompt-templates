@@ -35,6 +35,34 @@ internal fun flattenFolders(entries: List<LibraryEntry>): List<LibraryEntry.Fold
     visit(entries)
 }
 
+internal fun resolveLibrarySelection(
+    snapshot: LibrarySnapshot,
+    key: LibrarySelectionKey?,
+): LibraryTreeSelection? {
+    key ?: return null
+    return when (key) {
+        is LibrarySelectionKey.Folder -> flattenFolders(snapshot.children)
+            .firstOrNull { entry -> portablePath(entry.relativeDirectory) == key.relativePath }
+            ?.let(LibraryTreeSelection::Folder)
+        is LibrarySelectionKey.TemplatePath -> flattenTemplates(snapshot.children)
+            .firstOrNull { entry -> portablePath(entry.relativeDirectory) == key.relativePath }
+            ?.let(LibraryTreeSelection::Template)
+        is LibrarySelectionKey.Template -> {
+            val templates = flattenTemplates(snapshot.children)
+            val exactPath = key.relativePath?.let { relativePath ->
+                templates.firstOrNull { entry ->
+                    portablePath(entry.relativeDirectory) == relativePath &&
+                        entry.summary.id?.value.equals(key.templateId, ignoreCase = true)
+                }
+            }
+            val resolved = exactPath ?: templates.filter { entry ->
+                entry.summary.id?.value.equals(key.templateId, ignoreCase = true)
+            }.singleOrNull()
+            resolved?.let(LibraryTreeSelection::Template)
+        }
+    }
+}
+
 internal fun countFolders(entries: List<LibraryEntry>): Int = flattenFolders(entries).size
 
 internal fun readSearchIndexBody(markdownPath: Path): String {

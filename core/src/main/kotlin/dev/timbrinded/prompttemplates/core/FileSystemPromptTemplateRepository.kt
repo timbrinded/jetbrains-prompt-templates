@@ -9,7 +9,6 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.io.path.extension
 import kotlin.io.path.name
@@ -547,45 +546,30 @@ class FileSystemPromptTemplateRepository(
         source: Path,
     ): FolderOrderState {
         val names = names(kind).toMutableList().also { it.remove(name) }
-        val index = when (placement) {
-            EntryPlacement.EndOfKind -> names.size
-            is EntryPlacement.Before -> placementIndex(
-                sibling = placement.sibling,
-                destinationFolder = destinationFolder,
-                source = source,
-                kind = kind,
-                names = names,
-                after = false,
-            )
-
-            is EntryPlacement.After -> placementIndex(
-                sibling = placement.sibling,
-                destinationFolder = destinationFolder,
-                source = source,
-                kind = kind,
-                names = names,
-                after = true,
-            )
-        }
+        val index = placementIndex(placement, destinationFolder, source, kind, names)
         names.add(index, name)
         return withNames(kind, names)
     }
 
     private fun placementIndex(
-        sibling: Path,
+        placement: EntryPlacement,
         destinationFolder: Path,
         source: Path,
         kind: EntryKind,
         names: List<String>,
-        after: Boolean,
     ): Int {
+        val sibling = when (placement) {
+            EntryPlacement.EndOfKind -> return names.size
+            is EntryPlacement.Before -> placement.sibling
+            is EntryPlacement.After -> placement.sibling
+        }
         val safeSibling = requireLibraryEntry(sibling)
         require(safeSibling.parent == destinationFolder) { "The placement target is not in the destination folder." }
         require(safeSibling != source) { "An entry cannot be placed relative to itself." }
         require(treeScanner.classify(safeSibling).kind == kind) { "Folders and templates cannot be interleaved." }
         val siblingIndex = names.indexOf(safeSibling.name)
         require(siblingIndex >= 0) { "The placement target is no longer available." }
-        return siblingIndex + if (after) 1 else 0
+        return siblingIndex + if (placement is EntryPlacement.After) 1 else 0
     }
 
     private fun moveWithoutReplacement(source: Path, destination: Path): Path {
@@ -674,32 +658,8 @@ class FileSystemPromptTemplateRepository(
     private inline fun <T> mutateLibrary(
         operation: String,
         block: () -> RepositoryResult<T>,
-    ): RepositoryResult<T> = mutationLock().withLock {
+    ): RepositoryResult<T> = LIBRARY_MUTATION_LOCK.withLock {
         protect(operation, block)
-    }
-
-    private fun mutationLock(): ReentrantLock {
-        val key = stableMutationLockKey(normalizedRoot())
-        return LIBRARY_MUTATION_LOCKS.computeIfAbsent(key) { ReentrantLock() }
-    }
-
-    private fun stableMutationLockKey(path: Path): Path {
-        var existingAncestor: Path? = path
-        val missingSegments = ArrayDeque<Path>()
-        while (existingAncestor != null && !Files.exists(existingAncestor, NOFOLLOW_LINKS)) {
-            existingAncestor.fileName?.let(missingSegments::addFirst)
-            existingAncestor = existingAncestor.parent
-        }
-        val canonicalAncestor = existingAncestor?.let(::canonicalPathOrNormalized) ?: path.root
-        return missingSegments.fold(canonicalAncestor) { current, segment -> current.resolve(segment) }.normalize()
-    }
-
-    private fun canonicalPathOrNormalized(path: Path): Path = try {
-        path.toRealPath()
-    } catch (_: IOException) {
-        path.toAbsolutePath().normalize()
-    } catch (_: SecurityException) {
-        path.toAbsolutePath().normalize()
     }
 
     companion object {
@@ -711,7 +671,7 @@ class FileSystemPromptTemplateRepository(
             .mapTo(mutableSetOf(), String::lowercase)
         private val LIBRARY_MANAGEMENT_DIRECTORY_NAMES = setOf(".git", ".hg", ".svn", ".idea")
         private val INVALID_FOLDER_NAME_CHARACTERS = setOf('<', '>', ':', '"', '/', '\\', '|', '?', '*')
-        private val LIBRARY_MUTATION_LOCKS = ConcurrentHashMap<Path, ReentrantLock>()
+        private val LIBRARY_MUTATION_LOCK = ReentrantLock()
 
         /** Prefixes of the working directories the repository creates beside an entry it is deleting or renaming. */
         const val DELETE_SCRATCH_PREFIX = ".prompt-template-delete-"

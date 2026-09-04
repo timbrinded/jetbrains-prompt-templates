@@ -45,23 +45,7 @@ class PromptTemplatesSettings :
     val libraryRoot: Path
         get() = Path.of(libraryPath.ifBlank { defaultLibraryPath() }).toAbsolutePath().normalize()
 
-    fun markRecent(id: String) {
-        updateState { current ->
-            current.copy(
-                recentTemplateIds = buildList {
-                    add(id)
-                    current.recentTemplateIds.asSequence()
-                        .filterNot(id::equals)
-                        .take(MAX_RECENTS - 1)
-                        .forEach(::add)
-                },
-            )
-        }
-    }
-
     companion object {
-        private const val MAX_RECENTS = 20
-
         fun getInstance(): PromptTemplatesSettings = service()
 
         private fun defaultLibraryPath(): String =

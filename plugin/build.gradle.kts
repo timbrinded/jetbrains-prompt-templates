@@ -41,10 +41,8 @@ dependencies {
 
     testImplementation(kotlin("test"))
 
-    integrationTestImplementation("org.junit.jupiter:junit-jupiter:5.14.4")
     integrationTestImplementation("org.kodein.di:kodein-di-jvm:7.20.2")
     integrationTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.10.1")
-    integrationTestRuntimeOnly("org.junit.platform:junit-platform-launcher:1.14.4")
     integrationTestRuntimeOnly("org.jetbrains.intellij.deps:teamcity-service-messages:2019.1.4-alpha")
 
     intellijPlatform {
@@ -92,7 +90,6 @@ val integrationTest by intellijPlatformTesting.testIdeUi.registering {
 
         testClassesDirs = integrationTestSourceSet.output.classesDirs
         classpath = integrationTestSourceSet.runtimeClasspath
-        maxParallelForks = 1
         workingDir = rootProject.layout.projectDirectory.asFile
 
         systemProperty(

@@ -95,7 +95,7 @@ class TemplateLibraryTreeTest {
             snapshot = LibrarySnapshot(root, listOf(folder("First", listOf(first)), folder("Second", listOf(second)))),
             bodyIndex = emptyMap(),
             searchQuery = "",
-            preferredSelection = LibrarySelectionKey.Template(duplicateId.value, "Second/b"),
+            selectedKey = LibrarySelectionKey.Template(duplicateId.value, "Second/b"),
             expandedPaths = emptyList(),
         )
         assertEquals(second.directory, assertIs<LibraryTreeSelection.Template>(exactTree.selectedSelection()).directory)
@@ -112,7 +112,7 @@ class TemplateLibraryTreeTest {
             ),
             bodyIndex = emptyMap(),
             searchQuery = "",
-            preferredSelection = LibrarySelectionKey.Template(duplicateId.value, "missing"),
+            selectedKey = LibrarySelectionKey.Template(duplicateId.value, "missing"),
             expandedPaths = emptyList(),
         )
         assertNull(ambiguousTree.selectedSelection())
@@ -129,7 +129,7 @@ class TemplateLibraryTreeTest {
             ),
             bodyIndex = emptyMap(),
             searchQuery = "visible",
-            preferredSelection = LibrarySelectionKey.Template(duplicateId.value, "original"),
+            selectedKey = LibrarySelectionKey.Template(duplicateId.value, "original"),
             expandedPaths = emptyList(),
         )
         assertNull(filteredTree.selectedSelection())
@@ -143,7 +143,7 @@ class TemplateLibraryTreeTest {
             snapshot = LibrarySnapshot(root, listOf(folder("archive", listOf(moved)), replacement)),
             bodyIndex = emptyMap(),
             searchQuery = "",
-            preferredSelection = LibrarySelectionKey.Template(stableId.value, "original"),
+            selectedKey = LibrarySelectionKey.Template(stableId.value, "original"),
             expandedPaths = emptyList(),
         )
         assertEquals(moved.directory, assertIs<LibraryTreeSelection.Template>(movedTree.selectedSelection()).directory)
@@ -235,7 +235,6 @@ class TemplateLibraryTreeTest {
             TEMPLATE_COMMANDS.map { command -> command?.command },
         )
         // Read-only: mutations off, navigation/open still on.
-        assertEquals(false, isLibraryCommandEnabled(LibraryTreeCommand.USE_TEMPLATE, mutationsEnabled = false))
         assertEquals(false, isLibraryCommandEnabled(LibraryTreeCommand.RENAME_FOLDER, mutationsEnabled = false))
         assertEquals(false, isLibraryCommandEnabled(LibraryTreeCommand.MOVE_TO_FOLDER, mutationsEnabled = false))
         assertEquals(false, isLibraryCommandEnabled(LibraryTreeCommand.DELETE_FOLDER, mutationsEnabled = false))
@@ -244,8 +243,8 @@ class TemplateLibraryTreeTest {
     }
 
     @Test
-    fun `selection restore prefers author origin search choice and explicit override`() {
-        // Author origin survives tree navigation.
+    fun `controlled selection restores across navigation search and explicit replacement`() {
+        // The supplied controller selection replaces temporary tree navigation.
         val first = template("Reviews/a", "A", "")
         val second = template("Reviews/b", "B", "")
         val snapshot = LibrarySnapshot(root, listOf(folder("Reviews", listOf(first, second))))
@@ -254,30 +253,44 @@ class TemplateLibraryTreeTest {
         tree.updateLibrary(snapshot, emptyMap(), "", firstKey, emptyList())
         tree.selectTemplateByDirectory(second.directory)
         tree.updateLibrary(snapshot, emptyMap(), "", firstKey, emptyList())
-        assertEquals(first.summary.id?.value, (tree.currentSelectionKey() as? LibrarySelectionKey.Template)?.templateId)
+        assertEquals(
+            first.summary.id?.value,
+            (selectionKey(tree.selectedSelection(), root) as? LibrarySelectionKey.Template)?.templateId,
+        )
 
         // User-picked search result survives clearing the filter.
         val alpha = template("a", "Alpha", "")
         val beta = template("b", "Beta", "")
         val flat = LibrarySnapshot(root, listOf(alpha, beta))
-        val searchTree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
-        searchTree.updateLibrary(flat, emptyMap(), "", LibrarySelectionKey.Template(requireNotNull(alpha.summary.id).value), emptyList())
-        searchTree.updateLibrary(flat, emptyMap(), "Beta", null, emptyList())
+        var controlledKey: LibrarySelectionKey? = LibrarySelectionKey.Template(requireNotNull(alpha.summary.id).value)
+        val searchTree = TemplateLibraryTree(
+            { selection -> controlledKey = selectionKey(selection, root) },
+            { _, _ -> },
+            { _, _, _ -> },
+            {},
+        )
+        searchTree.updateLibrary(flat, emptyMap(), "", controlledKey, emptyList())
+        searchTree.updateLibrary(flat, emptyMap(), "Beta", controlledKey, emptyList())
         searchTree.selectTemplateByDirectory(beta.directory)
-        searchTree.updateLibrary(flat, emptyMap(), "", null, emptyList())
+        searchTree.updateLibrary(flat, emptyMap(), "", controlledKey, emptyList())
         assertEquals(beta.directory, assertIs<LibraryTreeSelection.Template>(searchTree.selectedSelection()).directory)
 
         // Pending explicit selection wins when the filter clears.
         val overrideTree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
         overrideTree.updateLibrary(flat, emptyMap(), "", LibrarySelectionKey.Template(requireNotNull(alpha.summary.id).value), emptyList())
-        overrideTree.updateLibrary(flat, emptyMap(), "Alpha", null, emptyList())
+        overrideTree.updateLibrary(
+            flat,
+            emptyMap(),
+            "Alpha",
+            LibrarySelectionKey.Template(requireNotNull(alpha.summary.id).value),
+            emptyList(),
+        )
         overrideTree.updateLibrary(
             snapshot = flat,
             bodyIndex = emptyMap(),
             searchQuery = "",
-            preferredSelection = LibrarySelectionKey.Template(requireNotNull(beta.summary.id).value),
+            selectedKey = LibrarySelectionKey.Template(requireNotNull(beta.summary.id).value),
             expandedPaths = emptyList(),
-            preferPreferredSelection = true,
         )
         assertEquals(beta.directory, assertIs<LibraryTreeSelection.Template>(overrideTree.selectedSelection()).directory)
     }
@@ -289,7 +302,7 @@ class TemplateLibraryTreeTest {
         val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, { recorded += it })
         val acme = folder("work/clients/acme", listOf(template("work/clients/acme/t", "T", "")))
         val snapshot = LibrarySnapshot(root, listOf(folder("work", listOf(folder("work/clients", listOf(acme))))))
-        tree.updateLibrary(snapshot, emptyMap(), "", preferredSelection = null, expandedPaths = listOf("work", "work/clients"))
+        tree.updateLibrary(snapshot, emptyMap(), "", selectedKey = null, expandedPaths = listOf("work", "work/clients"))
         assertTrue(tree.isExpanded(tree.pathOfFolder("work")))
         assertTrue(tree.isExpanded(tree.pathOfFolder("work/clients")))
         assertFalse(tree.isExpanded(tree.pathOfFolder("work/clients/acme")))
@@ -305,7 +318,7 @@ class TemplateLibraryTreeTest {
         val clients = folder("work/clients", listOf(template("work/clients/t", "T", "")))
         prunedTree.updateLibrary(
             LibrarySnapshot(root, listOf(folder("work", listOf(clients)))),
-            emptyMap(), "", preferredSelection = null, expandedPaths = listOf("work/clients"),
+            emptyMap(), "", selectedKey = null, expandedPaths = listOf("work/clients"),
         )
         assertFalse(prunedTree.isExpanded(prunedTree.pathOfFolder("work")))
         assertEquals(emptySet(), prunedRecorded.last())
@@ -313,7 +326,7 @@ class TemplateLibraryTreeTest {
         // Empty snapshot (pre-scan placeholder) neither prunes nor publishes.
         val emptyRecorded = mutableListOf<Set<String>>()
         val emptyTree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, { emptyRecorded += it })
-        emptyTree.updateLibrary(LibrarySnapshot(root, emptyList()), emptyMap(), "", preferredSelection = null, expandedPaths = listOf("work"))
+        emptyTree.updateLibrary(LibrarySnapshot(root, emptyList()), emptyMap(), "", selectedKey = null, expandedPaths = listOf("work"))
         assertTrue(emptyRecorded.isEmpty(), "The pre-scan placeholder must not publish, but recorded $emptyRecorded")
         assertEquals(setOf("work"), emptyTree.captureExpandedFolderPaths())
 
@@ -322,7 +335,7 @@ class TemplateLibraryTreeTest {
         val selectTree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, { selectRecorded += it })
         selectTree.updateLibrary(
             LibrarySnapshot(root, listOf(folder("A", listOf(folder("A/B", emptyList()))))),
-            emptyMap(), "", preferredSelection = LibrarySelectionKey.Folder("A/B"), expandedPaths = emptyList(),
+            emptyMap(), "", selectedKey = LibrarySelectionKey.Folder("A/B"), expandedPaths = emptyList(),
         )
         assertTrue(selectTree.isExpanded(selectTree.pathOfFolder("A")))
         assertEquals(setOf("A"), selectRecorded.last())
@@ -332,27 +345,25 @@ class TemplateLibraryTreeTest {
         val staleTree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, { staleRecorded += it })
         staleTree.updateLibrary(
             LibrarySnapshot(root, listOf(folder("Keep", listOf(template("Keep/t", "T", ""))))),
-            emptyMap(), "", preferredSelection = null, expandedPaths = listOf("Keep", "Gone", "Gone/Deeper"),
+            emptyMap(), "", selectedKey = null, expandedPaths = listOf("Keep", "Gone", "Gone/Deeper"),
         )
         assertEquals(setOf("Keep"), staleRecorded.last())
     }
 
     @Test
-    fun `a folder selected while searching is reported with its unfiltered children`() {
-        val selections = mutableListOf<LibraryTreeSelection>()
-        val tree = TemplateLibraryTree({ selections += it }, { _, _ -> }, { _, _, _ -> }, {})
+    fun `a folder selected while searching resolves with its unfiltered children`() {
+        val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
         val reviews = folder("Reviews", listOf(template("Reviews/a", "Alpha", ""), template("Reviews/b", "Beta", "")))
 
         tree.updateLibrary(
             LibrarySnapshot(root, listOf(reviews)),
             emptyMap(),
             "alpha",
-            preferredSelection = LibrarySelectionKey.Folder("Reviews"),
+            selectedKey = LibrarySelectionKey.Folder("Reviews"),
             expandedPaths = emptyList(),
         )
 
         assertEquals(2, assertIs<LibraryTreeSelection.Folder>(tree.selectedSelection()).entry.children.size)
-        assertEquals(2, assertIs<LibraryTreeSelection.Folder>(selections.last()).entry.children.size)
     }
 
     @Test

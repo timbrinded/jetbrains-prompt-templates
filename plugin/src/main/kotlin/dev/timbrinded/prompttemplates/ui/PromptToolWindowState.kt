@@ -31,14 +31,10 @@ internal sealed interface PromptDetailState {
 internal data class TemplateAuthorState(
     val draft: PromptTemplateDraft,
     val existing: StoredTemplate?,
-    val existingTarget: TemplateDetailTarget?,
-    val selectionBefore: LibrarySelectionKey?,
     val destination: Path,
 ) {
     fun rebasedAsNewTemplate(newRoot: Path): TemplateAuthorState = copy(
         existing = null,
-        existingTarget = null,
-        selectionBefore = null,
         destination = newRoot.toAbsolutePath().normalize(),
     )
 }

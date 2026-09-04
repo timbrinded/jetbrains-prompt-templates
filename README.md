@@ -91,7 +91,7 @@ Requirements are JDK 25 and the included Gradle wrapper. Gradle can provision th
 
 The installable ZIP is written to `plugin/build/distributions/`. Install it with **Settings | Plugins | ⚙ | Install Plugin from Disk…**.
 
-The integration task is a local E2E check. It installs the built plugin into an isolated unified IntelliJ IDEA 2026.2.0.1 instance, uses a temporary project and user home, and drives the real Swing UI with JetBrains Starter and Driver. Screenshots, Swing hierarchies, tree state, isolated paths and library manifests are written below `plugin/build/ui-test/`. On headless Linux, run the task under Xvfb. Local desktop sessions can use their native display.
+The integration task is a local E2E check. It installs the built plugin into an isolated unified IntelliJ IDEA 2026.2.0.1 instance, uses a temporary project and user home, and drives the real Swing UI with JetBrains Starter and Driver. Swing hierarchies, tree state, isolated paths and library manifests are written below `plugin/build/ui-test/`. A screenshot is also written when the display server supports capture; otherwise the directory contains a screenshot capture-error file. On headless Linux, run the task under Xvfb. Local desktop sessions can use their native display.
 
 Install [`gh-signoff`](https://github.com/basecamp/gh-signoff) once:
 

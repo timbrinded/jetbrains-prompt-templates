@@ -18,18 +18,6 @@ class PromptTemplatesSettingsTest {
     }
 
     @Test
-    fun `recent templates remain unique and bounded`() {
-        val settings = PromptTemplatesSettings()
-
-        (1..25).forEach { settings.markRecent("template-$it") }
-        settings.markRecent("template-20")
-
-        assertEquals(20, settings.state.recentTemplateIds.size)
-        assertEquals("template-20", settings.state.recentTemplateIds.first())
-        assertEquals(1, settings.state.recentTemplateIds.count("template-20"::equals))
-    }
-
-    @Test
     fun `immutable state keeps stable XML names and reads legacy beans`() {
         val state = PromptTemplatesSettings.SettingsState(
             libraryPath = "/tmp/library",

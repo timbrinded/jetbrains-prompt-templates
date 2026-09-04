@@ -3,7 +3,6 @@ package dev.timbrinded.prompttemplates.e2e
 import com.intellij.driver.sdk.waitFor
 import org.junit.jupiter.api.Test
 import kotlin.io.path.exists
-import kotlin.io.path.isDirectory
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.notExists
 import kotlin.test.assertEquals
@@ -38,19 +37,6 @@ class PromptTemplatesIdeTest {
             name = "Delete me",
             id = "031cd891-66f7-485a-a427-981cb1f9ae0a",
         )
-        harness.workspace.templates.writeOrder(
-            relativeFolder = "",
-            folders = listOf(
-                "Reviews",
-                "Source",
-                "Destination",
-                "Collision Source",
-                "Collision Destination",
-                "Trash",
-            ),
-            templates = emptyList(),
-        )
-
         harness.run { ui ->
             ui.open()
             ui.createFolder(parentPath = listOf("Reviews"), name = "Security")

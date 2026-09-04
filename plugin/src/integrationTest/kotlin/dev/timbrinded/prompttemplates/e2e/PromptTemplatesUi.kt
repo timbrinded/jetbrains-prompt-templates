@@ -28,7 +28,7 @@ class PromptTemplatesUi(
     private val driver: Driver,
 ) {
     fun open(): PromptTemplatesUi = apply {
-        driver.invokeAction(OPEN_ACTION_ID, now = false)
+        driver.invokeAction(OPEN_ACTION_ID, component = driver.ideFrame().component)
         libraryTree().waitFound(1.minutes)
     }
 
@@ -36,30 +36,8 @@ class PromptTemplatesUi(
         byAccessibleName(LIBRARY_TREE_ACCESSIBLE_NAME)
     }
 
-    fun expandAll(): List<String> = libraryTree()
-        .expandAll()
-        .collectExpandedPathsAsStrings()
-
-    fun rightClickPath(vararg path: String): List<String> {
-        openContextMenu(*path)
-        return lightweightContextMenu().getAllTexts().map { it.text }.distinct()
-    }
-
     fun selectContextMenuItem(vararg path: String, item: String) {
         openContextMenu(*path)
-        clickContextMenuItem(item)
-    }
-
-    fun selectRootContextMenuItem(item: String) {
-        val tree = libraryTree()
-        val treeBounds = tree.boundsOnScreen
-        openContextMenu(
-            tree = tree,
-            point = Point(
-                (treeBounds.width - 2).coerceAtLeast(0),
-                (treeBounds.height - 2).coerceAtLeast(0),
-            ),
-        )
         clickContextMenuItem(item)
     }
 
@@ -128,19 +106,6 @@ class PromptTemplatesUi(
         waitForPath(*(parentPath + name).toTypedArray())
     }
 
-    fun selectPath(vararg path: String) {
-        val tree = libraryTree().expandAll()
-        val expectedPath = path.toList()
-        clickComponentAt(tree, tree.fixture.getRowPoint(rowFor(tree, expectedPath)))
-        waitFor("tree path $expectedPath is selected", 30.seconds) {
-            runCatching {
-                libraryTree().collectSelectedPaths().any { selected ->
-                    libraryPathEndsWith(selected.path, expectedPath)
-                }
-            }.getOrDefault(false)
-        }
-    }
-
     fun movePathToFolder(sourcePath: List<String>, destinationPath: String) {
         selectContextMenuItem(*sourcePath.toTypedArray(), item = "Move to Folder…")
         driver.ui.popup().apply {
@@ -174,18 +139,6 @@ class PromptTemplatesUi(
         }
     }
 
-    fun waitForVisiblePath(vararg path: String) {
-        waitFor("tree path ${path.toList()} is visible", 30.seconds) {
-            runCatching { hasPath(libraryTree(), path.toList()) }.getOrDefault(false)
-        }
-    }
-
-    fun waitForVisiblePathAbsent(vararg path: String) {
-        waitFor("tree path ${path.toList()} is not visible", 30.seconds) {
-            runCatching { !hasPath(libraryTree(), path.toList()) }.getOrDefault(false)
-        }
-    }
-
     fun waitForAccessibleText(text: String) {
         driver.ui.x { contains(byAccessibleName(text)) }.waitFound(30.seconds)
     }
@@ -198,11 +151,6 @@ class PromptTemplatesUi(
             clickComponent(okButton)
         }
         driver.ui.waitForNoOpenedDialogs()
-    }
-
-    fun expandedRowCount(): Int = driver.withContext(OnDispatcher.EDT) {
-        val tree = cast(libraryTree().component, TreeState::class)
-        (0 until tree.getRowCount()).count { row -> tree.isExpanded(row) }
     }
 
     private fun openContextMenu(vararg path: String) {
@@ -286,12 +234,6 @@ private interface PopupEventTarget {
 
 @Remote("java.awt.event.MouseEvent")
 private interface PopupTriggerEvent
-
-@Remote("javax.swing.JTree")
-private interface TreeState {
-    fun getRowCount(): Int
-    fun isExpanded(row: Int): Boolean
-}
 
 @Remote("java.awt.Toolkit")
 private interface RemoteToolkit {

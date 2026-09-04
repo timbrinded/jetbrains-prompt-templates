@@ -51,16 +51,9 @@ internal sealed interface LibraryTreeSelection {
 internal enum class LibraryTreeCommand {
     NEW_TEMPLATE,
     NEW_FOLDER,
-    IMPORT_MARKDOWN,
     RENAME_FOLDER,
-    REFRESH,
-    REVEAL,
-    COPY_PATH,
     EXPAND_ALL,
     COLLAPSE_ALL,
-    EXPAND_BRANCH,
-    COLLAPSE_BRANCH,
-    USE_TEMPLATE,
     EDIT_TEMPLATE,
     MOVE_TO_FOLDER,
     MOVE_UP,
@@ -99,7 +92,6 @@ internal class TemplateLibraryTree(
     private var rebuilding = false
     /** Expanded organiser folders as portable relative paths, including folders hidden under a collapsed ancestor. */
     private val expandedFolderPaths = linkedSetOf<String>()
-    private var selectionBeforeSearch: LibrarySelectionKey? = null
     private var draggedSelection: LibraryTreeSelection? = null
     private var mutationsEnabled = true
     private var fallbackAccessibleContext: AccessibleContext? = null
@@ -115,7 +107,6 @@ internal class TemplateLibraryTree(
 
         addTreeSelectionListener {
             if (!rebuilding) selectedSelection()?.let { selection ->
-                if (query.isNotBlank()) selectionBeforeSearch = selectionKey(selection, snapshot.root)
                 onSelection(selection)
             }
         }
@@ -150,14 +141,10 @@ internal class TemplateLibraryTree(
         snapshot: LibrarySnapshot,
         bodyIndex: Map<Path, String>,
         searchQuery: String,
-        preferredSelection: LibrarySelectionKey?,
+        selectedKey: LibrarySelectionKey?,
         expandedPaths: Collection<String>,
-        preferPreferredSelection: Boolean = false,
     ) {
-        val wasSearching = query.isNotBlank()
         val willSearch = searchQuery.isNotBlank()
-        val previousSelection = selectionKey(selectedSelection(), this.snapshot.root)
-        if (!wasSearching && willSearch) selectionBeforeSearch = previousSelection
         if (!willSearch) {
             // Outside search mode the persisted set is the source of truth for this rebuild.
             expandedFolderPaths.clear()
@@ -176,13 +163,7 @@ internal class TemplateLibraryTree(
             model = DefaultTreeModel(root)
 
             if (willSearch) expandEveryRow() else restoreExpandedFolderPaths(expandedBeforeRebuild)
-            val selectionToRestore = if (wasSearching && !willSearch && !preferPreferredSelection) {
-                selectionBeforeSearch ?: preferredSelection ?: previousSelection
-            } else {
-                preferredSelection ?: previousSelection
-            }
-            restoreSelection(selectionToRestore)
-            if (!willSearch) selectionBeforeSearch = null
+            restoreSelection(selectedKey)
         } finally {
             rebuilding = false
         }
@@ -193,7 +174,6 @@ internal class TemplateLibraryTree(
             expandedFolderPaths.retainAll(folderTreePaths().filterValues { path -> isExpanded(path) }.keys)
             if (expandedFolderPaths != expandedBeforeRebuild) onExpansionChanged(expandedFolderPaths.toSet())
         }
-        selectedSelection()?.let(onSelection)
     }
 
     fun selectedSelection(): LibraryTreeSelection? = nodeSelection(selectionPath)?.let(::unfilteredSelection)
@@ -217,23 +197,12 @@ internal class TemplateLibraryTree(
         if (!GraphicsEnvironment.isHeadless()) dragEnabled = enabled
     }
 
-    fun currentSelectionKey(): LibrarySelectionKey? = selectionKey(selectedSelection(), snapshot.root)
-
     fun captureExpandedFolderPaths(): Set<String> = expandedFolderPaths.toSet()
 
     fun expandAll() = expandEveryRow()
 
     fun collapseAll() {
         for (row in rowCount - 1 downTo 0) collapseRow(row)
-    }
-
-    fun expandSelectedBranch() {
-        val base = selectionPath ?: return
-        expandDescendants(base)
-    }
-
-    fun collapseSelectedBranch() {
-        selectionPath?.let(::collapsePath)
     }
 
     fun selectTemplateByDirectory(directory: Path) {
@@ -252,36 +221,9 @@ internal class TemplateLibraryTree(
     }
 
     private fun restoreSelection(key: LibrarySelectionKey?) {
-        if (key == null) return
-        val path = when (key) {
-            is LibrarySelectionKey.Folder -> findPath { selection ->
-                selection is LibraryTreeSelection.Folder &&
-                    portablePath(selection.entry.relativeDirectory) == key.relativePath
-            }
-            is LibrarySelectionKey.TemplatePath -> findPath { selection ->
-                selection is LibraryTreeSelection.Template &&
-                    portablePath(selection.entry.relativeDirectory) == key.relativePath
-            }
-            is LibrarySelectionKey.Template -> {
-                val exactPath = key.relativePath?.let { relativePath ->
-                    findPath { selection ->
-                        selection is LibraryTreeSelection.Template &&
-                            portablePath(selection.entry.relativeDirectory) == relativePath &&
-                            selection.entry.summary.id?.value.equals(key.templateId, ignoreCase = true)
-                    }
-                }
-                val matchingIds = flattenTemplates(snapshot.children).count { entry ->
-                    entry.summary.id?.value.equals(key.templateId, ignoreCase = true)
-                }
-                exactPath ?: if (matchingIds == 1) {
-                    findPath { selection ->
-                        selection is LibraryTreeSelection.Template &&
-                            selection.entry.summary.id?.value.equals(key.templateId, ignoreCase = true)
-                    }
-                } else {
-                    null
-                }
-            }
+        val resolved = resolveLibrarySelection(snapshot, key) ?: return
+        val path = findPath { selection ->
+            selection::class == resolved::class && selection.directory == resolved.directory
         }
         path ?: return
         selectionPath = path
@@ -340,14 +282,6 @@ internal class TemplateLibraryTree(
         }
     }
 
-    private fun expandDescendants(path: TreePath) {
-        val node = path.lastPathComponent as? DefaultMutableTreeNode ?: return
-        node.depthFirstEnumeration().asSequence()
-            .mapNotNull { it as? DefaultMutableTreeNode }
-            .map { TreePath(it.path) }
-            .forEach(::expandPath)
-    }
-
     private fun maybeShowPopup(event: MouseEvent) {
         if (!event.isPopupTrigger) return
         val path = getPathForLocation(event.x, event.y)
@@ -380,8 +314,6 @@ internal class TemplateLibraryTree(
         when (command) {
             LibraryTreeCommand.EXPAND_ALL -> expandAll()
             LibraryTreeCommand.COLLAPSE_ALL -> collapseAll()
-            LibraryTreeCommand.EXPAND_BRANCH -> expandSelectedBranch()
-            LibraryTreeCommand.COLLAPSE_BRANCH -> collapseSelectedBranch()
             else -> onCommand(command, target)
         }
     }
@@ -542,12 +474,8 @@ internal val TEMPLATE_COMMANDS: List<MenuCommand?> = listOf(
 )
 
 private val MUTATION_COMMANDS = setOf(
-    // Opening another template also replaces an open author draft. Keep it disabled with the
-    // filesystem mutations until the draft is saved or cancelled.
-    LibraryTreeCommand.USE_TEMPLATE,
     LibraryTreeCommand.NEW_TEMPLATE,
     LibraryTreeCommand.NEW_FOLDER,
-    LibraryTreeCommand.IMPORT_MARKDOWN,
     LibraryTreeCommand.RENAME_FOLDER,
     LibraryTreeCommand.EDIT_TEMPLATE,
     LibraryTreeCommand.MOVE_TO_FOLDER,

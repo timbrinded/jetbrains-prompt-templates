@@ -18,58 +18,11 @@ class LibraryFileWatcherTest {
     lateinit var temporaryDirectory: Path
 
     @Test
-    fun `materializes the normalized VFS root before registering the recursive watch`() {
-        val unnormalizedRoot = Path.of("library", "nested", "..").toAbsolutePath()
-        val normalizedRoot = unnormalizedRoot.normalize()
-        val operations = mutableListOf<String>()
-
-        val registration = registerLibraryWatch(
-            root = unnormalizedRoot,
-            pathExists = { path -> path == normalizedRoot },
-            materializeRoot = { path ->
-                operations += "materialize:$path"
-                "virtual-root"
-            },
-            addRecursiveWatch = { path, recursive ->
-                operations += "watch:$path:$recursive"
-                "watch-request"
-            },
-        )
-
-        assertEquals(
-            listOf("materialize:$normalizedRoot", "watch:$normalizedRoot:true"),
-            operations,
-        )
-        assertEquals(normalizedRoot, registration.materializedPath)
-        assertEquals("virtual-root", registration.materializedRoot)
-        assertEquals("watch-request", registration.watchRequest)
-    }
-
-    @Test
-    fun `materializes the nearest existing ancestor when the configured root is missing`() {
-        val existingAncestor = Path.of("existing-library-parent").toAbsolutePath().normalize()
+    fun `finds the nearest existing ancestor when the configured root is missing`() {
+        val existingAncestor = Files.createDirectories(temporaryDirectory.resolve("existing-library-parent"))
         val missingRoot = existingAncestor.resolve("not-created/nested-library")
-        val operations = mutableListOf<String>()
 
-        val registration = registerLibraryWatch(
-            root = missingRoot,
-            pathExists = { path -> path == existingAncestor },
-            materializeRoot = { path ->
-                operations += "materialize:$path"
-                path
-            },
-            addRecursiveWatch = { path, recursive ->
-                operations += "watch:$path:$recursive"
-                "watch-request"
-            },
-        )
-
-        assertEquals(existingAncestor, registration.materializedPath)
-        assertEquals(existingAncestor, registration.materializedRoot)
-        assertEquals(
-            listOf("materialize:$existingAncestor", "watch:$missingRoot:true"),
-            operations,
-        )
+        assertEquals(existingAncestor, nearestExistingAncestor(missingRoot))
     }
 
     @Test

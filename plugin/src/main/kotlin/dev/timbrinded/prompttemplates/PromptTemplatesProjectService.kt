@@ -29,7 +29,7 @@ class PromptTemplatesProjectService(
         panelReference = WeakReference(panel)
     }
 
-    fun show(afterShown: (PromptTemplatesPanel) -> Unit = {}) {
+    internal fun show(afterShown: (PromptTemplatesPanel) -> Unit = {}) {
         ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID)?.show {
             panelReference?.get()?.let(afterShown)
         }

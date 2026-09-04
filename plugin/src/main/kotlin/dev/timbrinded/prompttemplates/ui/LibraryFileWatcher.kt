@@ -124,31 +124,9 @@ private fun isManagedLibraryPath(roots: List<Path>, candidate: Path): Boolean {
     }
 }
 
-internal data class LibraryWatchRegistration<MaterializedRoot, WatchRequest>(
-    val materializedPath: Path?,
-    val materializedRoot: MaterializedRoot?,
-    val watchRequest: WatchRequest,
-)
-
-internal fun <MaterializedRoot, WatchRequest> registerLibraryWatch(
-    root: Path,
-    pathExists: (Path) -> Boolean = { path -> Files.exists(path) },
-    materializeRoot: (Path) -> MaterializedRoot,
-    addRecursiveWatch: (String, Boolean) -> WatchRequest,
-): LibraryWatchRegistration<MaterializedRoot, WatchRequest> {
-    val normalizedRoot = root.toAbsolutePath().normalize()
-    val materializedPath = nearestExistingAncestor(normalizedRoot, pathExists)
-    val materializedRoot = materializedPath?.let(materializeRoot)
-    val watchRequest = addRecursiveWatch(normalizedRoot.toString(), true)
-    return LibraryWatchRegistration(materializedPath, materializedRoot, watchRequest)
-}
-
-internal fun nearestExistingAncestor(
-    root: Path,
-    pathExists: (Path) -> Boolean = { path -> Files.exists(path) },
-): Path? =
+internal fun nearestExistingAncestor(root: Path): Path? =
     generateSequence(root.toAbsolutePath().normalize()) { candidate -> candidate.parent }
-        .firstOrNull(pathExists)
+        .firstOrNull { candidate -> Files.exists(candidate) }
 
 internal data class LibraryPollEntry(
     val relativePath: String,
@@ -274,11 +252,10 @@ internal class LibraryFileWatcher(
     )
     private val normalizedRoot = root.toAbsolutePath().normalize()
     private val localFileSystem = LocalFileSystem.getInstance()
-    private val watchRegistration = registerLibraryWatch(
-        root = normalizedRoot,
-        materializeRoot = localFileSystem::refreshAndFindFileByNioFile,
-        addRecursiveWatch = localFileSystem::addRootToWatch,
-    )
+    // Keep the materialized ancestor alive while IntelliJ watches a root that may not exist yet.
+    private val materializedRoot = nearestExistingAncestor(normalizedRoot)
+        ?.let(localFileSystem::refreshAndFindFileByNioFile)
+    private val watchRequest = localFileSystem.addRootToWatch(normalizedRoot.toString(), true)
     private val pollChangeTracker = LibraryPollChangeTracker()
     private var reloadJob: Job? = null
     @Volatile
@@ -303,7 +280,7 @@ internal class LibraryFileWatcher(
     override fun dispose() {
         watcherDisposed = true
         coroutineScope.cancel()
-        watchRegistration.watchRequest?.let(localFileSystem::removeWatchedRoot)
+        watchRequest?.let(localFileSystem::removeWatchedRoot)
     }
 
     private suspend fun pollLibrary() {
