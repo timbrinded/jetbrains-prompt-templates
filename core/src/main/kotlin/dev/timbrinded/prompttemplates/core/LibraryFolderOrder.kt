@@ -98,47 +98,19 @@ internal object LibraryFolderOrderCodec {
     ): Comparator<T> {
         val folderPositions = order?.folders?.withIndex()?.associate { it.value to it.index }.orEmpty()
         val templatePositions = order?.templates?.withIndex()?.associate { it.value to it.index }.orEmpty()
-        return Comparator { left, right ->
-            compare(
-                leftKind = kindOf(left),
-                rightKind = kindOf(right),
-                leftOrderKey = orderKeyOf(left),
-                rightOrderKey = orderKeyOf(right),
-                leftFallbackName = fallbackNameOf(left),
-                rightFallbackName = fallbackNameOf(right),
-                folderPositions = folderPositions,
-                templatePositions = templatePositions,
-            )
+        val positionOf: (T) -> Int? = { entry ->
+            val positions = when (kindOf(entry)) {
+                EntryKind.FOLDER -> folderPositions
+                EntryKind.TEMPLATE -> templatePositions
+            }
+            positions[orderKeyOf(entry)]
         }
-    }
-
-    private fun compare(
-        leftKind: EntryKind,
-        rightKind: EntryKind,
-        leftOrderKey: String,
-        rightOrderKey: String,
-        leftFallbackName: String,
-        rightFallbackName: String,
-        folderPositions: Map<String, Int>,
-        templatePositions: Map<String, Int>,
-    ): Int {
-        if (leftKind != rightKind) return leftKind.ordinal.compareTo(rightKind.ordinal)
-        val positions = if (leftKind == EntryKind.FOLDER) folderPositions else templatePositions
-        val leftIndex = positions[leftOrderKey]
-        val rightIndex = positions[rightOrderKey]
-        val byStoredOrder = when {
-            leftIndex != null && rightIndex != null -> leftIndex.compareTo(rightIndex)
-            leftIndex != null -> -1
-            rightIndex != null -> 1
-            else -> 0
-        }
-        if (byStoredOrder != 0) return byStoredOrder
-        val byName = String.CASE_INSENSITIVE_ORDER.compare(leftFallbackName, rightFallbackName)
-        if (byName != 0) return byName
-        val byExactName = leftFallbackName.compareTo(rightFallbackName)
-        if (byExactName != 0) return byExactName
-        val byKey = String.CASE_INSENSITIVE_ORDER.compare(leftOrderKey, rightOrderKey)
-        return if (byKey != 0) byKey else leftOrderKey.compareTo(rightOrderKey)
+        return compareBy<T> { kindOf(it) }
+            .thenBy(nullsLast(naturalOrder()), positionOf)
+            .thenBy(String.CASE_INSENSITIVE_ORDER, fallbackNameOf)
+            .thenBy(fallbackNameOf)
+            .thenBy(String.CASE_INSENSITIVE_ORDER, orderKeyOf)
+            .thenBy(orderKeyOf)
     }
 
     private fun invalidOrder(): ReadOrder =

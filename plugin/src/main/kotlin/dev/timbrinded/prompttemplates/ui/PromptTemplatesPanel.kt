@@ -58,11 +58,8 @@ internal class PromptTemplatesPanel(
         isVisible = false
         addActionListener { showNarrowDetail() }
     }
-    private var refreshingLibraryTree = false
     private val libraryTree = TemplateLibraryTree(
-        onSelection = { selection ->
-            controller.onLibrarySelection(selection, userInitiated = !refreshingLibraryTree)
-        },
+        onSelection = controller::onLibrarySelection,
         onCommand = { command, target -> controller.performLibraryCommand(command, target) },
         onMove = { source, destination, placement -> controller.moveEntry(source, destination, placement) },
         onExpansionChanged = workspace::replaceExpandedFolderPaths,
@@ -156,18 +153,13 @@ internal class PromptTemplatesPanel(
         libraryDiagnosticLabel.toolTipText = diagnostic
         libraryDiagnosticLabel.isVisible = diagnostic != null
 
-        refreshingLibraryTree = true
-        try {
-            libraryTree.updateLibrary(
-                snapshot = snapshot,
-                bodyIndex = bodyIndex,
-                searchQuery = searchQuery,
-                selectedKey = selectedKey,
-                expandedPaths = expandedPaths,
-            )
-        } finally {
-            refreshingLibraryTree = false
-        }
+        libraryTree.updateLibrary(
+            snapshot = snapshot,
+            bodyIndex = bodyIndex,
+            searchQuery = searchQuery,
+            selectedKey = selectedKey,
+            expandedPaths = expandedPaths,
+        )
     }
 
     override fun clearLibrarySelection() = libraryTree.clearSelection()

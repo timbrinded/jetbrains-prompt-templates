@@ -1,5 +1,9 @@
 package dev.timbrinded.prompttemplates.e2e
 
+import dev.timbrinded.prompttemplates.core.PromptVariable
+import dev.timbrinded.prompttemplates.core.PromptVariableType
+import dev.timbrinded.prompttemplates.core.TemplateMetadata
+import dev.timbrinded.prompttemplates.core.TemplateMetadataCodec
 import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.security.MessageDigest
@@ -86,6 +90,8 @@ class TestWorkspace private constructor(
 class TestLibrary(
     val root: Path,
 ) {
+    private val metadataCodec = TemplateMetadataCodec()
+
     fun createFolder(relativePath: String) {
         resolve(relativePath).createDirectories()
     }
@@ -99,7 +105,21 @@ class TestLibrary(
         val directory = resolve(relativeDirectory).createDirectories()
         directory.resolve("prompt.md").writeText("# $name\n\n{{objective}}\n")
         directory.resolve("prompt.meta.json").writeText(
-            metadataJson(id = id, name = name),
+            metadataCodec.encode(
+                TemplateMetadata(
+                    id = id,
+                    name = name,
+                    description = "Created by the isolated IDE UI test harness.",
+                    tags = listOf("e2e"),
+                    variables = listOf(
+                        PromptVariable(
+                            key = "objective",
+                            label = "Objective",
+                            type = PromptVariableType.MULTILINE,
+                        ),
+                    ),
+                ),
+            ),
         )
         return directory
     }
@@ -129,39 +149,6 @@ class TestLibrary(
                 "F $relative ${bytes.size} ${sha256(bytes)}"
             }
             else -> "O $relative"
-        }
-    }
-
-    private fun metadataJson(id: String, name: String): String =
-        """
-        {
-          "schemaVersion": 1,
-          "id": "${jsonEscape(id)}",
-          "name": "${jsonEscape(name)}",
-          "description": "Created by the isolated IDE UI test harness.",
-          "tags": ["e2e"],
-          "variables": [
-            {
-              "key": "objective",
-              "label": "Objective",
-              "type": "multiline",
-              "required": true,
-              "options": []
-            }
-          ]
-        }
-        """.trimIndent() + "\n"
-
-    private fun jsonEscape(value: String): String = buildString(value.length) {
-        value.forEach { character ->
-            when (character) {
-                '\\' -> append("\\\\")
-                '"' -> append("\\\"")
-                '\n' -> append("\\n")
-                '\r' -> append("\\r")
-                '\t' -> append("\\t")
-                else -> append(character)
-            }
         }
     }
 

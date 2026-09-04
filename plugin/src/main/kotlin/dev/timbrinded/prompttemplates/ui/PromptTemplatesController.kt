@@ -246,9 +246,9 @@ internal class PromptTemplatesController(
             ?.value
     }
 
-    fun onLibrarySelection(selection: LibraryTreeSelection, userInitiated: Boolean) {
+    fun onLibrarySelection(selection: LibraryTreeSelection) {
         if (authorOpen) {
-            if (userInitiated) view.showNarrowDetail()
+            view.showNarrowDetail()
             return
         }
         adoptSelection(selection)
@@ -561,7 +561,7 @@ internal class PromptTemplatesController(
             Messages.getQuestionIcon(),
         )?.trim()?.takeIf(String::isNotEmpty) ?: return
         runRepositoryOperation(
-            operation = { repository.createFolder(parent, name) },
+            operation = { repo -> repo.createFolder(parent, name) },
             successMessage = "Folder '$name' created.",
             afterSuccess = { directory ->
                 reloadLibrary(LibrarySelectionKey.Folder(portableRelativePath(settings.libraryRoot, directory)))
@@ -582,7 +582,7 @@ internal class PromptTemplatesController(
         )?.trim()?.takeIf(String::isNotEmpty) ?: return
         val oldRelative = portableRelativePath(settings.libraryRoot, target.directory)
         runRepositoryOperation(
-            operation = { repository.renameFolder(target.directory, newName) },
+            operation = { repo -> repo.renameFolder(target.directory, newName) },
             successMessage = "Folder renamed to '$newName'.",
             afterSuccess = { directory ->
                 val newRelative = portableRelativePath(settings.libraryRoot, directory)
@@ -637,7 +637,7 @@ internal class PromptTemplatesController(
         val keyBeforeMove = selectionKey(source, state.librarySnapshot.root)
         val oldRelative = portableRelativePath(state.librarySnapshot.root, source.directory)
         runRepositoryOperation(
-            operation = { repository.moveEntry(source.directory, destination, placement) },
+            operation = { repo -> repo.moveEntry(source.directory, destination, placement) },
             successMessage = "Library entry moved.",
             afterSuccess = { movedDirectory ->
                 val newRelative = portableRelativePath(settings.libraryRoot, movedDirectory)
@@ -695,7 +695,7 @@ internal class PromptTemplatesController(
             if (answer != Messages.YES) return
         }
         runRepositoryOperation(
-            operation = { repository.deleteTemplate(directory) },
+            operation = { repo -> repo.deleteTemplate(directory) },
             successMessage = "Prompt template deleted.",
             afterSuccess = {
                 clearSelectedTemplate()
@@ -706,25 +706,36 @@ internal class PromptTemplatesController(
 
     private fun deleteFolder(target: LibraryTreeSelection.Folder) {
         if (!canChangeLibrary()) return
+        val requestRepository = repository
+        val requestRoot = requestRepository.root
         state.mutationInProgress = true
         updateInteractionState()
         coroutineScope.launch {
             val previewResult = withContext(Dispatchers.IO) {
-                repository.previewFolderDeletion(target.directory)
+                requestRepository.previewFolderDeletion(target.directory)
             }
             withContext(Dispatchers.EDT) {
                 if (isDisposed()) return@withContext
                 state.mutationInProgress = false
                 updateInteractionState()
+                if (hasLibraryRootChanged(requestRoot, settings.libraryRoot)) return@withContext
                 when (previewResult) {
                     is RepositoryResult.Failure -> PromptTemplatesNotifications.error(project, previewResult.message)
-                    is RepositoryResult.Success -> confirmFolderDeletion(target, previewResult.value)
+                    is RepositoryResult.Success -> confirmFolderDeletion(
+                        target,
+                        previewResult.value,
+                        requestRepository,
+                    )
                 }
             }
         }
     }
 
-    private fun confirmFolderDeletion(target: LibraryTreeSelection.Folder, preview: FolderDeletionPreview) {
+    private fun confirmFolderDeletion(
+        target: LibraryTreeSelection.Folder,
+        preview: FolderDeletionPreview,
+        requestRepository: FileSystemPromptTemplateRepository,
+    ) {
         val name = target.entry.displayName
         val typed = Messages.showInputDialog(
             project,
@@ -738,7 +749,8 @@ internal class PromptTemplatesController(
             return
         }
         runRepositoryOperation(
-            operation = { repository.deleteFolder(preview) },
+            requestRepository = requestRepository,
+            operation = { repo -> repo.deleteFolder(preview) },
             successMessage = "Folder '$name' deleted.",
             afterSuccess = {
                 val deletedPath = portableRelativePath(settings.libraryRoot, target.directory)
@@ -755,7 +767,7 @@ internal class PromptTemplatesController(
         val use = state.detail as? PromptDetailState.Use ?: return
         val destination = chooseDestination(slug(use.stored.template.metadata.name) + ".md") ?: return
         runRepositoryOperation(
-            operation = { repository.exportTemplateMarkdown(use.stored.directory, destination) },
+            operation = { repo -> repo.exportTemplateMarkdown(use.stored.directory, destination) },
             successMessage = "Template Markdown exported to $destination.",
         )
     }
@@ -768,7 +780,7 @@ internal class PromptTemplatesController(
         }
         val destination = chooseDestination(slug(use.stored.template.metadata.name) + "-rendered.md") ?: return
         runRepositoryOperation(
-            operation = { repository.exportRenderedMarkdown(use.render.renderedText, destination) },
+            operation = { repo -> repo.exportRenderedMarkdown(use.render.renderedText, destination) },
             successMessage = "Rendered Markdown exported to $destination.",
         )
     }
@@ -809,16 +821,18 @@ internal class PromptTemplatesController(
     }
 
     private fun <T> runRepositoryOperation(
-        operation: () -> RepositoryResult<T>,
+        requestRepository: FileSystemPromptTemplateRepository = repository,
+        operation: (FileSystemPromptTemplateRepository) -> RepositoryResult<T>,
         successMessage: String,
         afterSuccess: (T) -> Unit = {},
     ) {
         if (state.mutationInProgress) return
+        val requestRoot = requestRepository.root
         state.mutationInProgress = true
         updateInteractionState()
         coroutineScope.launch {
             val result = try {
-                withContext(Dispatchers.IO) { runRepositoryOperationSafely(operation) }
+                withContext(Dispatchers.IO) { runRepositoryOperationSafely { operation(requestRepository) } }
             } catch (cancelled: ProcessCanceledException) {
                 resetMutationAfterCancellation()
                 throw cancelled
@@ -830,11 +844,20 @@ internal class PromptTemplatesController(
                 if (isDisposed()) return@withContext
                 state.mutationInProgress = false
                 updateInteractionState()
+                val rootChanged = hasLibraryRootChanged(requestRoot, settings.libraryRoot)
                 when (result) {
                     is RepositoryResult.Success -> {
-                        PromptTemplatesNotifications.info(project, successMessage)
+                        if (rootChanged) {
+                            PromptTemplatesNotifications.warning(
+                                project,
+                                "$successMessage The operation used the previous library at '$requestRoot'. " +
+                                    "The current library view was not changed.",
+                            )
+                        } else {
+                            PromptTemplatesNotifications.info(project, successMessage)
+                            afterSuccess(result.value)
+                        }
                         showWarnings(result.warnings)
-                        afterSuccess(result.value)
                     }
                     is RepositoryResult.Failure -> PromptTemplatesNotifications.error(project, result.message)
                 }

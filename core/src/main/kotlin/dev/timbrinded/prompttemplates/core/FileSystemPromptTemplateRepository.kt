@@ -242,8 +242,6 @@ class FileSystemPromptTemplateRepository(
     ): RepositoryResult<Path> = mutateLibrary("move library entry") {
         val safeEntry = requireLibraryEntry(entry)
         val safeDestination = requireOrganiserFolder(destinationFolder)
-        val libraryRoot = normalizedRoot()
-        require(safeEntry != libraryRoot) { "The library root cannot be moved." }
         val directEntry = treeScanner.classify(safeEntry)
         val kind = directEntry.kind
         if (kind == EntryKind.FOLDER &&

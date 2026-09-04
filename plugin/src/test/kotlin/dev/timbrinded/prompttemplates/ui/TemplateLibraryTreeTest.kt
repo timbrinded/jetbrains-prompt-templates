@@ -248,11 +248,15 @@ class TemplateLibraryTreeTest {
         val first = template("Reviews/a", "A", "")
         val second = template("Reviews/b", "B", "")
         val snapshot = LibrarySnapshot(root, listOf(folder("Reviews", listOf(first, second))))
-        val tree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, {})
+        val selections = mutableListOf<Path>()
+        val tree = TemplateLibraryTree({ selection -> selections.add(selection.directory) }, { _, _ -> }, { _, _, _ -> }, {})
         val firstKey = LibrarySelectionKey.Template(requireNotNull(first.summary.id).value)
         tree.updateLibrary(snapshot, emptyMap(), "", firstKey, emptyList())
+        assertTrue(selections.isEmpty())
         tree.selectTemplateByDirectory(second.directory)
+        assertEquals(listOf(second.directory), selections)
         tree.updateLibrary(snapshot, emptyMap(), "", firstKey, emptyList())
+        assertEquals(listOf(second.directory), selections)
         assertEquals(
             first.summary.id?.value,
             (selectionKey(tree.selectedSelection(), root) as? LibrarySelectionKey.Template)?.templateId,
