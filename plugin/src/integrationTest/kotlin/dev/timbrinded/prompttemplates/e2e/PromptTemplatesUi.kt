@@ -69,7 +69,7 @@ class PromptTemplatesUi(
             searchTextField.text = "Prompt Templates"
             val tree = settingsTree
             waitFor("Prompt Templates settings are available", 30.seconds) {
-                hasPath(tree.expandAll(), listOf("Prompt Templates"))
+                runCatching { hasPath(tree.expandAll(), listOf("Prompt Templates")) }.getOrDefault(false)
             }
             clickComponentAt(tree, tree.fixture.getRowPoint(rowFor(tree, listOf("Prompt Templates"))))
             textField { byAccessibleName("Personal library directory") }.waitFound(30.seconds).text = root.toString()

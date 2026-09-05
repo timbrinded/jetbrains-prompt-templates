@@ -15,7 +15,7 @@ import com.intellij.ide.starter.plugins.PluginConfigurator
 import com.intellij.ide.starter.project.LocalProjectInfo
 import com.intellij.ide.starter.runner.Starter
 import com.intellij.platform.testFramework.teamCity.TeamCityReporter.SyntheticTestKind
-import com.intellij.tools.ide.starter.product.idea.ultimate.IdeaUltimate
+import com.intellij.tools.ide.starter.product.webstorm.WebStorm
 import org.junit.jupiter.api.fail
 import org.kodein.di.DI
 import org.kodein.di.bindSingleton
@@ -37,7 +37,7 @@ class StarterHarness private constructor(
 ) {
     fun run(block: Driver.(PromptTemplatesUi) -> Unit) {
         val context = createContext()
-        StarterFailureReporter.ensureInstalled(PINNED_IDE_BUILD)
+        StarterFailureReporter.ensureInstalled()
         try {
             runSession(context, block)
         } finally {
@@ -48,11 +48,11 @@ class StarterHarness private constructor(
     private fun createContext(): IDETestContext = Starter.newContext(
         testName = workspace.root.name,
         testCase = TestCase(
-            IdeInfo.IdeaUltimate,
+            IdeInfo.WebStorm,
             LocalProjectInfo(workspace.project),
         ).withVersion(IDE_VERSION),
     ).apply {
-        require(paths.testHome.any { it.toString() == "IU-$PINNED_IDE_BUILD" }) {
+        require(paths.testHome.any { it.toString() == "WS-$PINNED_IDE_BUILD" }) {
             "IDE $IDE_VERSION did not resolve to the pinned build $PINNED_IDE_BUILD: ${paths.testHome}"
         }
         PluginConfigurator(this).installPluginFromPath(pluginPath())
@@ -163,8 +163,8 @@ class StarterHarness private constructor(
     }
 
     companion object {
-        private const val IDE_VERSION = "2026.2.0.1"
-        private const val PINNED_IDE_BUILD = "262.8665.337"
+        private const val IDE_VERSION = "2026.2"
+        private const val PINNED_IDE_BUILD = "262.8665.259"
         private const val PLUGIN_PATH_PROPERTY = "path.to.build.plugin"
 
         fun create(testName: String): StarterHarness = StarterHarness(TestWorkspace.create(testName))
@@ -178,9 +178,6 @@ private fun TestWorkspace.writeEvidenceFailure(kind: String, error: Throwable) {
 }
 
 private object StarterFailureReporter {
-    @Volatile
-    private var ideBuild: String? = null
-
     init {
         di = DI {
             extend(di)
@@ -194,7 +191,6 @@ private object StarterFailureReporter {
                         kind: SyntheticTestKind,
                         generifyTestName: Boolean,
                     ) {
-                        if (isKnownPlatformError(testName, details)) return
                         fail("$testName failed in the IDE process: $message\n$details")
                     }
                 }
@@ -202,37 +198,6 @@ private object StarterFailureReporter {
         }
     }
 
-    fun ensureInstalled(ideBuild: String) {
-        this.ideBuild = ideBuild
-    }
-
-    private fun isKnownPlatformError(testName: String, details: String): Boolean {
-        if (ideBuild != AFFECTED_IDE_BUILD) return false
-        val requiredDetails = knownPlatformErrors[testName] ?: return false
-        val relevantStack = details.substringBefore("\tat org.junit.jupiter.api.AssertionUtils")
-        return requiredDetails.all(relevantStack::contains) && !relevantStack.contains(PLUGIN_PACKAGE)
-    }
-
-    private val knownPlatformErrors = mapOf(
-        "java.lang.Throwable: Theme Islands Dark refers to unknown color scheme Islands Dark" to
-            listOf(
-                "\tat com.intellij.openapi.editor.colors.impl.EditorColorsManagerImpl.getSchemeForCurrentUITheme",
-            ),
-        "java.util.ConcurrentModificationException: null" to
-            listOf(
-                "\tat java.base/java.util.ArrayList\$Itr.checkForComodification",
-                "\tat com.intellij.configurationStore.schemeManager.SchemeManagerImpl.findSchemeByName",
-                "\tat com.intellij.openapi.editor.colors.impl.EditorColorsManagerImpl.getSchemeForCurrentUITheme",
-                "\tat com.intellij.openapi.vcs.FileStatusImpl.getColor",
-            ),
-        "java.lang.ClassNotFoundException: " +
-            "com.intellij.lang.javascript.linter.tslint.editor.TsLintCodeStyleEditorNotificationProvider" to
-            listOf(
-                "com.intellij.diagnostic.PluginException: Cannot create extension " +
-                    "(class=com.intellij.lang.javascript.linter.tslint.editor.TsLintCodeStyleEditorNotificationProvider)",
-                "\tat com.intellij.ui.EditorNotificationsImpl\$updateEditors\$job\$1.invokeSuspend",
-            ),
-    )
-    private const val AFFECTED_IDE_BUILD = "262.8665.337"
-    private const val PLUGIN_PACKAGE = "dev.timbrinded.prompttemplates"
+    // Referencing the object runs its one-time DI registration above.
+    fun ensureInstalled() = Unit
 }

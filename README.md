@@ -102,7 +102,7 @@ Requirements are JDK 25 and the included Gradle wrapper. Gradle can provision th
 
 The installable ZIP is written to `plugin/build/distributions/`. Install it with **Settings | Plugins | ⚙ | Install Plugin from Disk…**.
 
-The integration task is a local E2E check. It installs the built plugin into an isolated unified IntelliJ IDEA 2026.2.0.1 instance, uses a temporary project and user home, and drives the real Swing UI with JetBrains Starter and Driver. Swing hierarchies, tree state, isolated paths and library manifests are written below `plugin/build/ui-test/`. A screenshot is also written when the display server supports capture; otherwise the directory contains a screenshot capture-error file. On headless Linux, run the task under Xvfb. Local desktop sessions can use their native display.
+The integration task is a local E2E check. It installs the built plugin into an isolated WebStorm 2026.2 instance (build `262.8665.259`), uses a temporary project and user home, and drives the real Swing UI with JetBrains Starter and Driver. Swing hierarchies, tree state, isolated paths and library manifests are written below `plugin/build/ui-test/`. A screenshot is also written when the display server supports capture; otherwise the directory contains a screenshot capture-error file. On headless Linux, run the task under Xvfb. Local desktop sessions can use their native display.
 
 For exploratory testing, select one E2E scenario and add `-Pexplore=true`. After its assertions pass, the isolated IDE remains open for up to five minutes. The task prints the path of an `exploration-complete` marker; create that file when exploration is finished. Record observations separately and run the full suite normally before signing off.
 
