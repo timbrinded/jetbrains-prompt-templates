@@ -35,4 +35,4 @@ Ordinary entered values and captured context stay in memory. Authored defaults a
 
 File and Git attachments are optional. Git capture requires the Git plugin, an explicit repository and staged/unstaged scope; it does not run a terminal or contact a remote. The [attachment design](context-attachments.md) states supported sources, size limits and failure behavior. [Worked examples](worked-examples.md) explain the mock fixtures and exact expected output.
 
-This completes the issue #15 scope. It does not declare version 1.0 complete or publish a release. The [original implementation plan](implementation-plan.md) retains broader release and compatibility work. Project-local libraries, remote sync, conditional templates, agent-window integration and prompt execution remain outside this roadmap.
+Version 0.3.0 includes the completed issue #15 scope and the closing form-synchronization fix. Version 1.0 remains separate: the [original implementation plan](implementation-plan.md) retains broader release and compatibility work. Project-local libraries, remote sync, conditional templates, agent-window integration and prompt execution remain outside this roadmap.
