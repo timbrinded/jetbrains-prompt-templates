@@ -62,4 +62,12 @@ class VariableEditorState(
         variables = variables.filterNot { it.key in keys }
         transientKeys.removeAll(keys)
     }
+
+    fun move(index: Int, offset: Int) {
+        val destination = index + offset
+        if (index !in variables.indices || destination !in variables.indices) return
+        variables = variables.toMutableList().apply { add(destination, removeAt(index)) }
+        // An explicit order makes the current schema intentional, including newly discovered fields.
+        transientKeys.clear()
+    }
 }

@@ -16,10 +16,16 @@ class TemplateReconcilerTest {
 
         val result = reconciler.reconcile("{{depth}} {{objective}} {{ide.selection}}", existing)
 
-        assertEquals(listOf("depth", "objective", "unused"), result.variables.map(PromptVariable::key))
+        assertEquals(listOf("depth", "unused", "objective"), result.variables.map(PromptVariable::key))
         assertEquals(PromptVariableType.ENUM, result.variables.first().type)
         assertEquals(setOf("unused"), result.unusedKeys)
         assertTrue(result.unknownContextKeys.isEmpty())
+    }
+
+    @Test
+    fun `reconciliation preserves authored order independently of Markdown order`() {
+        val variables = listOf(PromptVariable("second", "Second"), PromptVariable("first", "First"))
+        assertEquals(variables, reconciler.reconcile("{{first}} then {{second}}", variables).variables)
     }
 
     @Test

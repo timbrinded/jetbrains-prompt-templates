@@ -4,9 +4,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.Messages
-import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.EditorTextField
 import com.intellij.ui.JBColor
 import com.intellij.ui.OnePixelSplitter
@@ -28,19 +26,14 @@ import dev.timbrinded.prompttemplates.core.VariableEditorState
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.FlowLayout
-import java.awt.Rectangle
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
-import java.awt.event.FocusAdapter
-import java.awt.event.FocusEvent
 import javax.swing.DefaultListModel
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.ListSelectionModel
 import javax.swing.ScrollPaneConstants
-import javax.swing.SwingUtilities
-import javax.swing.event.DocumentEvent
 
 class TemplateAuthorPanel(
     private val project: Project,
@@ -65,13 +58,13 @@ class TemplateAuthorPanel(
     private val wordWrapToggle = JBCheckBox("Word wrap", true)
     private val variableModel = DefaultListModel<PromptVariable>()
     private val variableList = JBList(variableModel)
-    private val keyField = JBTextField()
-    private val labelField = JBTextField()
-    private val typeField = ComboBox(PromptVariableType.entries.toTypedArray())
-    private val requiredField = JBCheckBox("Required")
-    private val descriptionVariableField = JBTextField()
-    private val optionsLabel = JBLabel("Enum choices (; separated):")
-    private val optionsField = JBTextField()
+    private val inspector = VariableInspectorPanel(
+        onChanged = { variable -> updateSelected { variable } },
+        onTypeChanged = { type -> changeSelectedType(type); loadInspector() },
+        onRename = ::renameSelectedVariable,
+    )
+    private val moveUp = JButton("Move Up").apply { addActionListener { moveVariable(-1) } }
+    private val moveDown = JButton("Move Down").apply { addActionListener { moveVariable(1) } }
     private val diagnostics = JBTextArea(2, 0).apply {
         isEditable = false
         lineWrap = true
@@ -84,7 +77,6 @@ class TemplateAuthorPanel(
         isVisible = false
     }
     private var unusedKeys = emptySet<String>()
-    private var updatingInspector = false
     private val initialSnapshot: AuthorEditSnapshot
     private val variableListActions = UnusedVariableListActions(
         list = variableList,
@@ -108,7 +100,7 @@ class TemplateAuthorPanel(
         variableList.selectionMode = ListSelectionModel.SINGLE_SELECTION
         variableList.accessibleContext.accessibleName = "Template variables"
         variableList.accessibleContext.accessibleDescription =
-            "Unused variables can be removed with Delete or the trash icon."
+            "Use Move Up or Move Down to change form order. Remove unused variables with Delete or the trash icon."
         variableList.cellRenderer = VariableRenderer(
             isUnused = { variable -> variable.key in unusedKeys },
             isRowHovered = variableListActions::isRowHovered,
@@ -120,7 +112,6 @@ class TemplateAuthorPanel(
         add(createEditorAndVariables(), BorderLayout.CENTER)
         add(createFooter(), BorderLayout.SOUTH)
 
-        installInspectorListeners()
         reconcileVariables()
         PlaceholderHighlightController(markdownEditor, this, ::reconcileVariables)
         initialSnapshot = editSnapshot()
@@ -150,40 +141,18 @@ class TemplateAuthorPanel(
             minimumSize = JBUI.size(0, 64)
         }
 
-        optionsField.toolTipText = "Separate choices with semicolons. The selected choice is inserted unchanged."
-        optionsLabel.labelFor = optionsField
-        val renameButton = JButton("Rename")
-        renameButton.addActionListener { renameSelectedVariable() }
-        keyField.accessibleContext.accessibleName = "Variable key"
-        val keyRow = JPanel(BorderLayout(JBUI.scale(4), 0)).apply {
-            add(keyField, BorderLayout.CENTER)
-            add(renameButton, BorderLayout.EAST)
-        }
-        val inspector = FormBuilder.createFormBuilder()
-            .setVertical(true)
-            .addLabeledComponent("Key:", keyRow)
-            .addLabeledComponent("Label:", labelField)
-            .addLabeledComponent("Type:", typeField)
-            .addComponent(requiredField)
-            .addLabeledComponent("Description:", descriptionVariableField)
-            .addLabeledComponent(optionsLabel, optionsField)
-            .panel
         val inspectorScroll = JBScrollPane(inspector).apply {
             horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
             minimumSize = JBUI.size(0, 100)
             accessibleContext.accessibleName = "Variable inspector"
         }
-        listOf(keyField, renameButton, labelField, typeField, requiredField, descriptionVariableField, optionsField)
-            .forEach { field ->
-                field.addFocusListener(object : FocusAdapter() {
-                    override fun focusGained(event: FocusEvent) {
-                        inspector.scrollRectToVisible(SwingUtilities.convertRectangle(field, Rectangle(field.size), inspector))
-                    }
-                })
-            }
+        val navigation = JPanel(BorderLayout(JBUI.scale(4), JBUI.scale(4))).apply {
+            add(variableListScroll, BorderLayout.CENTER)
+            add(ResponsiveActionsPanel().apply { add(moveUp); add(moveDown) }, BorderLayout.SOUTH)
+        }
 
         val variableSplitter = OnePixelSplitter(false, 0.34f)
-        variableSplitter.firstComponent = variableListScroll
+        variableSplitter.firstComponent = navigation
         variableSplitter.secondComponent = inspectorScroll
         variableSplitter.addComponentListener(object : ComponentAdapter() {
             override fun componentResized(event: ComponentEvent) {
@@ -219,34 +188,6 @@ class TemplateAuthorPanel(
         }
     }
 
-    private fun installInspectorListeners() {
-        labelField.document.addDocumentListener(textListener { updateSelected { it.copy(label = labelField.text) } })
-        descriptionVariableField.document.addDocumentListener(
-            textListener { updateSelected { it.copy(description = descriptionVariableField.text.ifBlank { null }) } },
-        )
-        optionsField.document.addDocumentListener(textListener {
-            updateSelected { variable ->
-                val options = parseEnumOptionInput(optionsField.text)
-                variable.copy(
-                    required = true,
-                    options = options,
-                    defaultValue = variable.defaultValue?.takeIf { default -> options.any { it.id == default } }
-                        ?: options.firstOrNull()?.id,
-                )
-            }
-        })
-        typeField.addActionListener {
-            if (!updatingInspector) {
-                val selectedType = typeField.selectedItem as? PromptVariableType ?: return@addActionListener
-                changeSelectedType(selectedType)
-                loadInspector()
-            }
-        }
-        requiredField.addActionListener {
-            if (!updatingInspector) updateSelected { it.copy(required = requiredField.isSelected) }
-        }
-    }
-
     private fun reconcileVariables() {
         val result = variableState.reconcile(markdownEditor.text)
         val variables = variableState.variables
@@ -264,31 +205,24 @@ class TemplateAuthorPanel(
     }
 
     private fun loadInspector() {
-        val variable = variableList.selectedValue
-        updatingInspector = true
-        try {
-            keyField.text = variable?.key.orEmpty()
-            labelField.text = variable?.label.orEmpty()
-            typeField.selectedItem = variable?.type ?: PromptVariableType.TEXT
-            requiredField.isSelected = variable?.required ?: true
-            descriptionVariableField.text = variable?.description.orEmpty()
-            optionsField.text = variable?.options?.joinToString("; ") { it.label }.orEmpty()
-            val enabled = variable != null
-            listOf(keyField, labelField, typeField, requiredField, descriptionVariableField, optionsField)
-                .forEach { it.isEnabled = enabled }
-            val presentation = variableTypePresentation(variable?.type)
-            requiredField.isVisible = presentation.requiredVisible
-            optionsLabel.isVisible = presentation.enumChoicesVisible
-            optionsField.isVisible = presentation.enumChoicesVisible
-        } finally {
-            updatingInspector = false
-        }
-        revalidate()
-        repaint()
+        inspector.showVariable(variableList.selectedValue)
+        moveUp.isEnabled = variableList.selectedIndex > 0
+        moveDown.isEnabled = variableList.selectedIndex in 0 until variableModel.size - 1
+    }
+
+    private fun moveVariable(offset: Int) {
+        val index = variableList.selectedIndex
+        val destination = index + offset
+        if (index !in variableState.variables.indices || destination !in variableState.variables.indices) return
+        variableState.move(index, offset)
+        variableModel.clear()
+        variableState.variables.forEach(variableModel::addElement)
+        variableList.selectedIndex = destination
+        variableList.ensureIndexIsVisible(destination)
+        variableList.requestFocusInWindow()
     }
 
     private fun updateSelected(transform: (PromptVariable) -> PromptVariable) {
-        if (updatingInspector) return
         val index = variableList.selectedIndex
         if (index !in variableState.variables.indices) return
         variableState.updateAt(index, transform)
@@ -314,7 +248,7 @@ class TemplateAuthorPanel(
         val index = variableList.selectedIndex
         val variables = variableState.variables
         if (index !in variables.indices) return
-        val newKey = keyField.text.trim()
+        val newKey = inspector.keyText.trim()
         val oldKey = variables[index].key
         when {
             !USER_VARIABLE_KEY_REGEX.matches(newKey) -> showDiagnostic("Invalid variable key '$newKey'.")
@@ -375,14 +309,8 @@ class TemplateAuthorPanel(
     )
 
     private fun editSnapshot() = AuthorEditSnapshot.capture(
-        currentDraft(), tagsField.text, variableList.selectedValue, keyField.text, optionsField.text,
+        currentDraft(), tagsField.text, variableList.selectedValue, inspector.keyText, inspector.enumText,
     )
-
-    private fun textListener(block: () -> Unit): DocumentAdapter = object : DocumentAdapter() {
-        override fun textChanged(event: DocumentEvent) {
-            if (!updatingInspector) block()
-        }
-    }
 
     override fun dispose() = Unit
 

@@ -11,6 +11,23 @@ class TemplateMetadataCodecTest {
     private val codec = TemplateMetadataCodec()
 
     @Test
+    fun `default absence empty values presentation settings and order round trip without a new schema`() {
+        val metadata = TemplateMetadata(id = TemplateId.random().value, name = "Defaults", variables = listOf(
+            PromptVariable("none", "None"),
+            PromptVariable("empty", "Empty", defaultValue = "", placeholder = "Enter text"),
+            PromptVariable("notes", "Notes", type = PromptVariableType.MULTILINE,
+                defaultValue = "First\nSecond", placeholder = "Enter notes", minimumRows = 7),
+            PromptVariable("mode", "Mode", type = PromptVariableType.ENUM, defaultValue = "long-id",
+                options = listOf(EnumOption("short-id", "Short", "Short"), EnumOption("long-id", "Long", "Long"))),
+        ))
+        assertEquals(metadata, assertIs<MetadataDecodeResult.Success>(codec.decode(codec.encode(metadata))).metadata)
+        val required = PromptTemplate(metadata, "{{none}} {{empty}}")
+        val diagnostics = StrictPromptRenderer().render(required, emptyMap(), emptyMap()).diagnostics
+        assertEquals(setOf("none", "empty"), diagnostics.filterIsInstance<TemplateDiagnostic.MissingRequiredValue>().map { it.key }.toSet())
+        assertNotNull(codec.validate(metadata.copy(variables = listOf(metadata.variables[2].copy(minimumRows = 0)))))
+    }
+
+    @Test
     fun `round trips deterministically and tolerates unknown fields`() {
         val metadata = TemplateMetadata(
             id = TemplateId.random().value,

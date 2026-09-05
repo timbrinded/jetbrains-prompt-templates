@@ -9,6 +9,7 @@ import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
 import dev.timbrinded.prompttemplates.core.PromptVariable
 import dev.timbrinded.prompttemplates.core.PromptVariableType
+import dev.timbrinded.prompttemplates.core.initialValue
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Dimension
@@ -20,6 +21,7 @@ import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JComponent
+import javax.swing.JButton
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import javax.swing.event.DocumentEvent
@@ -64,7 +66,6 @@ internal class DynamicVariableForm(
             label.foreground = accent.foreground
             label.font = label.font.deriveFont(label.font.style or Font.BOLD)
         }
-        panel.add(label, BorderLayout.NORTH)
 
         val control: JComponent = when (variable.type) {
             PromptVariableType.TEXT -> textField(variable)
@@ -73,6 +74,24 @@ internal class DynamicVariableForm(
         }
         val input = controls.getValue(variable.key)
         label.labelFor = input
+        val reset = JButton("Reset").apply {
+            accessibleContext.accessibleName = "Reset ${variable.label} to Default"
+            toolTipText = "Restore the authored default without refreshing context."
+            addActionListener {
+                val value = variable.initialValue()
+                when (input) {
+                    is JBTextField -> input.text = value
+                    is JBTextArea -> input.text = value
+                    is ComboBox<*> -> input.selectedItem = enumChoices(variable).firstOrNull { it.id == value }
+                }
+                input.requestFocusInWindow()
+            }
+        }
+        panel.add(JPanel(BorderLayout(JBUI.scale(4), 0)).apply {
+            isOpaque = false
+            add(label, BorderLayout.CENTER)
+            add(reset, BorderLayout.EAST)
+        }, BorderLayout.NORTH)
         input.addFocusListener(object : FocusAdapter() {
             override fun focusGained(event: FocusEvent) {
                 scrollRectToVisible(SwingUtilities.convertRectangle(control, Rectangle(control.size), this@DynamicVariableForm))
@@ -105,6 +124,8 @@ internal class DynamicVariableForm(
     private fun multilineField(variable: PromptVariable): JBScrollPane {
         val area = JBTextArea(currentValue(variable))
         area.rows = variable.minimumRows ?: 4
+        area.columns = 24
+        area.emptyText.text = variable.placeholder.orEmpty()
         area.lineWrap = true
         area.wrapStyleWord = true
         area.accessibleContext.accessibleName = variable.label
@@ -114,7 +135,6 @@ internal class DynamicVariableForm(
             }
         })
         val scroll = JBScrollPane(area)
-        scroll.preferredSize = Dimension(JBUI.scale(320), JBUI.scale(86))
         controls[variable.key] = area
         return scroll
     }
@@ -134,7 +154,7 @@ internal class DynamicVariableForm(
     }
 
     private fun currentValue(variable: PromptVariable): String {
-        val value = values[variable.key] ?: variable.defaultValue.orEmpty()
+        val value = values[variable.key] ?: variable.initialValue()
         return value
     }
 }

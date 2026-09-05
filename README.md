@@ -60,6 +60,10 @@ An external template edit keeps the inspected preview visible and blocks deliver
 
 In the author view, **Cancel** closes a clean draft immediately. For changed Markdown or metadata, it offers **Discard** and **Keep Editing**, with Keep Editing selected by default. Reverting all editable inputs makes the draft clean again. Word wrap, hiding the tool window, and changing its layout do not discard the draft. Drafts remain in memory only.
 
+The variable inspector exposes authored Text/Multiline defaults, an Enum default option, input placeholders, help text and multiline minimum rows. **Use authored default** distinguishes an absent default from an explicitly empty value; empty required values still block delivery. Removing an enum choice selects a surviving default. **Move Up** and **Move Down** change metadata/form order without changing Markdown or rendered text. Existing field order survives reconciliation; new variables are appended.
+
+Each Use field has **Reset**, and **File | Reset Values to Defaults** resets all user inputs. Both retain the captured context. Editing authored defaults does not replace retained session inputs; use Reset to apply them to the current invocation. Ordinary input values remain session-only.
+
 At narrow widths, variable navigation moves above the author inspector. The inspector scrolls to controls as you move through them with Tab. Save and Cancel stay below the editor. The Use footer contains Copy Prompt, Insert and Edit; **Delete** is in the File menu and the library context menu, with confirmation before removal.
 
 ## Storage format
