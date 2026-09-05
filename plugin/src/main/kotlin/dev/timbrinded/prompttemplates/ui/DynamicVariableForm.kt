@@ -46,10 +46,12 @@ internal class DynamicVariableForm(
     }
 
     private fun createVariableRow(variable: PromptVariable): JPanel {
-        val panel = JPanel(BorderLayout(JBUI.scale(6), JBUI.scale(4)))
+        val panel = object : JPanel(BorderLayout(JBUI.scale(6), JBUI.scale(4))) {
+            override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
+        }
         panel.isOpaque = false
         val suffix = if (variable.required && variable.type != PromptVariableType.ENUM) " *" else ""
-        val label = JBLabel(variable.label + suffix)
+        val label = JBLabel(variable.label + suffix).setCopyable(true).setAllowAutoWrapping(true)
         accents[variable.key]?.let { accent ->
             panel.border = BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(0, JBUI.scale(3), 0, 0, accent.foreground),
@@ -70,11 +72,10 @@ internal class DynamicVariableForm(
         panel.add(control, BorderLayout.CENTER)
 
         variable.description?.takeIf(String::isNotBlank)?.let { description ->
-            val help = JBLabel(description)
+            val help = JBLabel(description).setCopyable(true).setAllowAutoWrapping(true)
             help.foreground = JBUI.CurrentTheme.ContextHelp.FOREGROUND
             panel.add(help, BorderLayout.SOUTH)
         }
-        panel.maximumSize = Dimension(Int.MAX_VALUE, panel.preferredSize.height)
         return panel
     }
 

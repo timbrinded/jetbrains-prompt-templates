@@ -361,7 +361,9 @@ internal class PromptTemplatesPanel(
             controller::setInvocationValue,
         )
         val formPanel = JPanel(BorderLayout()).apply {
-            add(JBScrollPane(dynamicForm), BorderLayout.CENTER)
+            add(JBScrollPane(dynamicForm).apply {
+                horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+            }, BorderLayout.CENTER)
         }
         val previewField = EditorTextField("", project, PlainTextFileType.INSTANCE).apply {
             setOneLineMode(false)
@@ -407,29 +409,24 @@ internal class PromptTemplatesPanel(
     }
 
     private fun createUseActions(buttons: MutableMap<UseViewAction, JButton>): JComponent {
-        val primary = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0))
+        val primary = ResponsiveActionsPanel()
         USE_VIEW_PRIMARY_ACTIONS.forEach { action ->
             primary.add(JButton(action.label).apply {
+                if (action == UseViewAction.COPY_PROMPT) font = JBUI.Fonts.label().asBold()
                 buttons[action] = this
                 addActionListener { controller.performUseViewAction(action) }
             })
         }
-        val destructive = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(6), 0)).apply {
-            add(JButton(UseViewAction.DELETE.label).apply {
-                addActionListener { controller.performUseViewAction(UseViewAction.DELETE) }
-            })
-        }
         return JPanel(BorderLayout()).apply {
             border = JBUI.Borders.emptyTop(8)
-            add(primary, BorderLayout.WEST)
-            add(destructive, BorderLayout.EAST)
+            add(primary, BorderLayout.CENTER)
         }
     }
 
     private fun createFileActionsMenu(): JComponent {
         val popup = JPopupMenu()
         USE_VIEW_FILE_ACTIONS.forEach { action ->
-            if (action == UseViewAction.EXPORT_TEMPLATE) popup.addSeparator()
+            if (action == UseViewAction.EXPORT_TEMPLATE || action == UseViewAction.DELETE) popup.addSeparator()
             popup.add(JMenuItem(action.label).apply {
                 addActionListener { controller.performUseViewAction(action) }
             })
@@ -549,4 +546,5 @@ internal val USE_VIEW_FILE_ACTIONS = listOf(
     UseViewAction.COPY_PATH,
     UseViewAction.EXPORT_TEMPLATE,
     UseViewAction.EXPORT_RENDERED,
+    UseViewAction.DELETE,
 )
