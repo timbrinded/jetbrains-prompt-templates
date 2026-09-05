@@ -30,6 +30,7 @@
     ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
+    <depends optional="true" config-file="dev.smoothbrains.prompttemplates-git.xml">Git4Idea</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <iconMapper mappingFile="PromptTemplatesIconMappings.json"/>

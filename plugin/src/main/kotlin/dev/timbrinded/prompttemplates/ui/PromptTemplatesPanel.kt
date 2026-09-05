@@ -533,6 +533,7 @@ internal enum class UseViewAction(val label: String) {
     EXPORT_TEMPLATE("Export Template Markdown…"),
     EXPORT_RENDERED("Export Rendered Markdown…"),
     DELETE("Delete"),
+    ADD_CONTEXT("Add Context…"),
     REFRESH_CONTEXT("Refresh Context"),
     RELOAD_TEMPLATE("Reload Template"),
     SELECT_INSERTION_TARGET("Use Active Editor as Insertion Target"),
@@ -547,6 +548,7 @@ internal val USE_VIEW_PRIMARY_ACTIONS = listOf(
 
 internal val USE_VIEW_FILE_ACTIONS = listOf(
     UseViewAction.DUPLICATE,
+    UseViewAction.ADD_CONTEXT,
     UseViewAction.REFRESH_CONTEXT,
     UseViewAction.RELOAD_TEMPLATE,
     UseViewAction.SELECT_INSERTION_TARGET,

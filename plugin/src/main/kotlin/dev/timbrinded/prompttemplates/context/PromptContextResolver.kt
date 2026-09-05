@@ -5,6 +5,8 @@ import com.intellij.openapi.application.readAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
+import dev.timbrinded.prompttemplates.core.ATTACHMENTS_CONTEXT_KEY
+import dev.timbrinded.prompttemplates.core.ContextAttachments
 import dev.timbrinded.prompttemplates.core.ContextStatus
 import dev.timbrinded.prompttemplates.core.ContextValue
 import java.awt.datatransfer.DataFlavor
@@ -20,6 +22,7 @@ internal object PromptContextResolver {
             requested.associateWith { key ->
                 when (key) {
                     "clipboard" -> requireNotNull(clipboard)
+                    ATTACHMENTS_CONTEXT_KEY -> ContextAttachments().contextValue()
                     "ide.project.name" -> ContextValue.available(project.name, project.name)
                     else -> editorValue(project, source, key)
                 }

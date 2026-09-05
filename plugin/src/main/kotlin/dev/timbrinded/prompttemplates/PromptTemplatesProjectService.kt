@@ -10,6 +10,8 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindowManager
+import dev.timbrinded.prompttemplates.attachments.ContextAttachmentsDialog
+import dev.timbrinded.prompttemplates.core.ATTACHMENTS_CONTEXT_KEY
 import dev.timbrinded.prompttemplates.invocation.PromptInvocationSession
 import dev.timbrinded.prompttemplates.destination.DestinationResult
 import dev.timbrinded.prompttemplates.destination.PromptTemplatesNotifications
@@ -112,6 +114,14 @@ class PromptTemplatesProjectService(
         val source = editor ?: FileEditorManager.getInstance(project).selectedTextEditor
         rememberInvocationSource(source)
         quickUseDialog = QuickUseDialog(project, this, source) { quickUseDialog = null }.also { it.show() }
+    }
+
+    internal fun manageAttachments() {
+        if (invocation.state.value?.invocation?.referencedContext?.contains(ATTACHMENTS_CONTEXT_KEY) != true) {
+            PromptTemplatesNotifications.warning(project, "Add {{ide.attachments}} in the template author editor before capturing context attachments.")
+            return
+        }
+        ContextAttachmentsDialog(project, this).show()
     }
 
     fun copyRendered() = reportDelivery(invocation.copyRendered(), "Prompt copied to the clipboard.")

@@ -35,6 +35,7 @@ import kotlin.time.Duration.Companion.minutes
 class StarterHarness private constructor(
     val workspace: TestWorkspace,
     private val uiScale: Float,
+    private val disabledPlugins: List<String>,
 ) {
     fun run(block: Driver.(PromptTemplatesUi) -> Unit) {
         val context = createContext()
@@ -58,6 +59,7 @@ class StarterHarness private constructor(
         }
         PluginConfigurator(this).installPluginFromPath(pluginPath())
         seedStableUiSettings()
+        if (disabledPlugins.isNotEmpty()) paths.configDir.resolve("disabled_plugins.txt").writeText(disabledPlugins.joinToString("\n", postfix = "\n"))
         applyVMOptionsPatch {
             withXmx(2_048)
             addSystemProperty("user.home", workspace.userHome.toString())
@@ -182,8 +184,8 @@ class StarterHarness private constructor(
         private const val PINNED_IDE_BUILD = "262.8665.259"
         private const val PLUGIN_PATH_PROPERTY = "path.to.build.plugin"
 
-        fun create(testName: String, uiScale: Float = 1f): StarterHarness =
-            StarterHarness(TestWorkspace.create(testName), uiScale)
+        fun create(testName: String, uiScale: Float = 1f, disabledPlugins: List<String> = emptyList()): StarterHarness =
+            StarterHarness(TestWorkspace.create(testName), uiScale, disabledPlugins)
     }
 }
 

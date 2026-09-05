@@ -8,5 +8,7 @@ Prompt Templates operates locally.
 - Prompt content and entered values are not logged.
 - Clipboard reads occur only when a selected template references `{{clipboard}}`.
 - Clipboard writes, editor insertion, imports and exports require explicit user actions.
+- File and Git diff attachments are captured only after explicit selection and remain in the current invocation in memory. They are not written into template metadata or settings. Output/export can include them only through the inspected render.
+- Git capture runs fixed local read operations through the optional Git integration. It opens no terminal, executes no template commands and disables external diff, text-conversion, clean/process filters and fsmonitor helpers.
 
 The plugin does not invoke an LLM or integrate through private JetBrains AI Assistant, Junie or third-party agent APIs.

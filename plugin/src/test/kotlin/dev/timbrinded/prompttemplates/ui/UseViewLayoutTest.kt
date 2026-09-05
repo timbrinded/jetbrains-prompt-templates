@@ -70,6 +70,7 @@ class UseViewLayoutTest {
         assertEquals(
             listOf(
                 UseViewAction.DUPLICATE,
+                UseViewAction.ADD_CONTEXT,
                 UseViewAction.REFRESH_CONTEXT,
                 UseViewAction.RELOAD_TEMPLATE,
                 UseViewAction.SELECT_INSERTION_TARGET,
