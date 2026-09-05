@@ -18,11 +18,13 @@ import com.intellij.driver.sdk.ui.components.elements.list
 import com.intellij.driver.sdk.ui.components.elements.popup
 import com.intellij.driver.sdk.ui.components.elements.textField
 import com.intellij.driver.sdk.ui.components.elements.waitForNoOpenedDialogs
+import com.intellij.driver.sdk.ui.components.settings.settingsDialog
 import com.intellij.driver.sdk.ui.ui
 import com.intellij.driver.sdk.waitFor
 import java.awt.Point
 import java.awt.event.InputEvent
 import java.awt.event.MouseEvent
+import java.nio.file.Path
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -58,6 +60,22 @@ class PromptTemplatesUi(
     fun clickFileAction(label: String) {
         clickButton("File ▾")
         clickContextMenuItem(label)
+    }
+
+    fun changeLibrary(root: Path) {
+        driver.invokeAction("ShowSettings", component = driver.ideFrame().component)
+        driver.ideFrame().settingsDialog {
+            waitFound(30.seconds)
+            searchTextField.text = "Prompt Templates"
+            val tree = settingsTree
+            waitFor("Prompt Templates settings are available", 30.seconds) {
+                hasPath(tree.expandAll(), listOf("Prompt Templates"))
+            }
+            clickComponentAt(tree, tree.fixture.getRowPoint(rowFor(tree, listOf("Prompt Templates"))))
+            textField { byAccessibleName("Personal library directory") }.waitFound(30.seconds).text = root.toString()
+            clickComponent(okButton)
+        }
+        driver.ui.waitForNoOpenedDialogs()
     }
 
     fun renderedText(): String {

@@ -6,17 +6,55 @@ import com.intellij.driver.sdk.openFile
 import com.intellij.driver.sdk.invokeAction
 import com.intellij.driver.sdk.ui.components.common.codeEditorForFile
 import com.intellij.driver.sdk.ui.components.common.ideFrame
+import com.intellij.driver.sdk.ui.components.elements.textField
+import com.intellij.driver.sdk.ui.components.elements.button
+import com.intellij.driver.sdk.ui.components.UiComponent.Companion.waitFound
 import com.intellij.driver.sdk.waitFor
+import dev.timbrinded.prompttemplates.core.PromptVariable
 import dev.timbrinded.prompttemplates.core.TemplateMetadata
 import dev.timbrinded.prompttemplates.core.TemplateMetadataCodec
 import kotlin.io.path.writeText
 import kotlin.io.path.moveTo
+import kotlin.io.path.createDirectories
 import kotlin.test.assertEquals
 import kotlin.time.Duration.Companion.seconds
 import org.junit.jupiter.api.Test
 import java.awt.datatransfer.DataFlavor
 
 class PromptInvocationIdeTest {
+    @Test
+    fun `library changes clear use values and preserve an open author draft`() {
+        val harness = StarterHarness.create("library-invocation")
+        val originalRoot = harness.workspace.library
+        val otherRoot = harness.workspace.root.resolve("other-library").createDirectories()
+        for ((root, name) in listOf(originalRoot to "Original", otherRoot to "Other")) {
+            val template = TestLibrary(root).createTemplate("review", name, "c7b3a032-cbe2-49e8-a49c-3b2edc7c3b8c")
+            template.resolve("prompt.md").writeText("{{goal}}: {{clipboard}}")
+            template.resolve("prompt.meta.json").writeText(TemplateMetadataCodec().encode(TemplateMetadata(
+                id = "c7b3a032-cbe2-49e8-a49c-3b2edc7c3b8c", name = name,
+                variables = listOf(PromptVariable("goal", "Goal", defaultValue = "Review")),
+            )))
+        }
+        harness.run { ui ->
+            copyToClipboard("original")
+            ui.open().selectTemplate("Original")
+            ideFrame().textField { byAccessibleName("Goal") }.waitFound(30.seconds).text = "Explain"
+            waitFor("entered values update the session", 30.seconds) { ui.renderedText() == "Explain: original" }
+            ui.changeLibrary(otherRoot)
+            ui.waitForPath("Other")
+            ideFrame().button("Copy Prompt").waitNotFound(30.seconds)
+            copyToClipboard("other")
+            ui.selectTemplate("Other")
+            waitFor("new library starts with authored defaults", 30.seconds) { ui.renderedText() == "Review: other" }
+            ui.clickButton("Edit")
+            ideFrame().textField { byVisibleText("Other") }.waitFound(30.seconds).text = "Unsaved draft"
+            ui.changeLibrary(originalRoot)
+            ui.waitForPath("Original")
+            assertEquals("Unsaved draft", ideFrame().textField { byVisibleText("Unsaved draft") }.waitFound(30.seconds).text)
+            ideFrame().button("Save Template").waitFound(30.seconds)
+        }
+    }
+
     @Test
     fun `copy preserves the inspected clipboard snapshot on repeated delivery`() {
         val harness = StarterHarness.create("clipboard-snapshot")
