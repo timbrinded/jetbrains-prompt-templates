@@ -100,15 +100,16 @@ class ContextAttachmentsIdeTest {
             dialog.waitContainsText("missing")
             assertEquals("Captured closed file", capturedText())
             press(dialog.button("Remove"))
-            assertEquals(1, dialog.list().items.size)
+            waitFor("missing source is removed", 10.seconds) { dialog.list().items.size == 1 }
             press(dialog.button("Remove"))
-            assertEquals(0, dialog.list().items.size)
+            waitFor("pending attachments are removed", 10.seconds) { dialog.list().items.isEmpty() }
             press(dialog.button("Cancel"))
             dialog.waitNotFound(30.seconds)
             assertTrue(main.renderedText().contains("Later unsaved content"))
             main.clickFileAction("Add Context…")
             dialog.waitFound(30.seconds)
             press(dialog.button("Remove"))
+            waitFor("last applied attachment is removed", 10.seconds) { dialog.list().items.isEmpty() }
             press(dialog.button("Apply Attachments"))
             dialog.waitNotFound(30.seconds)
             waitFor("removing last item blocks required context", 10.seconds) { main.renderedText().contains("{{ide.attachments}}") }
@@ -239,7 +240,12 @@ class ContextAttachmentsIdeTest {
 
     private fun Driver.clipboard(): String? = utility(IdeClipboard::class).getInstance().getContents(DataFlavor.stringFlavor)
 
-    private fun press(component: UiComponent) { component.waitFound(30.seconds).setFocus(); component.keyboard { space() } }
+    private fun press(component: UiComponent) {
+        component.waitFound(30.seconds)
+        waitFor("attachment control is enabled", 30.seconds) { component.isEnabled() }
+        component.setFocus()
+        component.keyboard { space() }
+    }
 
     private fun Driver.selectFile(path: Path) {
         press(ui.dialog(title = "Add Context").button("Selected Files…"))
