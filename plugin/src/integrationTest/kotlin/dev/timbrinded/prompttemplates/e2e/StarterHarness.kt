@@ -106,6 +106,10 @@ class StarterHarness private constructor(
         runCatching {
             workspace.evidence.resolve("$prefix-tree-state.txt").writeText(
                 buildString {
+                    if (ui.libraryTree().notPresent()) {
+                        appendLine("Tool window has not been created.")
+                        return@buildString
+                    }
                     appendLine("expanded:")
                     ui.expandedPaths().forEach { appendLine("  $it") }
                     appendLine("selected:")

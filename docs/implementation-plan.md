@@ -328,7 +328,7 @@ Do not show an empty blank list or require the user to discover toolbar icons.
 | Bottom master-detail workbench | Enough width for library, generated form, authoring editor and preview; matches JetBrains guidance for wide content | Uses vertical editor space | Default layout |
 | Right-side assistant panel | Familiar location for AI-adjacent tools; remains visible beside code | Too narrow for simultaneous library, form and authoring controls | Supported through responsive narrow mode |
 | Editor-first workflow | Maximum Markdown editing capability; source is always explicit | Splits the normal workflow across editor tabs and tool window; less approachable for quick use | Offer `Open Markdown`, but do not make this the primary workflow |
-| Search popup or chooser | Extremely fast keyboard invocation | Cannot comfortably author templates or complete complex multiline variables | Add later as a secondary quick-use surface |
+| Search popup or chooser | Keyboard invocation with ranked search and local favourites/recents | Limited room for complex multiline inputs and authoring | Quick Use provides a form and preview, with exact-session handoff to the tool window |
 | Modal wizard | Simple linear implementation | Blocks the IDE and makes repeated prompt use cumbersome | Reject |
 | JCEF web application | Flexible HTML layout | Inconsistent with native IDE behaviour; larger accessibility, lifecycle and theme burden | Reject for the main UI |
 

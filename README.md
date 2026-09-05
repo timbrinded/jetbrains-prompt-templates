@@ -11,6 +11,7 @@ The plugin is agent-agnostic. It renders exact text, copies it to the clipboard,
 Implemented workflows:
 
 - Search a personal prompt library by metadata and body text.
+- Invoke Quick Use from the editor, with ranked search, favourites and recent templates.
 - Organise templates in nested folders with saved manual ordering.
 - Move and reorder folders or templates with drag-and-drop or keyboard actions.
 - Use focused root, folder and template context menus for common library actions.
@@ -27,6 +28,16 @@ Implemented workflows:
 - Switch between wide master-detail and narrow card layouts.
 
 Bundle import/export, project-local libraries, global Markdown annotations, terminal delivery and direct agent-window insertion remain intentionally outside the current scope.
+
+### Quick Use
+
+Run **Use Prompt Template…** from Find Action, Tools, or the editor context menu. You can bind `PromptTemplates.Use` in the IDE keymap; it has no default global shortcut. Quick Use works before the tool window opens.
+
+Type to search. Up and Down select a row; Enter opens its form and exact preview. Selection does not copy or insert, including templates without inputs. Complete the inputs, inspect the preview, then use **Copy Prompt**. The dialog provides native mnemonics for **Favourite** and **Copy Prompt**. Escape closes it and returns focus to the invoking editor. **Open in Tool Window** continues with the same captured context and entered values.
+
+Empty search puts favourites and recents first, followed by the remaining library. Explicit searches rank exact names, name prefixes, other name matches, tags/folder paths, then descriptions/body text. Text relevance comes before favourite/recent ordering. Each row shows its folder path and input/context counts.
+
+Favourites and the last 20 successful template deliveries are local IDE settings, scoped to the library directory and keyed by UUID. Rename and move preserve identity. Missing entries are ignored. This state stores only library paths, template identities and ordering; it contains no prompt text, captured context or input values.
 
 ### Context and output
 
@@ -109,6 +120,8 @@ Requirements are JDK 25 and the included Gradle wrapper. Gradle can provision th
 The installable ZIP is written to `plugin/build/distributions/`. Install it with **Settings | Plugins | ⚙ | Install Plugin from Disk…**.
 
 The integration task is a local E2E check. It installs the built plugin into an isolated WebStorm 2026.2 instance (build `262.8665.259`), uses a temporary project and user home, and drives the real Swing UI with JetBrains Starter and Driver. Swing hierarchies, tree state, isolated paths and library manifests are written below `plugin/build/ui-test/`. A screenshot is also written when the display server supports capture; otherwise the directory contains a screenshot capture-error file. On headless Linux, run the task under Xvfb. Local desktop sessions can use their native display.
+
+The suite includes a [500-template Quick Use benchmark](docs/quick-use-benchmark.md), with supported-host measurements and regression review targets.
 
 For exploratory testing, select one E2E scenario and add `-Pexplore=true`. After its assertions finish, the isolated IDE remains open for up to five minutes, including when a check fails. The task prints the path of an `exploration-complete` marker; create that file when exploration is finished. Record observations separately and run the full suite normally before signing off.
 
