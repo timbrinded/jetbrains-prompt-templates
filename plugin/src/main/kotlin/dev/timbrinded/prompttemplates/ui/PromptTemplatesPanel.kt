@@ -164,6 +164,7 @@ internal class PromptTemplatesPanel(
 
     override fun updateUsePreview(detail: PromptDetailState.Use) {
         val useView = renderedDetail as? RenderedDetail.Use ?: return
+        useView.dynamicForm.updateValues(detail.values)
         if (useView.previewField.text != detail.render.renderedText) useView.previewField.text = detail.render.renderedText
         useView.actionButtons[UseViewAction.INSERT]?.text = detail.session.insertionLabel
         useView.actionButtons[UseViewAction.COPY_PROMPT]?.isEnabled = !detail.session.capturing

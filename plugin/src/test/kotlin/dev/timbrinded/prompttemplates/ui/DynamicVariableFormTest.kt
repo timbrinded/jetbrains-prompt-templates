@@ -6,6 +6,8 @@ import dev.timbrinded.prompttemplates.core.PromptVariableType
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
+import com.intellij.ui.components.JBTextField
+import com.intellij.openapi.ui.ComboBox
 import javax.swing.JPanel
 import javax.swing.JButton
 import javax.swing.SwingUtilities
@@ -16,6 +18,40 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class DynamicVariableFormTest {
+    @Test
+    fun `session updates change controls without feedback or disturbing unchanged text selections`() {
+        SwingUtilities.invokeAndWait {
+            val changes = mutableListOf<Pair<String, String>>()
+            val variables = listOf(
+                PromptVariable("goal", "Goal", defaultValue = "Default"),
+                PromptVariable("notes", "Notes", type = PromptVariableType.MULTILINE),
+                PromptVariable("mode", "Mode", type = PromptVariableType.ENUM, defaultValue = "quick",
+                    options = listOf(EnumOption("quick", "Quick", "Quick"), EnumOption("deep", "Deep", "Deep"))),
+            )
+            val values = mapOf("goal" to "Typed goal", "notes" to "Typed notes", "mode" to "quick")
+            val form = DynamicVariableForm(variables, emptyMap(), values) { key, value -> changes.add(key to value) }
+            val rows = form.components.filterIsInstance<JPanel>()
+            val goal = rows[0].components.filterIsInstance<JBTextField>().single()
+            val notes = assertIs<JBTextArea>(rows[1].components.filterIsInstance<JBScrollPane>().single().viewport.view)
+            val mode = rows[2].components.filterIsInstance<ComboBox<*>>().single()
+            notes.select(2, 5)
+            form.updateValues(values + ("goal" to "Shared goal") + ("mode" to "deep"))
+            assertEquals("Shared goal", goal.text)
+            assertEquals("deep", assertIs<EnumChoice>(mode.selectedItem).id)
+            assertEquals(2, notes.selectionStart)
+            assertEquals(5, notes.selectionEnd)
+            form.updateValues(values + ("notes" to "Shared\nnotes"))
+            assertEquals("Shared\nnotes", notes.text)
+            form.updateValues(emptyMap())
+            assertEquals("Default", goal.text)
+            assertEquals("", notes.text)
+            assertEquals("quick", assertIs<EnumChoice>(mode.selectedItem).id)
+            assertTrue(changes.isEmpty())
+            notes.text = "User edit"
+            assertEquals("notes" to "User edit", changes.last())
+        }
+    }
+
     @Test
     fun `multiline sizing placeholder and field reset use the authored settings`() {
         SwingUtilities.invokeAndWait {

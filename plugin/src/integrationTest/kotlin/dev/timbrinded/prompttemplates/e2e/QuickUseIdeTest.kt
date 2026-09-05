@@ -9,6 +9,7 @@ import com.intellij.driver.sdk.ui.components.common.codeEditorForFile
 import com.intellij.driver.sdk.ui.components.common.editor
 import com.intellij.driver.sdk.ui.components.common.ideFrame
 import com.intellij.driver.sdk.ui.components.elements.button
+import com.intellij.driver.sdk.ui.components.elements.comboBox
 import com.intellij.driver.sdk.ui.components.elements.dialog
 import com.intellij.driver.sdk.ui.components.elements.list
 import com.intellij.driver.sdk.ui.components.elements.textField
@@ -16,6 +17,7 @@ import com.intellij.driver.sdk.ui.copyToClipboard
 import com.intellij.driver.sdk.ui.ui
 import com.intellij.driver.sdk.waitFor
 import dev.timbrinded.prompttemplates.core.PromptVariable
+import dev.timbrinded.prompttemplates.core.EnumOption
 import dev.timbrinded.prompttemplates.core.PromptVariableType
 import dev.timbrinded.prompttemplates.core.TemplateMetadata
 import dev.timbrinded.prompttemplates.core.TemplateMetadataCodec
@@ -157,6 +159,67 @@ class QuickUseIdeTest {
         assertTrue(persisted.contains(REVIEW_ID))
         assertFalse(persisted.contains("retained value"))
         assertFalse(persisted.contains("handoff snapshot"))
+    }
+
+    @Test
+    fun `existing tool window and Quick Use controls follow the same invocation values`() {
+        val harness = StarterHarness.create("quick-shared-controls")
+        create(harness.workspace.templates, "review", "Review", REVIEW_ID,
+            "{{goal}}|{{notes}}|{{mode}}|{{clipboard}}", listOf(
+                PromptVariable("goal", "Goal", defaultValue = "Initial goal"),
+                PromptVariable("notes", "Notes", type = PromptVariableType.MULTILINE, defaultValue = "Initial notes"),
+                PromptVariable("mode", "Mode", type = PromptVariableType.ENUM, defaultValue = "quick",
+                    options = listOf(EnumOption("quick", "Quick", "Quick"), EnumOption("deep", "Deep", "Deep"))),
+            ))
+        harness.run { main ->
+            main.dismissTrialNotification()
+            main.open().selectTemplate("Review")
+            copyToClipboard("shared snapshot")
+            invokeAction("PromptTemplates.Use", component = ideFrame().component)
+            val dialog = ui.dialog(title = "Use Prompt Template").waitFound(30.seconds)
+            waitFor("review candidate is loaded", 30.seconds) { quickMatches().singleOrNull()?.startsWith("Review —") == true }
+            dialog.textField { byAccessibleName("Search templates") }.keyboard { enter() }
+            val goal = dialog.textField { and(byClass("JBTextField"), byAccessibleName("Goal")) }.waitFound(30.seconds)
+            val notes = dialog.textField { and(byClass("JBTextArea"), byAccessibleName("Notes")) }.waitFound(30.seconds)
+            goal.text = "Quick goal"
+            notes.text = "Quick\nnotes"
+            dialog.comboBox { and(byClass("ComboBox"), byAccessibleName("Mode")) }.selectItem("Deep")
+            val expected = "Quick goal|Quick\nnotes|Deep|shared snapshot"
+            waitFor("Quick Use renders all changed input types", 30.seconds) { quickPreview() == expected }
+            dialog.button("Copy Prompt").setFocus()
+            dialog.button("Copy Prompt").keyboard { space() }
+            dialog.waitNotFound(30.seconds)
+            waitFor("Copy closes Quick Use with the shared payload", 10.seconds) { clipboard() == expected && main.renderedText() == expected }
+            val panel = ideFrame().x { byClass("PromptTemplatesPanel") }
+            fun frameGoal() = panel.textField { and(byClass("JBTextField"), byAccessibleName("Goal")) }
+            fun frameNotes() = panel.textField { and(byClass("JBTextArea"), byAccessibleName("Notes")) }
+            fun frameMode() = panel.comboBox { and(byClass("ComboBox"), byAccessibleName("Mode")) }
+            assertEquals("Quick goal", frameGoal().text)
+            assertEquals("Quick\nnotes", frameNotes().text)
+            assertEquals("Deep", frameMode().getSelectedItem())
+
+            copyToClipboard("second snapshot")
+            invokeAction("PromptTemplates.Use", component = ideFrame().component)
+            dialog.waitFound(30.seconds)
+            waitFor("review candidate is loaded again", 30.seconds) { quickMatches().singleOrNull()?.contains("Review —") == true }
+            dialog.textField { byAccessibleName("Search templates") }.keyboard { enter() }
+            val reopenedGoal = dialog.textField { and(byClass("JBTextField"), byAccessibleName("Goal")) }.waitFound(30.seconds)
+            val reopenedNotes = dialog.textField { and(byClass("JBTextArea"), byAccessibleName("Notes")) }
+            frameGoal().text = "Tool-window goal"
+            waitFor("Quick Use reflects a tool-window edit", 30.seconds) { reopenedGoal.text == "Tool-window goal" }
+            main.clickFileAction("Reset Values to Defaults")
+            waitFor("both forms reset without refreshing context", 30.seconds) {
+                reopenedGoal.text == "Initial goal" && reopenedNotes.text == "Initial notes" &&
+                    quickPreview() == "Initial goal|Initial notes|Quick|second snapshot"
+            }
+            dialog.button("Open in Tool Window").setFocus()
+            dialog.button("Open in Tool Window").keyboard { space() }
+            dialog.waitNotFound(30.seconds)
+            assertEquals("Initial goal", frameGoal().text)
+            assertEquals("Initial notes", frameNotes().text)
+            assertEquals("Quick", frameMode().getSelectedItem())
+            assertEquals("Initial goal|Initial notes|Quick|second snapshot", main.renderedText())
+        }
     }
 
     @Test
