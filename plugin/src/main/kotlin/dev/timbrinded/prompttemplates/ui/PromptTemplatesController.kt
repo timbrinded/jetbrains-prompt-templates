@@ -426,18 +426,19 @@ internal class PromptTemplatesController(
             // release the save latch; otherwise later Save clicks are silently ignored.
             try {
                 if (!authorRequests.isCurrent(request)) return@launch
-                if (existing != null) {
-                    val latest = withContext(Dispatchers.IO) { repo.load(existing.directory) }
-                    val externallyChanged =
-                        latest !is RepositoryResult.Success || latest.value.template != existing.template
-                    if (externallyChanged && !confirmOverwrite(request)) return@launch
-                }
-                if (!authorRequests.isCurrent(request)) return@launch
-                val result = withContext(Dispatchers.IO) {
+                var result = withContext(Dispatchers.IO) {
                     if (existing == null) {
                         repo.create(draft, request.destination)
                     } else {
-                        repo.update(existing.directory, draft)
+                        repo.update(existing.directory, draft, existing.revision)
+                    }
+                }
+                if (result is RepositoryResult.Conflict && existing != null) {
+                    val current = result.current
+                    if (!confirmOverwrite(request, current, draft)) return@launch
+                    if (!authorRequests.isCurrent(request)) return@launch
+                    result = withContext(Dispatchers.IO) {
+                        repo.update(existing.directory, draft, current.revision)
                     }
                 }
                 withContext(Dispatchers.EDT) {
@@ -472,19 +473,12 @@ internal class PromptTemplatesController(
         }
     }
 
-    private suspend fun confirmOverwrite(request: AuthorAsyncRequest): Boolean = withContext(Dispatchers.EDT) {
-        if (isDisposed() || !authorRequests.isCurrent(request)) {
-            false
-        } else {
-            Messages.showYesNoDialog(
-                project,
-                "The template changed on disk after editing began. Overwrite those changes?",
-                "Prompt Template Changed",
-                "Overwrite with Draft",
-                "Cancel",
-                Messages.getWarningIcon(),
-            ) == Messages.YES
-        }
+    private suspend fun confirmOverwrite(
+        request: AuthorAsyncRequest,
+        current: StoredTemplate,
+        draft: PromptTemplateDraft,
+    ): Boolean = withContext(Dispatchers.EDT) {
+        !isDisposed() && authorRequests.isCurrent(request) && TemplateOverwriteDialog(project, current, draft).showAndGet()
     }
 
     fun importMarkdown(destination: Path = view.selectedDestinationFolder) {

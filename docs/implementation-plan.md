@@ -1229,15 +1229,19 @@ On `Save Template`:
 
 1. Parse and validate the draft.
 2. Check that required metadata fields are valid.
-3. Check source hashes for external changes.
-4. If external changes occurred, show a conflict flow.
-5. Serialise metadata deterministically.
-6. Write Markdown and metadata through the repository.
+3. Acquire the library file lock and compare the loaded revision inside the repository update.
+4. If the revision differs, preserve the draft and show both versions. An approved overwrite must still match the reviewed disk revision.
+5. Serialise metadata deterministically and stage both contents in a save journal with the previous file fingerprints.
+6. Replace each canonical file atomically, checking for external changes before each replacement. Remove the journal only after both files match the new revision.
 7. Refresh VFS state where required.
 8. Reload the saved template into use mode.
 9. Notify success only if there is useful follow-up; routine saves should generally remain quiet.
 
 JSON serialisation should use stable field ordering and two-space indentation to produce clean version-control diffs.
+
+Reads and scans take the same lock and recover a published save intent before accepting the template. Recovery completes the new pair only when each canonical file matches its recorded old or new fingerprint. Unknown contents produce a diagnostic and retain all recovery data. An exception after journal publication and an abrupt process exit both use this completion path; there is no exception-only rollback promise. A failure before journal publication leaves existing canonical files unchanged.
+
+The persistent library lock coordinates JVM threads and separate IDE processes. The library must permit lock-file creation and recovery writes. Ordinary external editors do not participate, so a change between a fingerprint check and the next filesystem operation remains possible. Atomic replacements and closed staging writes provide process-interruption recovery; no power-loss durability guarantee is made. Internal journals and staging files are excluded from normal discovery. Unpublished staging files can remain after process termination and can be removed when no IDE uses the library.
 
 ---
 

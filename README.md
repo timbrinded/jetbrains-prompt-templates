@@ -142,12 +142,15 @@ flowchart TD
 - `core/` owns immutable models, the linear scanner, strict renderer, deterministic JSON codec, reconciliation, search and safe filesystem repository.
 - `plugin/` owns settings, native Swing/platform components, context resolution, output destinations, actions and the responsive tool window.
 - Expected validation failures are typed diagnostics rather than exceptions.
-- Files are written through same-directory temporary files and atomic replacement where the filesystem supports it.
+- Template saves stage both contents in a save journal, then replace the canonical files atomically. Reopening completes an interrupted save only if both file fingerprints still match the recorded old or new versions. A later external edit leaves the journal intact and shows a recovery diagnostic.
+- Repository updates check the loaded revision under a library file lock. Conflict review compares the disk version with the draft; overwrite checks that reviewed revision again. Separate IDE processes share the lock.
 - The configured library root can be a symbolic link. Managed entries inside it cannot be symbolic links, and repository traversal does not follow them.
 - Folder deletion uses a fresh subtree preview, typed confirmation and a second fingerprint check before recursive removal. The fingerprint records entry names, sizes, modification times and file identities, not file contents.
 - Expanded folders and the selected template are remembered per project in the workspace file.
 
 The full product and implementation rationale is in [`docs/implementation-plan.md`](docs/implementation-plan.md).
+
+The library needs write access for its persistent `.prompt-templates.lock` file and recovery. Template saves require atomic file replacement. Do not delete the lock file while an IDE uses the library. `.prompt-template-save.json` and `.prompt-template-stage-*` are internal save files, not templates. Keep an unresolved journal and both canonical files for manual comparison; restore a recorded version before retrying recovery. An interrupted process can leave unused staging files, which can be removed after all IDEs have closed. These guarantees cover process interruption, not sudden power loss. External editors do not take the plugin lock; an edit between the final fingerprint check and file replacement remains outside its isolation guarantee.
 
 ## Privacy and security
 

@@ -199,6 +199,16 @@ class PromptTemplatesUi(
         }
     }
 
+    fun confirmTemplateOverwrite(review: (String) -> Unit) {
+        driver.ui.dialog(title = "Prompt Template Changed") {
+            waitFound(30.seconds)
+            val current = x { and(byClass("JBTextArea"), byAccessibleName("Current files on disk")) }.waitFound()
+            review(driver.cast(current.component, TestTextArea::class).getText())
+            clickComponent(button("Overwrite with Draft"))
+        }
+        driver.ui.waitForNoOpenedDialogs()
+    }
+
     fun confirmFolderDeletion(folderPath: List<String>, typedName: String) {
         selectContextMenuItem(*folderPath.toTypedArray(), item = "Delete Folder…")
         driver.ui.dialog(title = "Delete Prompt Template Folder") {
@@ -305,4 +315,9 @@ private interface RemoteEventQueue {
 @Remote("com.intellij.openapi.wm.impl.ToolWindowImpl")
 private interface TestToolWindow {
     fun stretchHeight(delta: Int)
+}
+
+@Remote("javax.swing.JTextArea")
+internal interface TestTextArea {
+    fun getText(): String
 }

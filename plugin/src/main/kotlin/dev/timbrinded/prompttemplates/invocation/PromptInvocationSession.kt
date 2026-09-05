@@ -199,7 +199,9 @@ internal class PromptInvocationSession(
             val direct = repo.load(stored.directory)
             val latest = if (direct is RepositoryResult.Success && direct.value.template.id == stored.template.id) direct else {
                 val moved = flattenTemplates(repo.scan().children).firstOrNull { it.summary.id == stored.template.id }
-                moved?.let { repo.load(it.directory) } ?: RepositoryResult.Failure("The template is unavailable. Restore it or choose another template.")
+                moved?.let { repo.load(it.directory) } ?: if (direct is RepositoryResult.Failure) direct else {
+                    RepositoryResult.Failure("The template is unavailable. Restore it or choose another template.")
+                }
             }
             withContext(Dispatchers.EDT) {
                 if (disposed || project.isDisposed || sessionGeneration != request ||

@@ -62,13 +62,18 @@ sealed interface RepositoryResult<out T> {
         val warnings: List<String> = emptyList(),
     ) : RepositoryResult<T>
 
-    data class Failure(val message: String, val cause: Throwable? = null) : RepositoryResult<Nothing>
+    open class Failure(val message: String, val cause: Throwable? = null) : RepositoryResult<Nothing>
+
+    data class Conflict(val current: StoredTemplate) : Failure(
+        "The template changed on disk. Your draft is unchanged. Save again to review the current version.",
+    )
 }
 
 data class StoredTemplate(
     val template: PromptTemplate,
     val directory: Path,
     val recoverable: Boolean = false,
+    val revision: TemplateRevision? = null,
 )
 
 interface PromptTemplateRepository {
@@ -77,7 +82,7 @@ interface PromptTemplateRepository {
     fun scan(): LibrarySnapshot
     fun load(directory: Path): RepositoryResult<StoredTemplate>
     fun create(draft: PromptTemplateDraft, destinationFolder: Path = root): RepositoryResult<StoredTemplate>
-    fun update(directory: Path, draft: PromptTemplateDraft): RepositoryResult<StoredTemplate>
+    fun update(directory: Path, draft: PromptTemplateDraft, expectedRevision: TemplateRevision?): RepositoryResult<StoredTemplate>
     fun deleteTemplate(directory: Path): RepositoryResult<Unit>
     fun importMarkdown(source: Path, destinationFolder: Path = root): RepositoryResult<StoredTemplate>
     fun exportTemplateMarkdown(directory: Path, destination: Path): RepositoryResult<Path>
