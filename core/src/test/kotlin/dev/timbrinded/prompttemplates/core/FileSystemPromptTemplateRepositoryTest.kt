@@ -37,6 +37,7 @@ class FileSystemPromptTemplateRepositoryTest(
             repository.update(
                 created.directory,
                 PromptTemplateDraft(id, "Review implementation", markdown = "Updated"),
+                created.revision,
             ),
         ).value
         assertEquals("Updated", updated.template.markdown)
@@ -163,6 +164,7 @@ class FileSystemPromptTemplateRepositoryTest(
         val duplicate = repository.update(
             second.directory,
             PromptTemplateDraft(id = second.template.id, name = "FIRST PROMPT", markdown = "Changed"),
+            second.revision,
         )
 
         val failure = assertIs<RepositoryResult.Failure>(duplicate)
@@ -183,6 +185,7 @@ class FileSystemPromptTemplateRepositoryTest(
         val mismatched = repository.update(
             existing.directory,
             PromptTemplateDraft(name = "New prompt", markdown = "Replacement"),
+            existing.revision,
         )
 
         val failure = assertIs<RepositoryResult.Failure>(mismatched)

@@ -297,10 +297,12 @@ private val LOG = logger<LibraryFileWatcher>()
 private val LIBRARY_CONTROL_FILES = setOf(
     FileSystemPromptTemplateRepository.MARKDOWN_FILE,
     FileSystemPromptTemplateRepository.METADATA_FILE,
+    FileSystemPromptTemplateRepository.SAVE_JOURNAL_FILE,
     FileSystemPromptTemplateRepository.ORDER_FILE,
 )
 
 private val TEMPLATE_PACKAGE_FILES = setOf(
     FileSystemPromptTemplateRepository.MARKDOWN_FILE,
     FileSystemPromptTemplateRepository.METADATA_FILE,
+    FileSystemPromptTemplateRepository.SAVE_JOURNAL_FILE,
 )

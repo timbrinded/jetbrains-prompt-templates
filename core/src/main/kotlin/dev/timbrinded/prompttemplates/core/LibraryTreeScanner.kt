@@ -21,6 +21,7 @@ internal data class DirectLibraryEntry(
 internal class LibraryTreeScanner(
     root: Path,
     private val codec: TemplateMetadataCodec,
+    private val recover: (Path) -> Unit = {},
 ) {
     private val root = root.toAbsolutePath().normalize()
 
@@ -76,7 +77,8 @@ internal class LibraryTreeScanner(
 
     fun isTemplatePackage(directory: Path): Boolean =
         Files.exists(directory.resolve(MARKDOWN_FILE), NOFOLLOW_LINKS) ||
-            Files.exists(directory.resolve(METADATA_FILE), NOFOLLOW_LINKS)
+            Files.exists(directory.resolve(METADATA_FILE), NOFOLLOW_LINKS) ||
+            Files.exists(directory.resolve(FileSystemPromptTemplateRepository.SAVE_JOURNAL_FILE), NOFOLLOW_LINKS)
 
     private fun scanFolder(directory: Path): ScannedFolder {
         val children = try {
@@ -165,6 +167,12 @@ internal class LibraryTreeScanner(
     }
 
     private fun summaryFor(directory: Path): TemplateSummary {
+        try {
+            recover(directory)
+        } catch (error: IOException) {
+            return diagnosticSummary(directory, TemplateHealth.BROKEN, error.message ?: "Save recovery failed.")
+        }
+
         val markdownPath = directory.resolve(MARKDOWN_FILE)
         val metadataPath = directory.resolve(METADATA_FILE)
         val markdownEntryExists = Files.exists(markdownPath, NOFOLLOW_LINKS)
