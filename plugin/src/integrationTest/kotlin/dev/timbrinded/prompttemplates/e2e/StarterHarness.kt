@@ -84,6 +84,7 @@ class StarterHarness private constructor(
                 try {
                     waitForIndicators(5.minutes)
                     block(ui)
+                } finally {
                     if (java.lang.Boolean.getBoolean("prompt.templates.explore")) {
                         val complete = workspace.evidence.resolve("exploration-complete")
                         workspace.evidence.resolve("exploration-ready").writeText(
@@ -92,7 +93,6 @@ class StarterHarness private constructor(
                         println("Exploratory IDE ready. Create $complete to finish.")
                         waitFor("exploratory testing is complete", 5.minutes) { complete.exists() }
                     }
-                } finally {
                     captureEvidence(ui, "run-1")
                 }
             }
@@ -144,6 +144,15 @@ class StarterHarness private constructor(
     private fun IDETestContext.seedStableUiSettings() {
         val options = paths.configDir.resolve("options")
         options.createDirectories()
+        // Keep notifications available for assertions after their transient balloons disappear.
+        options.resolve("notifications.xml").writeText(
+            """<application>
+              |  <component name="NotificationConfiguration">
+              |    <notification groupId="Prompt Templates" shouldLog="true" />
+              |  </component>
+              |</application>
+              |""".trimMargin(),
+        )
         options.resolve("ui.lnf.xml").writeText(
             """<application>
               |  <component name="LafManager" autodetect="false">

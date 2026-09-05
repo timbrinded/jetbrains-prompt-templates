@@ -117,6 +117,8 @@ internal class PromptInvocationSession(
 
     private fun open(stored: StoredTemplate, source: EditorAnchor?, selectTarget: Boolean) {
         sessionGeneration++
+        templateCheckJob?.cancel()
+        reloadPending = false
         rememberInputs()
         val previous = savedInputs[stored.template.id]
         val values = previous?.let {
