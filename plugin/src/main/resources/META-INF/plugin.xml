@@ -8,9 +8,12 @@
       <p>Templates remain ordinary Markdown files; typed variable metadata is stored separately.</p>
       <ul>
         <li>Organise, search and edit a nested personal prompt library.</li>
+        <li>Invoke Quick Use by keyboard with ranked search, favourites and recents.</li>
         <li>Resolve editor selection, current-file, project and clipboard context.</li>
+        <li>Attach explicitly selected file buffers and staged or unstaged Git diffs.</li>
         <li>Preview exact rendered output before copying or inserting it.</li>
-        <li>Import, export, recover and diagnose templates.</li>
+        <li>Duplicate templates, capture selections and author typed variables with defaults.</li>
+        <li>Import, export, recover and diagnose templates, or open rendered Markdown in a scratch file.</li>
       </ul>
       <p>The plugin makes no network requests, executes no prompts and sends no telemetry.</p>
       <p>Compatible with standalone JetBrains IDEs based on IntelliJ Platform, with a minimum platform build of 262 (2026.2).</p>
@@ -20,12 +23,14 @@
     ]]></description>
 
     <change-notes><![CDATA[
-      <p>Nested prompt-library organisation.</p>
+      <p>Quick Use, reliable context and faster template authoring.</p>
       <ul>
-        <li>Create and manage nested organiser folders without changing the portable template format.</li>
-        <li>Move folders and templates with drag-and-drop or context menus, and reorder them with drag-and-drop or keyboard actions.</li>
-        <li>Search folder paths, restore tree state and detect external hierarchy changes.</li>
-        <li>Confirm recursive folder deletion against a fresh fingerprint of the folder's contents.</li>
+        <li>Find and invoke templates by keyboard with ranked search, favourites and recents.</li>
+        <li>Inspect frozen context and keep preview, input controls and output consistent across Quick Use and the tool window.</li>
+        <li>Recover interrupted saves, check revisions before overwriting and protect changed author drafts.</li>
+        <li>Duplicate templates, capture selections, configure defaults and field order, and insert or extract variables with Undo and Redo.</li>
+        <li>Use responsive forms with referenced inputs and correct multiline validation focus.</li>
+        <li>Attach explicit file buffers or Git diffs, export rendered Markdown to scratch files and browse optional worked examples.</li>
       </ul>
     ]]></change-notes>
 

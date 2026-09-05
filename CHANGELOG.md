@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 — 2026-09-05
+
+- Added keyboard Quick Use with ranked search, favourites, recents and shared tool-window invocation.
+- Kept preview and delivery on an inspectable context snapshot, with explicit refresh, reload and insertion-target selection.
+- Added recoverable two-file saves, revision-checked overwrite decisions and protection for changed author drafts.
+- Improved narrow and scaled layouts, referenced-only forms and multiline validation focus.
+- Added Duplicate Template and Create Template from Selection with explicit literal or placeholder handling.
+- Exposed authored defaults, input presentation, field ordering and reset controls.
+- Added Insert Variable and Extract as Variable with coordinated Markdown/schema Undo and Redo.
+- Added explicit file-buffer and staged/unstaged Git-diff attachments with provenance, size limits and frozen output.
+- Added independent rendered Markdown scratch files and three optional, editable worked examples.
+- Kept input controls synchronized with shared invocation values in Quick Use and the tool window.
+
 ## 0.2.0 — 2026-09-04
 
 - Added nested organiser folders for prompt templates.
