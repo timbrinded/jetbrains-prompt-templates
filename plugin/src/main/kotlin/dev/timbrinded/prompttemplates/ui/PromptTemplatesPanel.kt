@@ -456,7 +456,13 @@ internal class PromptTemplatesPanel(
         val panel = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(18)
             add(JBLabel("Unable to open ${error.templateName}"), BorderLayout.NORTH)
-            add(JBLabel(error.message), BorderLayout.CENTER)
+            add(JBScrollPane(JBTextArea(error.message).apply {
+                isEditable = false
+                lineWrap = true
+                wrapStyleWord = true
+                caretPosition = 0
+                accessibleContext.accessibleName = error.message
+            }), BorderLayout.CENTER)
         }
         replaceDetail(panel)
         showNarrowDetail()

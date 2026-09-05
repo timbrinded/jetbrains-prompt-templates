@@ -65,9 +65,9 @@ internal class TemplateFileStore(
             }
             finish(directory, journal)
         } catch (error: SerializationException) {
-            throw IOException("Save recovery needs attention at '$path'. Keep the journal and both canonical files: invalid journal.", error)
+            throw IOException("Save recovery needs attention: invalid journal. Keep the journal and both canonical files. Journal: '$path'.", error)
         } catch (error: IOException) {
-            throw IOException("Save recovery needs attention at '$path'. Keep the journal and both canonical files: ${error.message}", error)
+            throw IOException("Save recovery needs attention: ${error.message} Keep the journal and both canonical files. Journal: '$path'.", error)
         }
     }
 

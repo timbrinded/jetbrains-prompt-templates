@@ -7,6 +7,7 @@ import com.intellij.driver.sdk.waitFor
 import dev.timbrinded.prompttemplates.core.MetadataDecodeResult
 import dev.timbrinded.prompttemplates.core.TemplateMetadataCodec
 import kotlin.io.path.exists
+import kotlin.io.path.deleteExisting
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
@@ -48,6 +49,13 @@ class TemplateSaveIdeTest {
                         .metadata.name == "Draft name"
             }
             assertFalse(directory.resolve(".prompt-template-save.json").exists())
+            val journal = directory.resolve(".prompt-template-save.json")
+            journal.writeText("invalid journal for recovery check")
+            ui.waitForAccessibleText("Save recovery needs attention: invalid journal")
+            assertEquals("invalid journal for recovery check", journal.readText())
+            assertEquals("Original body", markdown.readText())
+            journal.deleteExisting()
+            ui.waitForPath("Draft name")
         }
     }
 }
