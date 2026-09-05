@@ -63,6 +63,14 @@ class VariableEditorState(
         transientKeys.removeAll(keys)
     }
 
+    /** Restore one command's definition, including a transient counterpart discovered during document undo. */
+    fun replaceDefinition(previousKey: String, replacement: PromptVariable?, index: Int) {
+        remove(setOfNotNull(previousKey, replacement?.key))
+        if (replacement != null) {
+            variables = variables.toMutableList().apply { add(index.coerceIn(0, size), replacement) }
+        }
+    }
+
     fun move(index: Int, offset: Int) {
         val destination = index + offset
         if (index !in variables.indices || destination !in variables.indices) return

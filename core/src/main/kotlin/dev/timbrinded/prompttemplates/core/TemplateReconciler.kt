@@ -45,13 +45,3 @@ class TemplateReconciler(
         return result.toString()
     }
 }
-
-val BUILT_IN_CONTEXT_KEYS: Set<String> = setOf(
-    "ide.selection",
-    "ide.file.name",
-    "ide.file.path",
-    "ide.file.relativePath",
-    "ide.language",
-    "ide.project.name",
-    "clipboard",
-)

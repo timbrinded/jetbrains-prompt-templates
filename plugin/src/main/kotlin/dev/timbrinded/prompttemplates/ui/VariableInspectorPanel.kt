@@ -72,6 +72,8 @@ internal class VariableInspectorPanel(
     val keyText: String get() = key.text
     val enumText: String get() = options.text
 
+    fun focusKey() { key.requestFocusInWindow() }
+
     init {
         val rename = JButton("Rename").apply { addActionListener { onRename() } }
         val keyRow = JPanel(BorderLayout(JBUI.scale(4), 0)).apply {
