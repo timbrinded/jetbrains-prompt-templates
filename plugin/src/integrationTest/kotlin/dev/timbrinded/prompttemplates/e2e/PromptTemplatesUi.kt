@@ -63,6 +63,11 @@ class PromptTemplatesUi(
         clickContextMenuItem(label)
     }
 
+    fun newTemplate() {
+        clickButton("New")
+        clickContextMenuItem("New Template")
+    }
+
     fun changeLibrary(root: Path) {
         driver.invokeAction("ShowSettings", component = driver.ideFrame().component)
         driver.ideFrame().settingsDialog {
@@ -209,6 +214,29 @@ class PromptTemplatesUi(
         driver.ui.waitForNoOpenedDialogs()
     }
 
+    fun chooseUnsavedDraftAction(action: String) {
+        driver.ui.dialog(title = "Unsaved Template") {
+            waitFound(30.seconds)
+            clickComponent(button(action))
+        }
+        driver.ui.waitForNoOpenedDialogs()
+    }
+
+    fun setIdeWidth(width: Int) {
+        driver.withContext(OnDispatcher.EDT) {
+            cast(ideFrame().component, TestIdeFrame::class).setSize(width, 960)
+        }
+        waitFor("IDE width is $width", 30.seconds) { driver.ideFrame().boundsOnScreen.width == width }
+    }
+
+    fun hide() {
+        driver.withContext(OnDispatcher.EDT) { getToolWindow("Prompt Templates").hide() }
+    }
+
+    fun toggleWordWrap() {
+        clickComponent(driver.ideFrame().x { and(byClass("JBCheckBox"), byAccessibleName("Word wrap")) }.waitFound())
+    }
+
     fun confirmFolderDeletion(folderPath: List<String>, typedName: String) {
         selectContextMenuItem(*folderPath.toTypedArray(), item = "Delete Folder…")
         driver.ui.dialog(title = "Delete Prompt Template Folder") {
@@ -320,4 +348,9 @@ private interface TestToolWindow {
 @Remote("javax.swing.JTextArea")
 internal interface TestTextArea {
     fun getText(): String
+}
+
+@Remote("java.awt.Frame")
+private interface TestIdeFrame {
+    fun setSize(width: Int, height: Int)
 }

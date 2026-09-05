@@ -1225,6 +1225,8 @@ Metadata key absent from source -> mark unused
 
 ### 15.6 Save transaction
 
+Authoring compares the complete editable state with the state first shown, after initial variable reconciliation. Cancel on a changed draft offers Discard or Keep Editing; the safe default keeps all inputs. A full revert removes the confirmation. Markdown, metadata, variable types/defaults and pending inspector text participate; word wrap and other visual state do not. A successful save leaves authoring, and reopening captures a new clean state. A failed save retains the draft and its original comparison state. Hiding or resizing the tool window retains the same author panel. No draft persistence is added.
+
 On `Save Template`:
 
 1. Parse and validate the draft.

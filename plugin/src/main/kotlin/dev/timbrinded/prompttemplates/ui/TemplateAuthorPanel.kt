@@ -5,6 +5,7 @@ import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
+import com.intellij.openapi.ui.Messages
 import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.EditorTextField
 import com.intellij.ui.JBColor
@@ -64,6 +65,7 @@ class TemplateAuthorPanel(
     private val diagnostics = JBLabel()
     private var unusedKeys = emptySet<String>()
     private var updatingInspector = false
+    private val initialSnapshot: AuthorEditSnapshot
     private val variableListActions = UnusedVariableListActions(
         list = variableList,
         isUnused = { variable -> variable.key in unusedKeys },
@@ -101,6 +103,7 @@ class TemplateAuthorPanel(
         installInspectorListeners()
         reconcileVariables()
         PlaceholderHighlightController(markdownEditor, this, ::reconcileVariables)
+        initialSnapshot = editSnapshot()
     }
 
     private fun createHeader(): JComponent = FormBuilder.createFormBuilder()
@@ -127,6 +130,7 @@ class TemplateAuthorPanel(
         }
 
         optionsField.toolTipText = "Separate choices with semicolons. The selected choice is inserted unchanged."
+        optionsLabel.labelFor = optionsField
         val renameButton = JButton("Rename")
         renameButton.addActionListener { renameSelectedVariable() }
         val keyRow = JPanel(BorderLayout(JBUI.scale(4), 0)).apply {
@@ -292,17 +296,35 @@ class TemplateAuthorPanel(
             diagnostics.text = error
             return
         }
-        onSave(
-            PromptTemplateDraft(
-                id = draftId,
-                name = nameField.text,
-                description = descriptionField.text,
-                tags = tagsField.text.split(',').map(String::trim).filter(String::isNotEmpty),
-                variables = variableState.variables,
-                markdown = markdownEditor.text,
-            ),
-        )
+        onSave(currentDraft())
     }
+
+    internal fun confirmDiscardChanges(): Boolean {
+        if (editSnapshot() == initialSnapshot) return true
+        val discard = Messages.showDialog(
+            project,
+            "Discard the unsaved changes to this template?",
+            "Unsaved Template",
+            arrayOf("Discard", "Keep Editing"),
+            1,
+            Messages.getWarningIcon(),
+        ) == Messages.YES
+        if (!discard) nameField.requestFocusInWindow()
+        return discard
+    }
+
+    private fun currentDraft() = PromptTemplateDraft(
+        id = draftId,
+        name = nameField.text,
+        description = descriptionField.text,
+        tags = tagsField.text.split(',').map(String::trim).filter(String::isNotEmpty),
+        variables = variableState.variables,
+        markdown = markdownEditor.text,
+    )
+
+    private fun editSnapshot() = AuthorEditSnapshot.capture(
+        currentDraft(), tagsField.text, variableList.selectedValue, keyField.text, optionsField.text,
+    )
 
     private fun textListener(block: () -> Unit): DocumentAdapter = object : DocumentAdapter() {
         override fun textChanged(event: DocumentEvent) {
