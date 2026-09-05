@@ -4,6 +4,7 @@ import com.intellij.driver.client.Driver
 import com.intellij.driver.client.Remote
 import com.intellij.driver.model.OnDispatcher
 import com.intellij.driver.sdk.invokeAction
+import com.intellij.driver.sdk.getNotifications
 import com.intellij.driver.sdk.getToolWindow
 import com.intellij.driver.sdk.ui.boundsOnScreen
 import com.intellij.driver.sdk.ui.components.UiComponent
@@ -190,6 +191,12 @@ class PromptTemplatesUi(
 
     fun waitForAccessibleText(text: String) {
         driver.ui.x { contains(byAccessibleName(text)) }.waitFound(30.seconds)
+    }
+
+    fun waitForNotification(text: String) {
+        waitFor("prompt notification contains $text", 30.seconds) {
+            driver.getNotifications().any { it.getGroupId() == "Prompt Templates" && it.getContent().contains(text) }
+        }
     }
 
     fun confirmFolderDeletion(folderPath: List<String>, typedName: String) {

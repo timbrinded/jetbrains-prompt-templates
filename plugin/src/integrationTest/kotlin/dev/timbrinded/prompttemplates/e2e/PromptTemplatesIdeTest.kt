@@ -67,7 +67,7 @@ class PromptTemplatesIdeTest {
                 sourcePath = listOf("Collision Source", "Collision"),
                 destinationPath = "Collision Destination",
             )
-            ui.waitForAccessibleText("already exists in the destination folder.")
+            ui.waitForNotification("already exists in the destination folder.")
             assertEquals(beforeCollision, harness.workspace.templates.manifest())
 
             val trash = harness.workspace.library.resolve("Trash")
