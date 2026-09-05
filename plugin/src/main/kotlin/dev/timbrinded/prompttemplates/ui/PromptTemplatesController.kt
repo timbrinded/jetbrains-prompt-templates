@@ -31,8 +31,10 @@ import dev.timbrinded.prompttemplates.core.RepositoryResult
 import dev.timbrinded.prompttemplates.core.StoredTemplate
 import dev.timbrinded.prompttemplates.core.TemplateDiagnostic
 import dev.timbrinded.prompttemplates.core.TemplateHealth
+import dev.timbrinded.prompttemplates.core.TemplateId
 import dev.timbrinded.prompttemplates.core.TemplateSummary
 import dev.timbrinded.prompttemplates.core.defaultVariableLabel
+import dev.timbrinded.prompttemplates.core.escapePlaceholderOpenings
 import dev.timbrinded.prompttemplates.destination.DestinationResult
 import dev.timbrinded.prompttemplates.destination.PromptTemplatesNotifications
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesSettings
@@ -308,6 +310,7 @@ internal class PromptTemplatesController(
                     is RepositoryResult.Success -> when (intent) {
                         TemplateDetailIntent.USE -> showUse(result.value)
                         TemplateDetailIntent.EDIT -> editStored(result.value)
+                        TemplateDetailIntent.DUPLICATE -> duplicateStored(result.value)
                     }
                     is RepositoryResult.Failure -> if (directoryMissing) {
                         clearSelectedTemplate()
@@ -352,6 +355,7 @@ internal class PromptTemplatesController(
             UseViewAction.COPY_PROMPT -> deliver(copy = true)
             UseViewAction.INSERT -> deliver(copy = false)
             UseViewAction.EDIT -> editActive()
+            UseViewAction.DUPLICATE -> (state.detail as? PromptDetailState.Use)?.let { duplicateStored(it.stored) }
             UseViewAction.OPEN_MARKDOWN -> openMarkdown()
             UseViewAction.REVEAL -> revealSource()
             UseViewAction.COPY_PATH -> copyMarkdownPath()
@@ -398,6 +402,60 @@ internal class PromptTemplatesController(
             existing = null,
             destination = destination,
         )
+    }
+
+    fun startTemplateFromSelection(text: String, sourceName: String) {
+        if (!canChangeLibrary()) return
+        val destination = view.selectedDestinationFolder
+        val request = authorRequests.begin(destination)
+        val choice = if (text.contains("{{")) Messages.showDialog(
+            project,
+            "The selection contains {{...}}.\nPreserve the text literally, or interpret placeholders as input and IDE context variables.",
+            "Create Template from Selection",
+            arrayOf("Preserve Literally", "Interpret Placeholders", "Cancel"),
+            0,
+            Messages.getQuestionIcon(),
+        ) else 0
+        if (!authorRequests.isCurrent(request) || !canChangeLibrary()) return
+        val markdown = when (choice) {
+            0 -> escapePlaceholderOpenings(text)
+            1 -> text
+            else -> return
+        }
+        showAuthor(
+            PromptTemplateDraft(name = availableTemplateName("Selection from $sourceName", siblingNames(destination)), markdown = markdown),
+            existing = null,
+            destination = destination,
+        )
+    }
+
+    private fun duplicateStored(stored: StoredTemplate) {
+        if (!canChangeLibrary()) return
+        val root = state.librarySnapshot.root
+        val folders = listOf(root) + flattenFolders(state.librarySnapshot.children).map(LibraryEntry.Folder::directory)
+        val options = folders.map { if (it == root) "/ (Library root)" else portableRelativePath(root, it) }
+        val initial = folders.indexOf(stored.directory.parent).takeIf { it >= 0 } ?: 0
+        val request = authorRequests.begin(stored.directory.parent)
+        JBPopupFactory.getInstance().createPopupChooserBuilder(options)
+            .setTitle("Duplicate Template in Folder")
+            .setSelectedValue(options[initial], true)
+            .setItemChosenCallback { choice ->
+                if (isDisposed() || !authorRequests.isCurrent(request) || !canChangeLibrary()) return@setItemChosenCallback
+                val destination = folders[options.indexOf(choice)]
+                val draft = draftOf(stored).copy(
+                    id = TemplateId.random(),
+                    name = availableTemplateName("${stored.template.metadata.name} copy", siblingNames(destination)),
+                )
+                showAuthor(draft, existing = null, destination = destination)
+            }
+            .createPopup().showInFocusCenter()
+    }
+
+    private fun siblingNames(destination: Path): List<String> {
+        val snapshot = state.librarySnapshot
+        val children = if (destination == snapshot.root) snapshot.children
+        else flattenFolders(snapshot.children).firstOrNull { it.directory == destination }?.children.orEmpty()
+        return children.map(LibraryEntry::displayName)
     }
 
     private fun editActive() {
@@ -540,6 +598,9 @@ internal class PromptTemplatesController(
             LibraryTreeCommand.NEW_FOLDER -> createFolder(destinationFor(target))
             LibraryTreeCommand.RENAME_FOLDER -> (target as? LibraryTreeSelection.Folder)?.let(::renameFolder)
             LibraryTreeCommand.EDIT_TEMPLATE -> (target as? LibraryTreeSelection.Template)?.let(::editTemplate)
+            LibraryTreeCommand.DUPLICATE_TEMPLATE -> (target as? LibraryTreeSelection.Template)?.let {
+                if (canChangeLibrary()) startTemplateDetailLoad(it.entry.summary, TemplateDetailIntent.DUPLICATE)
+            }
             LibraryTreeCommand.MOVE_TO_FOLDER -> if (target !is LibraryTreeSelection.Root) moveToFolder(target)
             LibraryTreeCommand.MOVE_UP -> if (target !is LibraryTreeSelection.Root) {
                 moveSibling(target, MoveDirection.UP)

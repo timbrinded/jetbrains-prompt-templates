@@ -54,7 +54,9 @@ class TemplateAuthorPanel(
     private val draftId = initialDraft.id
     private val nameField = JBTextField(initialDraft.name)
     private val descriptionField = JBTextField(initialDraft.description.orEmpty())
-    private val tagsField = JBTextField(initialDraft.tags.joinToString(", "))
+    private val initialTags = initialDraft.tags
+    private val initialTagText = initialTags.joinToString(", ")
+    private val tagsField = JBTextField(initialTagText)
     private val markdownEditor = EditorTextField(
         initialDraft.markdown,
         project,
@@ -366,7 +368,8 @@ class TemplateAuthorPanel(
         id = draftId,
         name = nameField.text,
         description = descriptionField.text,
-        tags = tagsField.text.split(',').map(String::trim).filter(String::isNotEmpty),
+        tags = if (tagsField.text == initialTagText) initialTags
+        else tagsField.text.split(',').map(String::trim).filter(String::isNotEmpty),
         variables = variableState.variables,
         markdown = markdownEditor.text,
     )

@@ -32,6 +32,13 @@ import kotlin.time.Duration.Companion.seconds
 class PromptTemplatesUi(
     private val driver: Driver,
 ) {
+    fun dismissTrialNotification() {
+        // The fresh IDE's trial balloon consumes Escape before modeless dialogs see it.
+        val close = driver.ideFrame().button { and(byClass("ActionLink"), byAccessibleName("Close")) }.waitFound(30.seconds)
+        driver.ideFrame().keyboard { escape() }
+        close.waitNotFound(30.seconds)
+    }
+
     fun open(): PromptTemplatesUi = apply {
         driver.invokeAction(OPEN_ACTION_ID, component = driver.ideFrame().component)
         libraryTree().waitFound(1.minutes)

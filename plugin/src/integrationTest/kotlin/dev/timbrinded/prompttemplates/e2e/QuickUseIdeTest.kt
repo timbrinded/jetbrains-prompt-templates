@@ -44,7 +44,7 @@ class QuickUseIdeTest {
             listOf(PromptVariable("notes", "Notes", type = PromptVariableType.MULTILINE)))
         create(harness.workspace.templates, "plain", "Plain", PLAIN_ID, "Exact no-input prompt\n")
         harness.run { main ->
-            dismissTrialNotification()
+            main.dismissTrialNotification()
             openFile(source.fileName.toString())
             val editor = ideFrame().codeEditorForFile("source.txt")
             editor.setSelection(0, 5)
@@ -102,7 +102,7 @@ class QuickUseIdeTest {
         val otherRoot = harness.workspace.root.resolve("other-library").createDirectories()
         create(TestLibrary(otherRoot), "review", "Other library", REVIEW_ID, "Other library prompt")
         harness.run { main ->
-            dismissTrialNotification()
+            main.dismissTrialNotification()
             copyToClipboard("handoff snapshot")
             invokeAction("PromptTemplates.Use", component = ideFrame().component)
             val dialog = ui.dialog(title = "Use Prompt Template").waitFound(30.seconds)
@@ -166,8 +166,8 @@ class QuickUseIdeTest {
             create(harness.workspace.templates, "group-${index % 10}/template-$index", "Template ${index.toString().padStart(3, '0')}",
                 "00000000-0000-0000-0000-${index.toString().padStart(12, '0')}", "Body marker-$index\n" + "Benchmark text. ".repeat(100))
         }
-        harness.run { _ ->
-            dismissTrialNotification()
+        harness.run { main ->
+            main.dismissTrialNotification()
             val start = TimeSource.Monotonic.markNow()
             invokeAction("PromptTemplates.Use", component = ideFrame().component)
             val dialog = ui.dialog(title = "Use Prompt Template").waitFound(30.seconds)
@@ -216,13 +216,6 @@ class QuickUseIdeTest {
         close.setFocus()
         waitFor("dialog control owns keyboard focus before Escape", 10.seconds) { close.isFocusOwner() }
         close.keyboard { escape() }
-    }
-
-    private fun Driver.dismissTrialNotification() {
-        // The fresh IDE's trial balloon consumes Escape before any modeless dialog sees it.
-        val close = ideFrame().button { and(byClass("ActionLink"), byAccessibleName("Close")) }.waitFound(30.seconds)
-        ideFrame().keyboard { escape() }
-        close.waitNotFound(30.seconds)
     }
 
     private fun persistedSettings(harness: StarterHarness): String {

@@ -111,6 +111,8 @@ internal class PromptTemplatesPanel(
 
     fun startNewTemplate() = controller.startNewTemplate()
 
+    internal fun startTemplateFromSelection(text: String, sourceName: String) = controller.startTemplateFromSelection(text, sourceName)
+
     internal val authorOpen: Boolean get() = controller.authorOpen
 
     internal fun continueInvocation(): Boolean = controller.continueInvocation()
@@ -524,6 +526,7 @@ internal enum class UseViewAction(val label: String) {
     COPY_PROMPT("Copy Prompt"),
     INSERT("Insert…"),
     EDIT("Edit"),
+    DUPLICATE("Duplicate Template…"),
     OPEN_MARKDOWN("Open Markdown"),
     REVEAL("Reveal in File Manager"),
     COPY_PATH("Copy Markdown Path"),
@@ -543,6 +546,7 @@ internal val USE_VIEW_PRIMARY_ACTIONS = listOf(
 )
 
 internal val USE_VIEW_FILE_ACTIONS = listOf(
+    UseViewAction.DUPLICATE,
     UseViewAction.REFRESH_CONTEXT,
     UseViewAction.RELOAD_TEMPLATE,
     UseViewAction.SELECT_INSERTION_TARGET,
