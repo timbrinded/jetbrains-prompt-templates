@@ -38,6 +38,8 @@ Insert retains the editor and range selected when the invocation began. Changing
 
 An external template edit keeps the inspected preview visible and blocks delivery until **Reload Template**. Reload captures fresh context and retains entered values only for compatible variable types and enum choices. Moving a template preserves its invocation by UUID. Switching libraries clears invocation state while retaining the existing author-draft handling.
 
+In the author view, **Cancel** closes a clean draft immediately. For changed Markdown or metadata, it offers **Discard** and **Keep Editing**, with Keep Editing selected by default. Reverting all editable inputs makes the draft clean again. Word wrap, hiding the tool window, and changing its layout do not discard the draft. Drafts remain in memory only.
+
 ## Storage format
 
 The default library is `~/Prompt Templates`, configurable under **Settings | Tools | Prompt Templates**.

@@ -65,6 +65,7 @@ internal interface PromptTemplatesView {
     fun focusVariable(key: String)
     fun setInteractionState(mutationsEnabled: Boolean, authorOpen: Boolean)
     fun showNarrowDetail()
+    fun confirmDiscardAuthor(): Boolean
 }
 
 private data class LibraryReload(
@@ -403,6 +404,7 @@ internal class PromptTemplatesController(
 
     fun cancelAuthor() {
         if (state.detail !is PromptDetailState.Author) return
+        if (!view.confirmDiscardAuthor()) return
         authorRequests.invalidate()
         showDetail(PromptDetailState.Empty)
         val selected = resolveLibrarySelection(state.librarySnapshot, selectedKey)

@@ -452,6 +452,9 @@ internal class PromptTemplatesPanel(
         showNarrowDetail()
     }
 
+    override fun confirmDiscardAuthor(): Boolean =
+        (renderedDetail as? RenderedDetail.Author)?.panel?.confirmDiscardChanges() ?: true
+
     private fun renderError(error: PromptDetailState.LoadError) {
         val panel = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(18)
