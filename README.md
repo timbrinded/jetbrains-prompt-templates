@@ -61,6 +61,8 @@ Run **Create Template from Selection…** from Find Action or the editor context
 
 Selecting a template captures the context it references. Copy, Insert and rendered export use exactly the validated preview; copying a clipboard-based prompt twice does not add the previous output to the next copy.
 
+**File | Open Rendered Prompt as Scratch Markdown** exports that validated preview to a new local `.md` scratch file and opens its text editor. This is an explicit local export: the IDE retains scratch files outside the template library, and they can contain captured context or entered values. Each use creates a separate file. Editing it does not change the template or the current invocation. Markdown support is used when available; otherwise the scratch opens as plain text. Preview updates never create scratch files.
+
 The Use form shows referenced user variables in their authored order. Repeated placeholders share one field. Escaped placeholders and IDE/clipboard references do not create user fields. Unused definitions remain in the author inspector. If a required value is missing, delivery focuses its input and scrolls it into view, including multiline text areas.
 
 The **File** menu contains **Refresh Context**, **Reload Template**, **Use Active Editor as Insertion Target** and **Reset Values to Defaults**. Refresh explicitly captures context from the currently selected editor and clipboard. Reset restores authored defaults without reading context again. The preview reports requested context availability and source paths/selection lines.

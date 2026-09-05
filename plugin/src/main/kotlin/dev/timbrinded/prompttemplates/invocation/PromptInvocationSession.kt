@@ -35,6 +35,7 @@ import dev.timbrinded.prompttemplates.core.compatibleInvocationValues
 import dev.timbrinded.prompttemplates.destination.SelectedEditorDestination
 import dev.timbrinded.prompttemplates.destination.ClipboardDestination
 import dev.timbrinded.prompttemplates.destination.DestinationResult
+import dev.timbrinded.prompttemplates.destination.ScratchMarkdownDestination
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesSettings
 import dev.timbrinded.prompttemplates.ui.flattenTemplates
 import kotlinx.coroutines.CoroutineScope
@@ -204,6 +205,10 @@ internal class PromptInvocationSession(
 
     fun insertRendered(): DestinationResult = deliver { text ->
         SelectedEditorDestination.deliver(project, insertionTarget, text)
+    }
+
+    fun openRenderedScratch(): DestinationResult = deliver { text ->
+        ScratchMarkdownDestination.deliver(project, text)
     }
 
     private fun deliver(destination: (String) -> DestinationResult): DestinationResult {

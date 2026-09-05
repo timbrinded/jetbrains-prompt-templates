@@ -361,6 +361,7 @@ internal class PromptTemplatesController(
             UseViewAction.COPY_PATH -> copyMarkdownPath()
             UseViewAction.EXPORT_TEMPLATE -> exportTemplate()
             UseViewAction.EXPORT_RENDERED -> exportRendered()
+            UseViewAction.OPEN_RENDERED_SCRATCH -> projectService.openRenderedScratch()
             UseViewAction.DELETE -> deleteActive()
             UseViewAction.ADD_CONTEXT -> projectService.manageAttachments()
             UseViewAction.REFRESH_CONTEXT -> invocation.refreshContext()

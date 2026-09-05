@@ -80,6 +80,7 @@ class UseViewLayoutTest {
                 UseViewAction.COPY_PATH,
                 UseViewAction.EXPORT_TEMPLATE,
                 UseViewAction.EXPORT_RENDERED,
+                UseViewAction.OPEN_RENDERED_SCRATCH,
                 UseViewAction.DELETE,
             ),
             USE_VIEW_FILE_ACTIONS,
