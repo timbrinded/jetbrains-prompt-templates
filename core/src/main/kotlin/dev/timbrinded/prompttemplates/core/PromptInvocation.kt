@@ -24,6 +24,14 @@ fun requestedContextKeys(template: PromptTemplate): Set<String> = LinearPlacehol
     .filter(PlaceholderToken::contextReference)
     .mapTo(linkedSetOf(), PlaceholderToken::key)
 
+/** Show inputs in authored order, independently of placeholder order or repetition. */
+fun referencedUserVariables(template: PromptTemplate): List<PromptVariable> {
+    val keys = LinearPlaceholderParser().parse(template.markdown).placeholders
+        .filterNot(PlaceholderToken::contextReference)
+        .mapTo(hashSetOf(), PlaceholderToken::key)
+    return template.metadata.variables.filter { it.key in keys }
+}
+
 /** Retain entered values only while their authored type and selected enum identity remain compatible. */
 fun compatibleInvocationValues(
     previous: List<PromptVariable>,
