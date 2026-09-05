@@ -4,10 +4,12 @@ import com.intellij.driver.client.Driver
 import com.intellij.driver.client.Remote
 import com.intellij.driver.model.OnDispatcher
 import com.intellij.driver.sdk.invokeAction
+import com.intellij.driver.sdk.getToolWindow
 import com.intellij.driver.sdk.ui.boundsOnScreen
 import com.intellij.driver.sdk.ui.components.UiComponent
 import com.intellij.driver.sdk.ui.components.UiComponent.Companion.waitFound
 import com.intellij.driver.sdk.ui.components.common.ideFrame
+import com.intellij.driver.sdk.ui.components.common.editor
 import com.intellij.driver.sdk.ui.components.elements.JTreeUiComponent
 import com.intellij.driver.sdk.ui.components.elements.accessibleTree
 import com.intellij.driver.sdk.ui.components.elements.button
@@ -30,10 +32,39 @@ class PromptTemplatesUi(
     fun open(): PromptTemplatesUi = apply {
         driver.invokeAction(OPEN_ACTION_ID, component = driver.ideFrame().component)
         libraryTree().waitFound(1.minutes)
+        driver.withContext(OnDispatcher.EDT) {
+            val extraHeight = 650 - libraryTree().boundsOnScreen.height
+            if (extraHeight > 0) {
+                cast(getToolWindow("Prompt Templates"), TestToolWindow::class).stretchHeight(extraHeight)
+            }
+        }
     }
 
     fun libraryTree(): JTreeUiComponent = driver.ideFrame().accessibleTree {
         byAccessibleName(LIBRARY_TREE_ACCESSIBLE_NAME)
+    }
+
+    fun selectTemplate(vararg path: String) {
+        waitForPath(*path)
+        val tree = libraryTree().expandAll()
+        clickComponentAt(tree, tree.fixture.getRowPoint(rowFor(tree, path.toList())))
+        driver.ideFrame().button("Copy Prompt").waitFound(30.seconds)
+    }
+
+    fun clickButton(label: String) {
+        clickComponent(driver.ideFrame().button(label).waitFound(30.seconds))
+    }
+
+    fun clickFileAction(label: String) {
+        clickButton("File ▾")
+        clickContextMenuItem(label)
+    }
+
+    fun renderedText(): String {
+        val field = driver.ideFrame().editor("//div[@accessiblename='Rendered prompt preview']").waitFound(30.seconds)
+        return driver.withContext(OnDispatcher.EDT) {
+            field.text
+        }
     }
 
     fun selectContextMenuItem(vararg path: String, item: String) {
@@ -244,4 +275,9 @@ private interface RemoteToolkit {
 @Remote("java.awt.EventQueue")
 private interface RemoteEventQueue {
     fun postEvent(event: PopupTriggerEvent)
+}
+
+@Remote("com.intellij.openapi.wm.impl.ToolWindowImpl")
+private interface TestToolWindow {
+    fun stretchHeight(delta: Int)
 }

@@ -2,7 +2,7 @@
 
 A native JetBrains workbench for reusable, typed prompt templates. Templates are ordinary Markdown files containing `{{variables}}`; input types and library metadata live in a separate JSON sidecar.
 
-The plugin is agent-agnostic. It renders exact text, copies it to the clipboard, or inserts it into the active editor. It does not make network requests, execute prompts, or depend on private AI Assistant or Junie APIs.
+The plugin is agent-agnostic. It renders exact text, copies it to the clipboard, or inserts it into an explicitly identified editor target. It does not make network requests, execute prompts, or depend on private AI Assistant or Junie APIs.
 
 ## Current release
 
@@ -19,13 +19,24 @@ Implemented workflows:
 - Configure Text, Multiline and Enum variables.
 - Resolve `ide.selection`, current-file, project and clipboard context.
 - Validate required values and show an exact, whitespace-preserving preview.
-- Copy a rendered prompt or insert it into the active editor as one undoable command.
+- Copy the inspected prompt or insert it into the labelled editor target as one undoable command.
+- Capture only referenced IDE/clipboard context, then retain that snapshot until explicit refresh.
 - Open, reveal and copy the path of canonical Markdown.
 - Import standalone Markdown and export template or rendered Markdown.
 - Recover Markdown whose sidecar is missing and diagnose broken templates.
 - Switch between wide master-detail and narrow card layouts.
 
 Bundle import/export, project-local libraries, global Markdown annotations, terminal delivery and direct agent-window insertion remain intentionally outside the current scope.
+
+### Context and output
+
+Selecting a template captures the context it references. Copy, Insert and rendered export use exactly the validated preview; copying a clipboard-based prompt twice does not add the previous output to the next copy.
+
+The **File** menu contains **Refresh Context**, **Reload Template**, **Use Active Editor as Insertion Target** and **Reset Values to Defaults**. Refresh explicitly captures context from the currently selected editor and clipboard. Reset restores authored defaults without reading context again. The preview reports requested context availability and source paths/selection lines.
+
+Insert retains the editor and range selected when the invocation began. Changing editor focus does not retarget it. If that document or range changes, select the intended editor/range and use **Use Active Editor as Insertion Target** before inserting. Refreshing context does not change the insertion target.
+
+An external template edit keeps the inspected preview visible and blocks delivery until **Reload Template**. Reload captures fresh context and retains entered values only for compatible variable types and enum choices. Moving a template preserves its invocation by UUID. Switching libraries clears invocation state while retaining the existing author-draft handling.
 
 ## Storage format
 
@@ -92,6 +103,8 @@ Requirements are JDK 25 and the included Gradle wrapper. Gradle can provision th
 The installable ZIP is written to `plugin/build/distributions/`. Install it with **Settings | Plugins | ⚙ | Install Plugin from Disk…**.
 
 The integration task is a local E2E check. It installs the built plugin into an isolated unified IntelliJ IDEA 2026.2.0.1 instance, uses a temporary project and user home, and drives the real Swing UI with JetBrains Starter and Driver. Swing hierarchies, tree state, isolated paths and library manifests are written below `plugin/build/ui-test/`. A screenshot is also written when the display server supports capture; otherwise the directory contains a screenshot capture-error file. On headless Linux, run the task under Xvfb. Local desktop sessions can use their native display.
+
+For exploratory testing, select one E2E scenario and add `-Pexplore=true`. After its assertions pass, the isolated IDE remains open for up to five minutes. The task prints the path of an `exploration-complete` marker; create that file when exploration is finished. Record observations separately and run the full suite normally before signing off.
 
 Install [`gh-signoff`](https://github.com/basecamp/gh-signoff) once:
 

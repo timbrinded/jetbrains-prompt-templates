@@ -23,8 +23,8 @@ import javax.swing.event.DocumentEvent
 internal class DynamicVariableForm(
     variables: List<PromptVariable>,
     private val accents: Map<String, VariableAccent>,
-    private val values: MutableMap<String, String>,
-    private val onChanged: () -> Unit,
+    private val values: Map<String, String>,
+    private val onChanged: (String, String) -> Unit,
 ) : JPanel() {
     private val controls = mutableMapOf<String, JComponent>()
 
@@ -85,8 +85,7 @@ internal class DynamicVariableForm(
         field.accessibleContext.accessibleName = variable.label
         field.document.addDocumentListener(object : DocumentAdapter() {
             override fun textChanged(event: DocumentEvent) {
-                values[variable.key] = field.text
-                onChanged()
+                onChanged(variable.key, field.text)
             }
         })
         return field
@@ -100,8 +99,7 @@ internal class DynamicVariableForm(
         area.accessibleContext.accessibleName = variable.label
         area.document.addDocumentListener(object : DocumentAdapter() {
             override fun textChanged(event: DocumentEvent) {
-                values[variable.key] = area.text
-                onChanged()
+                onChanged(variable.key, area.text)
             }
         })
         val scroll = JBScrollPane(area)
@@ -116,18 +114,15 @@ internal class DynamicVariableForm(
         combo.accessibleContext.accessibleName = variable.label
         val selected = currentValue(variable)
         val selectedChoice = choices.firstOrNull { it.id == selected } ?: choices.first()
-        values[variable.key] = selectedChoice.id
         combo.selectedItem = selectedChoice
         combo.addActionListener {
-            values[variable.key] = (combo.selectedItem as? EnumChoice)?.id.orEmpty()
-            onChanged()
+            onChanged(variable.key, (combo.selectedItem as? EnumChoice)?.id.orEmpty())
         }
         return combo
     }
 
     private fun currentValue(variable: PromptVariable): String {
         val value = values[variable.key] ?: variable.defaultValue.orEmpty()
-        values.putIfAbsent(variable.key, value)
         return value
     }
 }

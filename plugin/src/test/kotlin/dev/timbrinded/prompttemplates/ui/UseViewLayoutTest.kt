@@ -66,9 +66,13 @@ class UseViewLayoutTest {
     }
 
     @Test
-    fun `groups source and export actions in the file menu`() {
+    fun `groups invocation source and export actions in the file menu`() {
         assertEquals(
             listOf(
+                UseViewAction.REFRESH_CONTEXT,
+                UseViewAction.RELOAD_TEMPLATE,
+                UseViewAction.SELECT_INSERTION_TARGET,
+                UseViewAction.RESET_VALUES,
                 UseViewAction.OPEN_MARKDOWN,
                 UseViewAction.REVEAL,
                 UseViewAction.COPY_PATH,

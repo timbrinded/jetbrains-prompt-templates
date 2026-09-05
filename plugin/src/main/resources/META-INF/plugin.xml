@@ -74,6 +74,6 @@
                 id="PromptTemplates.InsertRendered"
                 class="dev.timbrinded.prompttemplates.action.InsertRenderedPromptAction"
                 text="Insert Rendered Prompt"
-                description="Insert the completed prompt into the active editor"/>
+                description="Insert the inspected prompt into the selected editor target"/>
     </actions>
 </idea-plugin>

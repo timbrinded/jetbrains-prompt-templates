@@ -3,6 +3,7 @@ package dev.timbrinded.prompttemplates.e2e
 import com.intellij.driver.client.Driver
 import com.intellij.driver.sdk.ui.remote.SwingHierarchyService
 import com.intellij.driver.sdk.waitForIndicators
+import com.intellij.driver.sdk.waitFor
 import com.intellij.ide.starter.ci.CIServer
 import com.intellij.ide.starter.ci.NoCIServer
 import com.intellij.ide.starter.di.di
@@ -83,6 +84,14 @@ class StarterHarness private constructor(
                 try {
                     waitForIndicators(5.minutes)
                     block(ui)
+                    if (java.lang.Boolean.getBoolean("prompt.templates.explore")) {
+                        val complete = workspace.evidence.resolve("exploration-complete")
+                        workspace.evidence.resolve("exploration-ready").writeText(
+                            "Explore this isolated IDE, then create $complete to finish.\n",
+                        )
+                        println("Exploratory IDE ready. Create $complete to finish.")
+                        waitFor("exploratory testing is complete", 5.minutes) { complete.exists() }
+                    }
                 } finally {
                     captureEvidence(ui, "run-1")
                 }

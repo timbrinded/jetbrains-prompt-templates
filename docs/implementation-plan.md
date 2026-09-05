@@ -14,7 +14,7 @@ Build a native IntelliJ Platform plugin that provides a searchable library of re
 
 Templates are authored as ordinary Markdown files. Variables are written directly into the Markdown using `{{variable_name}}`. The plugin recognises those placeholders, highlights them inside an embedded JetBrains editor, and maintains a typed variable schema in a separate JSON sidecar file.
 
-When a saved template is selected, the plugin generates a native form from that schema. Users fill in text, multiline and enum variables, inspect a live rendered preview, then copy the completed prompt, insert it into the active editor, or export it as Markdown.
+When a saved template is selected, the plugin generates a native form from that schema. Users fill in text, multiline and enum variables, inspect a live rendered preview, then copy the completed prompt, insert it into the selected editor target, or export it as Markdown.
 
 The canonical Markdown file remains usable outside JetBrains. The typed metadata is never included in a normal Markdown export. A separate bundle export may include both files when round-trip sharing between plugin installations is required.
 
@@ -73,7 +73,7 @@ Key terms:
 9. Generate a native input form from the variable schema.
 10. Render a live preview preserving exact whitespace.
 11. Copy the rendered prompt to the clipboard.
-12. Insert the rendered prompt into the active editor as one undoable operation.
+12. Insert the rendered prompt into the selected editor target as one undoable operation.
 13. Open, reveal and copy the path of the canonical Markdown file.
 14. Export template Markdown without metadata.
 15. Export a rendered prompt as Markdown.
@@ -914,7 +914,7 @@ data class PromptToolWindowState(
 )
 ```
 
-The controller owns this state and exposes focused commands. Swing panels render the state and forward user events.
+The controller owns library and authoring state and exposes focused commands. The project service owns an independent invocation session with immutable rendered snapshots. Swing panels observe that session and forward input events. Output actions can access the session without showing a panel.
 
 ---
 
@@ -968,7 +968,7 @@ src/main/kotlin/com/example/prompttemplates/
   destination/
     PromptDestination.kt
     ClipboardDestination.kt
-    ActiveEditorDestination.kt
+    SelectedEditorDestination.kt
 
   ui/
     toolwindow/
@@ -1389,10 +1389,11 @@ data class ContextValue(
 
 ### 18.3 Resolution timing
 
-- Resolve on template selection.
-- Refresh before copy, insertion or rendered export.
-- Refresh when the tool window regains focus if inexpensive.
-- Do not continuously poll.
+- Capture the invoking editor before the UI takes focus and resolve only referenced context keys on template selection.
+- Copy, insertion and rendered export consume the immutable validated preview without resolving context again.
+- Refresh only through explicit Refresh Context or Reload Template. Refresh captures the current editor/clipboard and does not retarget insertion.
+- Source-change events mark the context as changed without replacing captured text. Capture work uses lifecycle cancellation and rejects superseded results.
+- Reset Values to Defaults changes user inputs without refreshing context. Captured context and entered values remain memory-only.
 
 ---
 
@@ -1404,24 +1405,25 @@ Primary action: `Copy Prompt`.
 
 Implementation requirements:
 
-- Validate and resolve context immediately before delivery.
+- Validate the current invocation and deliver its inspected payload without resolving context again.
 - Use `CopyPasteManager`.
 - Copy exact rendered text.
 - Show a restrained success indication, such as a status label or brief notification.
 - Do not mutate template values.
 
-### 19.2 Active editor destination
+### 19.2 Selected editor destination
 
-Action: `Insert into Active Editor`.
+Action: `Insert into <file name>`.
 
 Behaviour:
 
-- Obtain the selected editor from the current project.
-- If text is selected, replace the selection.
-- Otherwise insert at the primary caret.
+- Capture the editor, document revision and selection/caret range when the invocation begins.
+- Replace the captured selection, or insert at the captured primary caret.
+- Changing editor focus does not change the target. Show its file name in the action.
+- Validate the document and range before writing. A changed, closed or unavailable target needs explicit reselection through Use Active Editor as Insertion Target.
 - Perform the change as one undoable write command.
 - Preserve the rendered prompt exactly.
-- If no editor exists, disable the action with an explanatory tooltip.
+- If no target exists, explain how to select an insertion target.
 - Multi-caret support may follow after single-caret semantics are stable.
 
 ### 19.3 Future terminal destination

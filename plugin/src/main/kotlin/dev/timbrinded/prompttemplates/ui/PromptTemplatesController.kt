@@ -16,7 +16,8 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.ui.UIUtil
-import dev.timbrinded.prompttemplates.context.PromptContextResolver
+import com.intellij.openapi.components.service
+import dev.timbrinded.prompttemplates.PromptTemplatesProjectService
 import dev.timbrinded.prompttemplates.core.DiagnosticSeverity
 import dev.timbrinded.prompttemplates.core.EntryPlacement
 import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository
@@ -28,13 +29,10 @@ import dev.timbrinded.prompttemplates.core.PromptTemplateDraft
 import dev.timbrinded.prompttemplates.core.PromptVariable
 import dev.timbrinded.prompttemplates.core.RepositoryResult
 import dev.timbrinded.prompttemplates.core.StoredTemplate
-import dev.timbrinded.prompttemplates.core.StrictPromptRenderer
 import dev.timbrinded.prompttemplates.core.TemplateDiagnostic
 import dev.timbrinded.prompttemplates.core.TemplateHealth
 import dev.timbrinded.prompttemplates.core.TemplateSummary
 import dev.timbrinded.prompttemplates.core.defaultVariableLabel
-import dev.timbrinded.prompttemplates.destination.ActiveEditorDestination
-import dev.timbrinded.prompttemplates.destination.ClipboardDestination
 import dev.timbrinded.prompttemplates.destination.DestinationResult
 import dev.timbrinded.prompttemplates.destination.PromptTemplatesNotifications
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesSettings
@@ -53,8 +51,6 @@ import kotlin.coroutines.cancellation.CancellationException
 
 internal interface PromptTemplatesView {
     val selectedDestinationFolder: Path
-
-    fun bindLibraryFileWatcher(root: Path)
 
     fun renderLibrary(
         snapshot: LibrarySnapshot,
@@ -86,7 +82,9 @@ internal class PromptTemplatesController(
 ) : Disposable {
     private val state = PromptToolWindowState(settings.libraryRoot)
     private var repository = FileSystemPromptTemplateRepository(settings.libraryRoot)
-    private val renderer = StrictPromptRenderer()
+    private val projectService = project.service<PromptTemplatesProjectService>()
+    private val invocation = projectService.invocation
+    private var showingInvocation = invocation.state.value != null
     private val parser = LinearPlaceholderParser()
     private val loadGenerations = LoadGenerationTracker()
     private val authorRequests = AuthorAsyncRequestTracker()
@@ -104,7 +102,20 @@ internal class PromptTemplatesController(
             PromptTemplatesSettingsListener.TOPIC,
             PromptTemplatesSettingsListener(::onLibraryRootChanged),
         )
-        view.bindLibraryFileWatcher(settings.libraryRoot)
+        coroutineScope.launch(Dispatchers.EDT) {
+            projectService.libraryChanges.collect { onLibraryFilesChanged() }
+        }
+        coroutineScope.launch(Dispatchers.EDT) {
+            invocation.state.collect { session ->
+                if (!showingInvocation || session == null) return@collect
+                val detail = PromptDetailState.Use(session)
+                val previous = state.detail as? PromptDetailState.Use
+                state.detail = detail
+                if (previous?.stored == detail.stored) view.updateUsePreview(detail)
+                else view.renderDetail(detail)
+                updateInteractionState()
+            }
+        }
         updateInteractionState()
         // Give the tree its real root before the first scan lands, so New Template and Import started in
         // that window target the library instead of the tree's placeholder root.
@@ -130,7 +141,6 @@ internal class PromptTemplatesController(
 
     private fun applyLibraryRootTransition(root: Path, clearTree: Boolean) {
         val normalizedRoot = root.toAbsolutePath().normalize()
-        view.bindLibraryFileWatcher(normalizedRoot)
         repository = FileSystemPromptTemplateRepository(normalizedRoot)
         loadGenerations.invalidateDetailLoad()
         // A save that is mid-flight reports its own outcome when it lands, so its draft needs no rebase warning.
@@ -210,6 +220,14 @@ internal class PromptTemplatesController(
         reloadSelectedDetail: Boolean,
     ) {
         if (authorOpen) return
+        val active = state.detail as? PromptDetailState.Use
+        if (active != null && pendingDetail == null && (
+                reloadSelectedDetail ||
+                    selected is LibraryTreeSelection.Template && selected.entry.summary.id == active.stored.template.id
+                )) {
+            invocation.checkTemplate()
+            return
+        }
         when (selected) {
             is LibraryTreeSelection.Template -> {
                 val pendingEntry = pendingDetail?.let { request -> resolveTemplateEntry(request.target, templates) }
@@ -255,7 +273,7 @@ internal class PromptTemplatesController(
         when (selection) {
             is LibraryTreeSelection.Template -> {
                 val active = state.detail as? PromptDetailState.Use
-                if (active?.stored?.directory != selection.directory) loadTemplate(selection.entry.summary)
+                if (active == null || active.stored.template.id != selection.entry.summary.id) loadTemplate(selection.entry.summary)
             }
             is LibraryTreeSelection.Folder -> {
                 showFolder(selection.entry)
@@ -303,31 +321,11 @@ internal class PromptTemplatesController(
 
     private fun showUse(stored: StoredTemplate) {
         loadGenerations.invalidateDetailLoad()
-        val values = state.sessionValues.getOrPut(stored.template.id) { mutableMapOf() }
-        val context = PromptContextResolver.resolve(project)
-        val render = renderer.render(stored.template, values, context)
-        val referencedContext = parser.parse(stored.template.markdown).placeholders
-            .filter { it.contextReference }
-            .map { it.key }
-            .distinct()
-        showDetail(PromptDetailState.Use(stored, values, context, render, referencedContext))
+        showingInvocation = true
+        invocation.open(stored)
     }
 
-    fun refreshPreview() {
-        updatePreview(refreshContext = false)
-    }
-
-    private fun updatePreview(refreshContext: Boolean): PromptDetailState.Use? {
-        val use = state.detail as? PromptDetailState.Use ?: return null
-        val context = if (refreshContext) PromptContextResolver.resolve(project) else use.context
-        val updated = use.copy(
-            context = context,
-            render = renderer.render(use.stored.template, use.values, context),
-        )
-        state.detail = updated
-        view.updateUsePreview(updated)
-        return updated
-    }
+    fun setInvocationValue(key: String, value: String) = invocation.setValue(key, value)
 
     fun performUseViewAction(action: UseViewAction) {
         when (action) {
@@ -340,32 +338,31 @@ internal class PromptTemplatesController(
             UseViewAction.EXPORT_TEMPLATE -> exportTemplate()
             UseViewAction.EXPORT_RENDERED -> exportRendered()
             UseViewAction.DELETE -> deleteActive()
+            UseViewAction.REFRESH_CONTEXT -> invocation.refreshContext()
+            UseViewAction.RELOAD_TEMPLATE -> invocation.checkTemplate(reload = true)
+            UseViewAction.SELECT_INSERTION_TARGET -> invocation.selectInsertionTarget()
+            UseViewAction.RESET_VALUES -> {
+                invocation.resetValues()
+                invocation.state.value?.let { view.renderDetail(PromptDetailState.Use(it)) }
+            }
         }
     }
 
-    fun hasValidRenderedPrompt(): Boolean = (state.detail as? PromptDetailState.Use)?.render?.isValid == true
+    fun hasValidRenderedPrompt(): Boolean = invocation.renderedPayload() != null
 
     private fun deliver(copy: Boolean) {
-        val use = updatePreview(refreshContext = true) ?: return
-        val render = use.render
-        if (!render.isValid) {
-            val error = render.diagnostics.firstOrNull { it.severity == DiagnosticSeverity.ERROR }
-            if (error is TemplateDiagnostic.MissingRequiredValue) view.focusVariable(error.key)
-            PromptTemplatesNotifications.error(project, error?.message ?: "The prompt is not valid.")
-            return
-        }
-
-        val destination = if (copy) {
-            ClipboardDestination.deliver(render.renderedText)
-        } else {
-            ActiveEditorDestination.deliver(project, render.renderedText)
-        }
+        val destination = if (copy) invocation.copyRendered() else invocation.insertRendered()
         when (destination) {
             DestinationResult.Success -> PromptTemplatesNotifications.info(
                 project,
-                if (copy) "Prompt copied to the clipboard." else "Prompt inserted into the active editor.",
+                if (copy) "Prompt copied to the clipboard." else "Prompt inserted into the selected target.",
             )
-            is DestinationResult.Failure -> PromptTemplatesNotifications.error(project, destination.message)
+            is DestinationResult.Failure -> {
+                val error = invocation.state.value?.invocation?.render?.diagnostics
+                    ?.firstOrNull { it.severity == DiagnosticSeverity.ERROR }
+                if (error is TemplateDiagnostic.MissingRequiredValue) view.focusVariable(error.key)
+                PromptTemplatesNotifications.error(project, destination.message)
+            }
         }
     }
 
@@ -773,14 +770,15 @@ internal class PromptTemplatesController(
     }
 
     private fun exportRendered() {
-        val use = updatePreview(refreshContext = true) ?: return
-        if (!use.render.isValid) {
-            PromptTemplatesNotifications.error(project, "Complete required values before exporting.")
+        val use = state.detail as? PromptDetailState.Use ?: return
+        val payload = invocation.renderedPayload()
+        if (payload == null) {
+            PromptTemplatesNotifications.error(project, invocation.state.value?.deliveryProblem ?: "Choose a template first.")
             return
         }
         val destination = chooseDestination(slug(use.stored.template.metadata.name) + "-rendered.md") ?: return
         runRepositoryOperation(
-            operation = { repo -> repo.exportRenderedMarkdown(use.render.renderedText, destination) },
+            operation = { repo -> repo.exportRenderedMarkdown(payload, destination) },
             successMessage = "Rendered Markdown exported to $destination.",
         )
     }
@@ -933,6 +931,8 @@ internal class PromptTemplatesController(
     }
 
     private fun showDetail(detail: PromptDetailState) {
+        showingInvocation = false
+        invocation.close()
         state.detail = detail
         view.renderDetail(detail)
         updateInteractionState()
