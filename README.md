@@ -32,6 +32,8 @@ Bundle import/export, project-local libraries, global Markdown annotations, term
 
 Selecting a template captures the context it references. Copy, Insert and rendered export use exactly the validated preview; copying a clipboard-based prompt twice does not add the previous output to the next copy.
 
+The Use form shows referenced user variables in their authored order. Repeated placeholders share one field. Escaped placeholders and IDE/clipboard references do not create user fields. Unused definitions remain in the author inspector. If a required value is missing, delivery focuses its input and scrolls it into view, including multiline text areas.
+
 The **File** menu contains **Refresh Context**, **Reload Template**, **Use Active Editor as Insertion Target** and **Reset Values to Defaults**. Refresh explicitly captures context from the currently selected editor and clipboard. Reset restores authored defaults without reading context again. The preview reports requested context availability and source paths/selection lines.
 
 Insert retains the editor and range selected when the invocation began. Changing editor focus does not retarget it. If that document or range changes, select the intended editor/range and use **Use Active Editor as Insertion Target** before inserting. Refreshing context does not change the insertion target.

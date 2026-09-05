@@ -17,6 +17,7 @@ import dev.timbrinded.prompttemplates.PromptTemplatesProjectService
 import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository
 import dev.timbrinded.prompttemplates.core.LibraryEntry
 import dev.timbrinded.prompttemplates.core.LibrarySnapshot
+import dev.timbrinded.prompttemplates.core.referencedUserVariables
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesSettings
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesWorkspaceState
 import java.awt.BorderLayout
@@ -354,8 +355,9 @@ internal class PromptTemplatesPanel(
         panel.add(header, BorderLayout.NORTH)
 
         val variableAccents = VariableAccentPalette.forVariables(stored.template.metadata.variables)
+        val inputVariables = referencedUserVariables(stored.template)
         val dynamicForm = DynamicVariableForm(
-            stored.template.metadata.variables,
+            inputVariables,
             variableAccents,
             detail.values,
             controller::setInvocationValue,
@@ -389,7 +391,7 @@ internal class PromptTemplatesPanel(
             add(validationLabel, BorderLayout.SOUTH)
         }
         panel.add(
-            createUseViewContent(stored.template.metadata.variables.isNotEmpty(), formPanel, previewPanel),
+            createUseViewContent(inputVariables.isNotEmpty(), formPanel, previewPanel),
             BorderLayout.CENTER,
         )
         val actionButtons = mutableMapOf<UseViewAction, JButton>()

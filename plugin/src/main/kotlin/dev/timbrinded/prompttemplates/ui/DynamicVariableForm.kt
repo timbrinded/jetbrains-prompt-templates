@@ -13,11 +13,15 @@ import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Dimension
 import java.awt.Font
+import java.awt.Rectangle
+import java.awt.event.FocusAdapter
+import java.awt.event.FocusEvent
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.SwingUtilities
 import javax.swing.event.DocumentEvent
 
 internal class DynamicVariableForm(
@@ -67,8 +71,13 @@ internal class DynamicVariableForm(
             PromptVariableType.MULTILINE -> multilineField(variable)
             PromptVariableType.ENUM -> enumField(variable)
         }
-        label.labelFor = control
-        controls[variable.key] = control
+        val input = controls.getValue(variable.key)
+        label.labelFor = input
+        input.addFocusListener(object : FocusAdapter() {
+            override fun focusGained(event: FocusEvent) {
+                scrollRectToVisible(SwingUtilities.convertRectangle(control, Rectangle(control.size), this@DynamicVariableForm))
+            }
+        })
         panel.add(control, BorderLayout.CENTER)
 
         variable.description?.takeIf(String::isNotBlank)?.let { description ->
@@ -89,6 +98,7 @@ internal class DynamicVariableForm(
                 onChanged(variable.key, field.text)
             }
         })
+        controls[variable.key] = field
         return field
     }
 
@@ -105,7 +115,7 @@ internal class DynamicVariableForm(
         })
         val scroll = JBScrollPane(area)
         scroll.preferredSize = Dimension(JBUI.scale(320), JBUI.scale(86))
-        scroll.accessibleContext.accessibleName = variable.label
+        controls[variable.key] = area
         return scroll
     }
 
@@ -119,6 +129,7 @@ internal class DynamicVariableForm(
         combo.addActionListener {
             onChanged(variable.key, (combo.selectedItem as? EnumChoice)?.id.orEmpty())
         }
+        controls[variable.key] = combo
         return combo
     }
 

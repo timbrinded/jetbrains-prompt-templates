@@ -33,6 +33,29 @@ class PromptInvocationTest {
     }
 
     @Test
+    fun `use inputs follow authored order and omit unused escaped and context references`() {
+        val variables = listOf(
+            PromptVariable("unused", "Unused"),
+            PromptVariable("second", "Second"),
+            PromptVariable("first", "First"),
+            PromptVariable("escaped", "Escaped"),
+            PromptVariable("clipboard", "Reserved context"),
+        )
+        val template = stored("{{first}} {{second}} {{first}} \\{{escaped}} {{clipboard}} {{ide.selection}}", variables).template
+
+        assertEquals(listOf(variables[1], variables[2]), referencedUserVariables(template))
+        assertEquals(variables, template.metadata.variables)
+    }
+
+    @Test
+    fun `context-only and literal templates have no user inputs`() {
+        val variables = listOf(PromptVariable("unused", "Unused", required = true))
+
+        assertEquals(emptyList(), referencedUserVariables(stored("{{clipboard}} \\{{unused}}", variables).template))
+        assertEquals(emptyList(), referencedUserVariables(stored("Plain Markdown", variables).template))
+    }
+
+    @Test
     fun `reload retains only compatible values and valid enum identities`() {
         val original = listOf(
             PromptVariable("goal", "Goal", defaultValue = "default"),
