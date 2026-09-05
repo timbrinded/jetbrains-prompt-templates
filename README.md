@@ -59,6 +59,8 @@ Run **Create Template from Selection…** from Find Action or the editor context
 
 ### Context and output
 
+**Browse Examples…** in the empty state or **New | Browse Examples…** offers three optional [worked examples](docs/worked-examples.md). Inspect mock inputs and expected output before **Add Example** creates an editable copy. Nothing is installed automatically; New Template and Import remain available.
+
 Selecting a template captures the context it references. Copy, Insert and rendered export use exactly the validated preview; copying a clipboard-based prompt twice does not add the previous output to the next copy.
 
 **File | Open Rendered Prompt as Scratch Markdown** exports that validated preview to a new local `.md` scratch file and opens its text editor. This is an explicit local export: the IDE retains scratch files outside the template library, and they can contain captured context or entered values. Each use creates a separate file. Editing it does not change the template or the current invocation. Markdown support is used when available; otherwise the scratch opens as plain text. Preview updates never create scratch files.

@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "ab8c61ea-5cc9-4b47-8390-15b594f86aef",
+  "name": "Diagnose a supplied error",
+  "description": "Separate an observed error from hypotheses using explicitly supplied evidence.",
+  "tags": [
+    "example"
+  ],
+  "variables": [
+    {
+      "key": "environment",
+      "label": "Environment",
+      "type": "text",
+      "required": true,
+      "defaultValue": "Local development"
+    },
+    {
+      "key": "error",
+      "label": "Observed error",
+      "type": "multiline",
+      "required": true,
+      "minimumRows": 4,
+      "placeholder": "Paste the exact error message.",
+      "description": "Required. No error text is collected automatically."
+    },
+    {
+      "key": "attempts",
+      "label": "Checks already tried",
+      "type": "multiline",
+      "required": false,
+      "defaultValue": "No checks recorded.",
+      "minimumRows": 4
+    }
+  ]
+}

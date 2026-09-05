@@ -80,6 +80,11 @@ class PromptTemplatesUi(
         clickContextMenuItem("New Template")
     }
 
+    fun browseExamples() {
+        clickButton("New")
+        clickContextMenuItem("Browse Examples…")
+    }
+
     fun changeLibrary(root: Path) {
         driver.invokeAction("ShowSettings", component = driver.ideFrame().component)
         driver.ideFrame().settingsDialog {

@@ -33,6 +33,7 @@ import dev.timbrinded.prompttemplates.core.TemplateDiagnostic
 import dev.timbrinded.prompttemplates.core.TemplateHealth
 import dev.timbrinded.prompttemplates.core.TemplateId
 import dev.timbrinded.prompttemplates.core.TemplateSummary
+import dev.timbrinded.prompttemplates.core.WorkedExamples
 import dev.timbrinded.prompttemplates.core.defaultVariableLabel
 import dev.timbrinded.prompttemplates.core.escapePlaceholderOpenings
 import dev.timbrinded.prompttemplates.destination.DestinationResult
@@ -393,6 +394,18 @@ internal class PromptTemplatesController(
     }
 
     fun startNewTemplate() = startNewTemplateAt(view.selectedDestinationFolder)
+
+    fun browseExamples() {
+        if (!canChangeLibrary()) return
+        val destination = view.selectedDestinationFolder
+        val request = authorRequests.begin(destination)
+        val dialog = WorkedExamplesDialog(project, destination, WorkedExamples.all)
+        if (!dialog.showAndGet() || !authorRequests.isCurrent(request) || !canChangeLibrary()) return
+        val example = dialog.selectedExample
+        val draft = example.newDraft(availableTemplateName(example.template.metadata.name, siblingNames(destination)))
+        showAuthor(draft, existing = null, destination = destination)
+        saveDraft(draft)
+    }
 
     fun startNewTemplateAt(destination: Path) {
         if (!canChangeLibrary()) return

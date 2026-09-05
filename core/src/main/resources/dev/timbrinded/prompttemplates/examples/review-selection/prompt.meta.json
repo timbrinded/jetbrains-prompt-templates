@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "id": "e912a5fa-46b5-428d-aee2-eb6252c51572",
+  "name": "Review selected implementation",
+  "description": "Review a selected implementation using a goal, a focus choice and optional constraints.",
+  "tags": [
+    "example"
+  ],
+  "variables": [
+    {
+      "key": "goal",
+      "label": "Goal",
+      "type": "text",
+      "required": true,
+      "defaultValue": "Find concrete defects."
+    },
+    {
+      "key": "focus",
+      "label": "Focus",
+      "type": "enum",
+      "required": true,
+      "defaultValue": "correctness",
+      "options": [
+        {
+          "id": "correctness",
+          "label": "Correctness and edge cases",
+          "value": "Correctness and edge cases"
+        },
+        {
+          "id": "maintenance",
+          "label": "Readability and maintenance",
+          "value": "Readability and maintenance"
+        }
+      ]
+    },
+    {
+      "key": "constraints",
+      "label": "Constraints",
+      "type": "multiline",
+      "required": false,
+      "defaultValue": "Keep changes small.\nExplain each recommendation.",
+      "minimumRows": 4,
+      "placeholder": "Add constraints for this review."
+    }
+  ]
+}

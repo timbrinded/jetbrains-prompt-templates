@@ -217,6 +217,7 @@ internal class PromptTemplatesPanel(
                         )
                     }
                 })
+                add(JMenuItem("Browse Examples…").apply { addActionListener { controller.browseExamples() } })
             }
             popup.show(newButton, 0, newButton.height)
         }
@@ -259,6 +260,11 @@ internal class PromptTemplatesPanel(
         content.add(JButton("Import Markdown…").apply {
             alignmentX = Component.LEFT_ALIGNMENT
             addActionListener { controller.importMarkdown() }
+        })
+        content.add(Box.createVerticalStrut(JBUI.scale(6)))
+        content.add(JButton("Browse Examples…").apply {
+            alignmentX = Component.LEFT_ALIGNMENT
+            addActionListener { controller.browseExamples() }
         })
         return content
     }

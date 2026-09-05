@@ -1,0 +1,24 @@
+[
+  {
+    "key": "review-selection",
+    "values": {},
+    "context": {
+      "ide.selection": "fun add(a: Int, b: Int): Int = a - b"
+    }
+  },
+  {
+    "key": "diagnose-error",
+    "values": {
+      "error": "Error: could not open ./config/app.json\nCause: file does not exist",
+      "attempts": "Confirmed the working directory is ./demo."
+    },
+    "context": {}
+  },
+  {
+    "key": "rewrite-explanation",
+    "values": {
+      "explanation": "The client retries a request after a timeout.\nThe request ID lets the server detect a repeated request."
+    },
+    "context": {}
+  }
+]
