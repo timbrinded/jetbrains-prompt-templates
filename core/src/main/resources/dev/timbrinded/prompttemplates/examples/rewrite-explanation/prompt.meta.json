@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "id": "0a245ec0-d34b-4120-9a9f-d604874c1f0d",
+  "name": "Rewrite a technical explanation",
+  "description": "Adapt supplied text for an audience and tone without adding unsupported facts.",
+  "tags": [
+    "example"
+  ],
+  "variables": [
+    {
+      "key": "audience",
+      "label": "Audience",
+      "type": "enum",
+      "required": true,
+      "defaultValue": "engineer",
+      "options": [
+        {
+          "id": "engineer",
+          "label": "An engineer new to this project",
+          "value": "An engineer new to this project"
+        },
+        {
+          "id": "reader",
+          "label": "A reader without software experience",
+          "value": "A reader without software experience"
+        }
+      ]
+    },
+    {
+      "key": "tone",
+      "label": "Tone",
+      "type": "enum",
+      "required": true,
+      "defaultValue": "direct",
+      "options": [
+        {
+          "id": "direct",
+          "label": "Direct and concise",
+          "value": "Direct and concise"
+        },
+        {
+          "id": "patient",
+          "label": "Patient and explanatory",
+          "value": "Patient and explanatory"
+        }
+      ]
+    },
+    {
+      "key": "explanation",
+      "label": "Original explanation",
+      "type": "multiline",
+      "required": true,
+      "minimumRows": 4,
+      "placeholder": "Paste the explanation to rewrite."
+    }
+  ]
+}
