@@ -532,6 +532,7 @@ internal enum class UseViewAction(val label: String) {
     COPY_PATH("Copy Markdown Path"),
     EXPORT_TEMPLATE("Export Template Markdown…"),
     EXPORT_RENDERED("Export Rendered Markdown…"),
+    OPEN_RENDERED_SCRATCH("Open Rendered Prompt as Scratch Markdown"),
     DELETE("Delete"),
     ADD_CONTEXT("Add Context…"),
     REFRESH_CONTEXT("Refresh Context"),
@@ -558,5 +559,6 @@ internal val USE_VIEW_FILE_ACTIONS = listOf(
     UseViewAction.COPY_PATH,
     UseViewAction.EXPORT_TEMPLATE,
     UseViewAction.EXPORT_RENDERED,
+    UseViewAction.OPEN_RENDERED_SCRATCH,
     UseViewAction.DELETE,
 )

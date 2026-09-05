@@ -128,6 +128,8 @@ class PromptTemplatesProjectService(
 
     fun insertRendered() = reportDelivery(invocation.insertRendered(), "Prompt inserted into the selected target.")
 
+    fun openRenderedScratch() = reportDelivery(invocation.openRenderedScratch(), "Rendered prompt exported to a local scratch file.")
+
     fun canDeliver(): Boolean = invocation.renderedPayload() != null
 
     private fun reportDelivery(result: DestinationResult, successMessage: String) {
