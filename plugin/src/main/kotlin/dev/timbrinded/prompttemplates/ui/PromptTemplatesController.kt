@@ -111,6 +111,11 @@ internal class PromptTemplatesController(
                 if (!showingInvocation || session == null) return@collect
                 val detail = PromptDetailState.Use(session)
                 val previous = state.detail as? PromptDetailState.Use
+                if (previous?.stored?.template?.id != detail.stored.template.id) {
+                    selectedKey = LibrarySelectionKey.Template(detail.stored.template.id.value)
+                    workspace.selectedTemplateId = detail.stored.template.id.value
+                    refreshTree()
+                }
                 state.detail = detail
                 if (previous?.stored == detail.stored) view.updateUsePreview(detail)
                 else view.renderDetail(detail)
@@ -324,6 +329,20 @@ internal class PromptTemplatesController(
         loadGenerations.invalidateDetailLoad()
         showingInvocation = true
         invocation.open(stored)
+    }
+
+    fun continueInvocation(): Boolean {
+        if (authorOpen) return false
+        val current = invocation.state.value ?: return false
+        loadGenerations.invalidateDetailLoad()
+        showingInvocation = true
+        selectedKey = LibrarySelectionKey.Template(current.invocation.stored.template.id.value)
+        workspace.selectedTemplateId = current.invocation.stored.template.id.value
+        state.detail = PromptDetailState.Use(current)
+        view.renderDetail(state.detail)
+        refreshTree()
+        updateInteractionState()
+        return true
     }
 
     fun setInvocationValue(key: String, value: String) = invocation.setValue(key, value)
@@ -767,6 +786,7 @@ internal class PromptTemplatesController(
 
     private fun exportRendered() {
         val use = state.detail as? PromptDetailState.Use ?: return
+        val usageRoot = settings.libraryRoot
         val payload = invocation.renderedPayload()
         if (payload == null) {
             PromptTemplatesNotifications.error(project, invocation.state.value?.deliveryProblem ?: "Choose a template first.")
@@ -774,7 +794,11 @@ internal class PromptTemplatesController(
         }
         val destination = chooseDestination(slug(use.stored.template.metadata.name) + "-rendered.md") ?: return
         runRepositoryOperation(
-            operation = { repo -> repo.exportRenderedMarkdown(payload, destination) },
+            operation = { repo ->
+                repo.exportRenderedMarkdown(payload, destination).also { result ->
+                    if (result is RepositoryResult.Success) settings.recordUse(use.stored.template.id.value, usageRoot)
+                }
+            },
             successMessage = "Rendered Markdown exported to $destination.",
         )
     }

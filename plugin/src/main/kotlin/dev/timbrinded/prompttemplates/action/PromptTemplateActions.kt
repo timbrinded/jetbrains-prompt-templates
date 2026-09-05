@@ -6,6 +6,16 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.project.DumbAwareAction
 import dev.timbrinded.prompttemplates.PromptTemplatesProjectService
 
+class UsePromptTemplateAction : DumbAwareAction() {
+    override fun actionPerformed(event: AnActionEvent) {
+        event.project?.service<PromptTemplatesProjectService>()?.quickUse(event.getData(CommonDataKeys.EDITOR))
+    }
+
+    override fun update(event: AnActionEvent) {
+        event.presentation.isEnabled = event.project != null
+    }
+}
+
 class OpenPromptTemplatesAction : DumbAwareAction() {
     override fun actionPerformed(event: AnActionEvent) {
         val service = event.project?.service<PromptTemplatesProjectService>() ?: return

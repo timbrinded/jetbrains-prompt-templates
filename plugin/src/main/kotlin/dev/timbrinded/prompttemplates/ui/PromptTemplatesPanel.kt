@@ -111,6 +111,10 @@ internal class PromptTemplatesPanel(
 
     fun startNewTemplate() = controller.startNewTemplate()
 
+    internal val authorOpen: Boolean get() = controller.authorOpen
+
+    internal fun continueInvocation(): Boolean = controller.continueInvocation()
+
     fun copyRenderedPrompt() = controller.performUseViewAction(UseViewAction.COPY_PROMPT)
 
     fun insertRenderedPrompt() = controller.performUseViewAction(UseViewAction.INSERT)

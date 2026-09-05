@@ -54,6 +54,14 @@
 
     <actions>
         <action
+                id="PromptTemplates.Use"
+                class="dev.timbrinded.prompttemplates.action.UsePromptTemplateAction"
+                text="Use Prompt Template…"
+                description="Find a template, inspect its prompt and copy it">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+        <action
                 id="PromptTemplates.Open"
                 class="dev.timbrinded.prompttemplates.action.OpenPromptTemplatesAction"
                 text="Open Prompt Templates"

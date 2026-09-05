@@ -3,6 +3,8 @@ package dev.timbrinded.prompttemplates
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.util.Disposer
@@ -14,6 +16,8 @@ import dev.timbrinded.prompttemplates.settings.PromptTemplatesSettings
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesSettingsListener
 import dev.timbrinded.prompttemplates.ui.LibraryFileWatcher
 import dev.timbrinded.prompttemplates.ui.PromptTemplatesPanel
+import dev.timbrinded.prompttemplates.ui.QuickUseDialog
+import com.intellij.util.ui.UIUtil
 import java.lang.ref.WeakReference
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +34,7 @@ class PromptTemplatesProjectService(
     private val coroutineScope: CoroutineScope,
 ) : Disposable {
     private var panelReference: WeakReference<PromptTemplatesPanel>? = null
+    private var quickUseDialog: QuickUseDialog? = null
     internal val invocation = PromptInvocationSession(project, coroutineScope)
     private val changes = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     internal val libraryChanges = changes.asSharedFlow()
@@ -79,6 +84,18 @@ class PromptTemplatesProjectService(
 
     fun newTemplate() = show(PromptTemplatesPanel::startNewTemplate)
 
+    internal fun quickUse(editor: Editor?) {
+        quickUseDialog?.let { it.toFront(); return }
+        if (panelReference?.get()?.authorOpen == true) {
+            PromptTemplatesNotifications.warning(project, "Finish editing the open template before using Quick Use.")
+            show()
+            return
+        }
+        val source = editor ?: FileEditorManager.getInstance(project).selectedTextEditor
+        rememberInvocationSource(source)
+        quickUseDialog = QuickUseDialog(project, this, source) { quickUseDialog = null }.also { it.show() }
+    }
+
     fun copyRendered() = reportDelivery(invocation.copyRendered(), "Prompt copied to the clipboard.")
 
     fun insertRendered() = reportDelivery(invocation.insertRendered(), "Prompt inserted into the selected target.")
@@ -92,7 +109,9 @@ class PromptTemplatesProjectService(
         }
     }
 
-    override fun dispose() = Unit
+    override fun dispose() {
+        quickUseDialog?.let { dialog -> UIUtil.invokeLaterIfNeeded { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) } }
+    }
 
     companion object {
         const val TOOL_WINDOW_ID = "Prompt Templates"

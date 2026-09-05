@@ -68,6 +68,7 @@ internal class PromptInvocationSession(
     private var sourceAnchor: EditorAnchor? = null
     private var insertionTarget: EditorAnchor? = null
     private var rememberedSource: EditorAnchor? = null
+    private var invocationLibraryRoot = PromptTemplatesSettings.getInstance().libraryRoot
     private var generation = 0
     private var sessionGeneration = 0
     private var captureJob: Job? = null
@@ -109,7 +110,12 @@ internal class PromptInvocationSession(
         rememberedSource = EditorAnchor.capture(fileEditor) ?: activeAnchor()
     }
 
+    fun clearRememberedSource() {
+        rememberedSource = null
+    }
+
     fun open(stored: StoredTemplate) {
+        invocationLibraryRoot = PromptTemplatesSettings.getInstance().libraryRoot
         val source = rememberedSource ?: activeAnchor()
         rememberedSource = null
         open(stored, source, selectTarget = true)
@@ -183,7 +189,13 @@ internal class PromptInvocationSession(
         val payload = renderedPayload() ?: return DestinationResult.Failure(
             mutableState.value?.deliveryProblem ?: "Choose a template first.",
         )
-        return destination(payload)
+        return destination(payload).also { result ->
+            if (result is DestinationResult.Success) {
+                mutableState.value?.invocation?.stored?.template?.id?.let { id ->
+                    PromptTemplatesSettings.getInstance().recordUse(id.value, invocationLibraryRoot)
+                }
+            }
+        }
     }
 
     /** A move updates location only. An external edit keeps the inspected render until explicit reload. */

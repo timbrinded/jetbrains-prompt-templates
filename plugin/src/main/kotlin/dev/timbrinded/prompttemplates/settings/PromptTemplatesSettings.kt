@@ -21,6 +21,7 @@ class PromptTemplatesSettings :
         @JvmField @field:Property val confirmDeletion: Boolean = true,
         @JvmField val pinnedTemplateIds: List<String> = emptyList(),
         @JvmField val recentTemplateIds: List<String> = emptyList(),
+        @JvmField val libraryUsage: List<LibraryUsage> = emptyList(),
         @JvmField @field:Property val splitterProportion: Float = 0.28f,
     )
 
@@ -44,6 +45,33 @@ class PromptTemplatesSettings :
 
     val libraryRoot: Path
         get() = Path.of(libraryPath.ifBlank { defaultLibraryPath() }).toAbsolutePath().normalize()
+
+    fun usage(root: Path = libraryRoot): LibraryUsage = state.libraryUsage
+        .firstOrNull { it.libraryPath == root.toAbsolutePath().normalize().toString() }
+        ?: LibraryUsage(libraryPath = root.toAbsolutePath().normalize().toString())
+
+    fun toggleFavourite(id: String, root: Path = libraryRoot) = updateUsage(root) { current ->
+        current.copy(favourites = if (id in current.favourites) current.favourites - id else current.favourites + id)
+    }
+
+    fun recordUse(id: String, root: Path = libraryRoot) = updateUsage(root) { current ->
+        current.copy(recents = (listOf(id) + current.recents.filterNot { it == id }).take(20))
+    }
+
+    private fun updateUsage(root: Path, change: (LibraryUsage) -> LibraryUsage) {
+        val path = root.toAbsolutePath().normalize().toString()
+        updateState { state ->
+            val current = state.libraryUsage.firstOrNull { it.libraryPath == path } ?: LibraryUsage(libraryPath = path)
+            val updated = change(current)
+            state.copy(libraryUsage = state.libraryUsage.filterNot { it.libraryPath == updated.libraryPath } + updated)
+        }
+    }
+
+    data class LibraryUsage(
+        @JvmField @field:Property val libraryPath: String = "",
+        @JvmField val favourites: List<String> = emptyList(),
+        @JvmField val recents: List<String> = emptyList(),
+    )
 
     companion object {
         fun getInstance(): PromptTemplatesSettings = service()
