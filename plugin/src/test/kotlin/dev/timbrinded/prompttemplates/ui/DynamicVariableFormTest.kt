@@ -17,7 +17,7 @@ class DynamicVariableFormTest {
                 variables = listOf(PromptVariable("issue", "Issue", description = "The GH issue number")),
                 accents = emptyMap(),
                 values = mutableMapOf(),
-                onChanged = {},
+                onChanged = { _, _ -> },
             )
             form.setSize(500, 300)
             form.doLayout()

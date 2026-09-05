@@ -1,13 +1,16 @@
 package dev.timbrinded.prompttemplates.action
 
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.DumbAwareAction
 import dev.timbrinded.prompttemplates.PromptTemplatesProjectService
 
 class OpenPromptTemplatesAction : DumbAwareAction() {
     override fun actionPerformed(event: AnActionEvent) {
-        event.project?.service<PromptTemplatesProjectService>()?.show { it.focusSearch() }
+        val service = event.project?.service<PromptTemplatesProjectService>() ?: return
+        service.rememberInvocationSource(event.getData(CommonDataKeys.EDITOR))
+        service.show { it.focusSearch() }
     }
 
     override fun update(event: AnActionEvent) {

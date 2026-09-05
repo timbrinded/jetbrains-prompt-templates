@@ -1,12 +1,10 @@
 package dev.timbrinded.prompttemplates.ui
 
-import dev.timbrinded.prompttemplates.core.ContextValue
 import dev.timbrinded.prompttemplates.core.LibraryEntry
 import dev.timbrinded.prompttemplates.core.LibrarySnapshot
 import dev.timbrinded.prompttemplates.core.PromptTemplateDraft
-import dev.timbrinded.prompttemplates.core.RenderResult
 import dev.timbrinded.prompttemplates.core.StoredTemplate
-import dev.timbrinded.prompttemplates.core.TemplateId
+import dev.timbrinded.prompttemplates.invocation.InvocationPresentation
 import java.nio.file.Path
 
 internal sealed interface PromptDetailState {
@@ -14,13 +12,13 @@ internal sealed interface PromptDetailState {
 
     data class Folder(val entry: LibraryEntry.Folder) : PromptDetailState
 
-    data class Use(
-        val stored: StoredTemplate,
-        val values: MutableMap<String, String>,
-        val context: Map<String, ContextValue>,
-        val render: RenderResult,
-        val referencedContext: List<String>,
-    ) : PromptDetailState
+    data class Use(val session: InvocationPresentation) : PromptDetailState {
+        val stored get() = session.invocation.stored
+        val values get() = session.invocation.values
+        val context get() = session.invocation.context
+        val render get() = session.invocation.render
+        val referencedContext get() = session.invocation.referencedContext
+    }
 
     data class Author(val author: TemplateAuthorState) : PromptDetailState
 
@@ -41,7 +39,6 @@ internal data class TemplateAuthorState(
 internal class PromptToolWindowState(root: Path) {
     var librarySnapshot = LibrarySnapshot(root, emptyList())
     val bodyIndex = mutableMapOf<Path, String>()
-    val sessionValues = mutableMapOf<TemplateId, MutableMap<String, String>>()
     var detail: PromptDetailState = PromptDetailState.Empty
     var mutationInProgress = false
 }

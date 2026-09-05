@@ -4,10 +4,13 @@ import com.intellij.driver.client.Driver
 import com.intellij.driver.client.Remote
 import com.intellij.driver.model.OnDispatcher
 import com.intellij.driver.sdk.invokeAction
+import com.intellij.driver.sdk.getNotifications
+import com.intellij.driver.sdk.getToolWindow
 import com.intellij.driver.sdk.ui.boundsOnScreen
 import com.intellij.driver.sdk.ui.components.UiComponent
 import com.intellij.driver.sdk.ui.components.UiComponent.Companion.waitFound
 import com.intellij.driver.sdk.ui.components.common.ideFrame
+import com.intellij.driver.sdk.ui.components.common.editor
 import com.intellij.driver.sdk.ui.components.elements.JTreeUiComponent
 import com.intellij.driver.sdk.ui.components.elements.accessibleTree
 import com.intellij.driver.sdk.ui.components.elements.button
@@ -16,11 +19,13 @@ import com.intellij.driver.sdk.ui.components.elements.list
 import com.intellij.driver.sdk.ui.components.elements.popup
 import com.intellij.driver.sdk.ui.components.elements.textField
 import com.intellij.driver.sdk.ui.components.elements.waitForNoOpenedDialogs
+import com.intellij.driver.sdk.ui.components.settings.settingsDialog
 import com.intellij.driver.sdk.ui.ui
 import com.intellij.driver.sdk.waitFor
 import java.awt.Point
 import java.awt.event.InputEvent
 import java.awt.event.MouseEvent
+import java.nio.file.Path
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -30,10 +35,55 @@ class PromptTemplatesUi(
     fun open(): PromptTemplatesUi = apply {
         driver.invokeAction(OPEN_ACTION_ID, component = driver.ideFrame().component)
         libraryTree().waitFound(1.minutes)
+        driver.withContext(OnDispatcher.EDT) {
+            val extraHeight = 650 - libraryTree().boundsOnScreen.height
+            if (extraHeight > 0) {
+                cast(getToolWindow("Prompt Templates"), TestToolWindow::class).stretchHeight(extraHeight)
+            }
+        }
     }
 
     fun libraryTree(): JTreeUiComponent = driver.ideFrame().accessibleTree {
         byAccessibleName(LIBRARY_TREE_ACCESSIBLE_NAME)
+    }
+
+    fun selectTemplate(vararg path: String) {
+        waitForPath(*path)
+        val tree = libraryTree().expandAll()
+        clickComponentAt(tree, tree.fixture.getRowPoint(rowFor(tree, path.toList())))
+        driver.ideFrame().button("Copy Prompt").waitFound(30.seconds)
+    }
+
+    fun clickButton(label: String) {
+        clickComponent(driver.ideFrame().button(label).waitFound(30.seconds))
+    }
+
+    fun clickFileAction(label: String) {
+        clickButton("File ▾")
+        clickContextMenuItem(label)
+    }
+
+    fun changeLibrary(root: Path) {
+        driver.invokeAction("ShowSettings", component = driver.ideFrame().component)
+        driver.ideFrame().settingsDialog {
+            waitFound(30.seconds)
+            searchTextField.text = "Prompt Templates"
+            val tree = settingsTree
+            waitFor("Prompt Templates settings are available", 30.seconds) {
+                runCatching { hasPath(tree.expandAll(), listOf("Prompt Templates")) }.getOrDefault(false)
+            }
+            clickComponentAt(tree, tree.fixture.getRowPoint(rowFor(tree, listOf("Prompt Templates"))))
+            textField { byAccessibleName("Personal library directory") }.waitFound(30.seconds).text = root.toString()
+            clickComponent(okButton)
+        }
+        driver.ui.waitForNoOpenedDialogs()
+    }
+
+    fun renderedText(): String {
+        val field = driver.ideFrame().editor("//div[@accessiblename='Rendered prompt preview']").waitFound(30.seconds)
+        return driver.withContext(OnDispatcher.EDT) {
+            field.text
+        }
     }
 
     fun selectContextMenuItem(vararg path: String, item: String) {
@@ -143,6 +193,12 @@ class PromptTemplatesUi(
         driver.ui.x { contains(byAccessibleName(text)) }.waitFound(30.seconds)
     }
 
+    fun waitForNotification(text: String) {
+        waitFor("prompt notification contains $text", 30.seconds) {
+            driver.getNotifications().any { it.getGroupId() == "Prompt Templates" && it.getContent().contains(text) }
+        }
+    }
+
     fun confirmFolderDeletion(folderPath: List<String>, typedName: String) {
         selectContextMenuItem(*folderPath.toTypedArray(), item = "Delete Folder…")
         driver.ui.dialog(title = "Delete Prompt Template Folder") {
@@ -244,4 +300,9 @@ private interface RemoteToolkit {
 @Remote("java.awt.EventQueue")
 private interface RemoteEventQueue {
     fun postEvent(event: PopupTriggerEvent)
+}
+
+@Remote("com.intellij.openapi.wm.impl.ToolWindowImpl")
+private interface TestToolWindow {
+    fun stretchHeight(delta: Int)
 }

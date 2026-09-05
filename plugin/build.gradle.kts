@@ -97,6 +97,7 @@ val integrationTest by intellijPlatformTesting.testIdeUi.registering {
             "allure.results.directory",
             layout.buildDirectory.dir("allure-results").get().asFile,
         )
+        systemProperty("prompt.templates.explore", providers.gradleProperty("explore").orElse("false").get())
 
         useJUnitPlatform {
             excludeEngines("junit-vintage")
