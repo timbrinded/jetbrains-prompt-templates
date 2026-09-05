@@ -65,6 +65,9 @@ class TemplateMetadataCodec(
                 return "Invalid user variable key '${variable.key}'."
             }
             if (variable.label.isBlank()) return "Variable '${variable.key}' needs a label."
+            if (variable.minimumRows != null && variable.minimumRows < 1) {
+                return "Variable '${variable.key}' needs a positive minimum row count."
+            }
             if (variable.type == PromptVariableType.ENUM) {
                 if (!variable.required) return "Enum '${variable.key}' always requires a choice."
                 if (variable.options.isEmpty()) return "Enum '${variable.key}' needs at least one option."

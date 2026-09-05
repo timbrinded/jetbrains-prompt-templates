@@ -7,8 +7,7 @@ class PromptInvocation(
     context: Map<String, ContextValue>,
 ) {
     val values: Map<String, String> = stored.template.metadata.variables.associate { variable ->
-        variable.key to (values[variable.key] ?: variable.defaultValue
-            ?: if (variable.type == PromptVariableType.ENUM) variable.options.firstOrNull()?.id.orEmpty() else "")
+        variable.key to (values[variable.key] ?: variable.initialValue())
     }
     val context: Map<String, ContextValue> = context.toMap()
     val referencedContext: Set<String> = requestedContextKeys(stored.template)
@@ -18,6 +17,9 @@ class PromptInvocation(
 
     fun resetValues(): PromptInvocation = PromptInvocation(stored, emptyMap(), context)
 }
+
+fun PromptVariable.initialValue(): String = defaultValue
+    ?: if (type == PromptVariableType.ENUM) options.firstOrNull()?.id.orEmpty() else ""
 
 fun requestedContextKeys(template: PromptTemplate): Set<String> = LinearPlaceholderParser()
     .parse(template.markdown).placeholders

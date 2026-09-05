@@ -662,6 +662,10 @@ Version 1 behaviour:
 - Do not persist user-entered values across restarts by default.
 - Do not store values in `prompt.meta.json`.
 
+The native inspector exposes Text/Multiline defaults with an explicit enabled switch: unchecked is absent, while checked with empty text stores an empty default. Required-value validation stays unchanged. Enum defaults use an existing option identity; surviving choices retain their identities during editing, and removal of the default selects a surviving option. Input placeholder text and multiline minimum rows use the existing schema fields. Positive row counts determine the real text-area height; the form does not impose a fixed preferred height.
+
+Move Up and Move Down are keyboard-accessible variable controls. Metadata array order is the authored form order, independent of Markdown occurrences. Reconciliation preserves that order and appends new discoveries. Reordering does not rewrite Markdown. Per-field Reset and Reset Values to Defaults restore authored values (or empty text when absent), retaining the current context snapshot. Editing defaults does not replace compatible retained invocation inputs automatically.
+
 A later per-variable `rememberLastValue` option may opt into persistent storage.
 
 ---

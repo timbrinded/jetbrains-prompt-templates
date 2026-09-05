@@ -17,13 +17,13 @@ class TemplateReconciler(
             .filterNot(PlaceholderToken::contextReference)
             .map(PlaceholderToken::key)
             .distinct()
-        val discovered = discoveredUserKeys.map { key ->
-            existingByKey[key] ?: PromptVariable(key = key, label = defaultVariableLabel(key))
+        val discovered = discoveredUserKeys.filterNot(existingByKey::containsKey).map { key ->
+            PromptVariable(key = key, label = defaultVariableLabel(key))
         }
         val unused = existing.filterNot { it.key in discoveredUserKeys }
 
         return ReconciliationResult(
-            variables = discovered + unused,
+            variables = existing + discovered,
             unusedKeys = unused.map(PromptVariable::key).toSet(),
             unknownContextKeys = parsed.placeholders
                 .filter(PlaceholderToken::contextReference)

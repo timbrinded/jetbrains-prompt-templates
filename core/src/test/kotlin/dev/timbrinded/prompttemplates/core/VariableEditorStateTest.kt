@@ -7,6 +7,23 @@ import kotlin.test.assertTrue
 
 class VariableEditorStateTest {
     @Test
+    fun `moving newly discovered fields persists through edits without changing rendered text`() {
+        val state = VariableEditorState(emptyList())
+        val markdown = "{{first}} then {{second}}"
+        state.reconcile(markdown)
+        val before = PromptTemplateDraft(name = "Order", markdown = markdown, variables = state.variables).toTemplate()
+        state.move(1, -1)
+        state.reconcile(markdown + " {{third}}")
+        assertEquals(listOf("second", "first", "third"), state.variables.map(PromptVariable::key))
+        val after = before.copy(metadata = before.metadata.copy(variables = state.variables))
+        val values = mapOf("first" to "A", "second" to "B", "third" to "C")
+        assertEquals(StrictPromptRenderer().render(before, values, emptyMap()).renderedText,
+            StrictPromptRenderer().render(after, values, emptyMap()).renderedText)
+        state.move(0, -1)
+        assertEquals(listOf("second", "first", "third"), state.variables.map(PromptVariable::key))
+    }
+
+    @Test
     fun `transient discoveries replace partial keys while typing`() {
         val state = VariableEditorState(emptyList())
 
@@ -25,7 +42,7 @@ class VariableEditorStateTest {
 
         val result = state.reconcile("{{language}}")
 
-        assertEquals(listOf("language", "lang"), state.variables.map(PromptVariable::key))
+        assertEquals(listOf("lang", "language"), state.variables.map(PromptVariable::key))
         assertEquals(setOf("lang"), result.unusedKeys)
     }
 

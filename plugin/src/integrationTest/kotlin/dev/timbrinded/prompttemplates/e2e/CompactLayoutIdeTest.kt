@@ -93,12 +93,13 @@ class CompactLayoutIdeTest {
                 frame.x { and(byClass("ComboBox"), byAccessibleName("Type:")) },
                 inspector.textField { and(byClass("JBTextField"), byAccessibleName("Description:")) },
                 field("Enum choices (; separated):"),
+                frame.x { and(byClass("ComboBox"), byAccessibleName("Default option:")) },
             ).forEach { control ->
                 frame.keyboard { tab() }
                 waitFor("Tab reaches $control", 30.seconds) { control.isFocusOwner() }
                 assertVisible(control)
             }
-            assertTrue(field("Enum choices (; separated):").isFocusOwner())
+            assertTrue(frame.x { and(byClass("ComboBox"), byAccessibleName("Default option:")) }.isFocusOwner())
             assertTrue(field("Enum choices (; separated):").boundsOnScreen.width >= 120 * scale)
             assertVisible(frame.button("Cancel"))
             assertVisible(frame.button("Save Template"))
