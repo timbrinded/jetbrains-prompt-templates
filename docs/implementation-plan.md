@@ -238,6 +238,8 @@ The library pane uses a native tree. It shows organiser folders before template 
 
 When the tool window is moved to the right or becomes narrower than the defined breakpoint, switch to a card-based layout rather than compressing the master-detail interface.
 
+The author variable list and inspector also adapt to their available width. Below a scaled 560-pixel width, the list sits above the scrollable inspector. Resizing retains the same fields, selection and draft. Keyboard focus scrolls each inspector control into view. Save and Cancel remain outside that scrolling area; wrapped diagnostics have their own bounded scroll area. The Use footer contains Copy Prompt, Insert and Edit. Delete remains available through the File and library context menus with its existing confirmation.
+
 ```text
 ┌ Prompt Templates ─────────────┐
 │ ‹ Library          Edit  ⋮    │

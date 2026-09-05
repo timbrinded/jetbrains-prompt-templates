@@ -34,6 +34,7 @@ import kotlin.time.Duration.Companion.minutes
 
 class StarterHarness private constructor(
     val workspace: TestWorkspace,
+    private val uiScale: Float,
 ) {
     fun run(block: Driver.(PromptTemplatesUi) -> Unit) {
         val context = createContext()
@@ -63,6 +64,7 @@ class StarterHarness private constructor(
             addSystemProperty("idea.trust.all.projects", true)
             addSystemProperty("ide.show.tips.on.startup.default.value", false)
             addSystemProperty("idea.suppress.statistics.report", true)
+            addSystemProperty("ide.ui.scale", uiScale.toString())
         }
         workspace.writePathRecord(
             mapOf(
@@ -176,7 +178,8 @@ class StarterHarness private constructor(
         private const val PINNED_IDE_BUILD = "262.8665.259"
         private const val PLUGIN_PATH_PROPERTY = "path.to.build.plugin"
 
-        fun create(testName: String): StarterHarness = StarterHarness(TestWorkspace.create(testName))
+        fun create(testName: String, uiScale: Float = 1f): StarterHarness =
+            StarterHarness(TestWorkspace.create(testName), uiScale)
     }
 }
 

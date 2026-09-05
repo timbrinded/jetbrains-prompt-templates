@@ -2,12 +2,29 @@ package dev.timbrinded.prompttemplates.ui
 
 import com.intellij.util.ui.JBUI
 import java.awt.Dimension
+import java.awt.FlowLayout
+import java.awt.GridLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
 
 private val USE_VIEW_GAP get() = JBUI.scale(8)
 private val MINIMUM_FORM_HEIGHT get() = JBUI.scale(64)
 private val MINIMUM_PREVIEW_HEIGHT get() = JBUI.scale(160)
+
+internal class ResponsiveActionsPanel(
+    private val alignment: Int = FlowLayout.LEFT,
+) : JPanel(FlowLayout(alignment, JBUI.scale(6), 0)) {
+    override fun doLayout() {
+        val rowWidth = components.sumOf { it.preferredSize.width } + JBUI.scale(6) * (componentCount + 1)
+        val stacked = width < rowWidth
+        if (stacked != (layout is GridLayout)) {
+            layout = if (stacked) GridLayout(0, 1, 0, JBUI.scale(6))
+            else FlowLayout(alignment, JBUI.scale(6), 0)
+            revalidate()
+        }
+        super.doLayout()
+    }
+}
 
 internal fun createUseViewContent(
     hasVariables: Boolean,

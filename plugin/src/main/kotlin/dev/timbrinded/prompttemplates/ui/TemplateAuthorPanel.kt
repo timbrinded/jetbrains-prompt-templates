@@ -14,6 +14,7 @@ import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
@@ -27,11 +28,18 @@ import dev.timbrinded.prompttemplates.core.VariableEditorState
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.Rectangle
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
+import java.awt.event.FocusAdapter
+import java.awt.event.FocusEvent
 import javax.swing.DefaultListModel
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.ListSelectionModel
+import javax.swing.ScrollPaneConstants
+import javax.swing.SwingUtilities
 import javax.swing.event.DocumentEvent
 
 class TemplateAuthorPanel(
@@ -62,7 +70,17 @@ class TemplateAuthorPanel(
     private val descriptionVariableField = JBTextField()
     private val optionsLabel = JBLabel("Enum choices (; separated):")
     private val optionsField = JBTextField()
-    private val diagnostics = JBLabel()
+    private val diagnostics = JBTextArea(2, 0).apply {
+        isEditable = false
+        lineWrap = true
+        wrapStyleWord = true
+        isOpaque = false
+        foreground = JBColor.RED
+    }
+    private val diagnosticScroll = JBScrollPane(diagnostics).apply {
+        border = JBUI.Borders.empty()
+        isVisible = false
+    }
     private var unusedKeys = emptySet<String>()
     private var updatingInspector = false
     private val initialSnapshot: AuthorEditSnapshot
@@ -122,22 +140,25 @@ class TemplateAuthorPanel(
         }
         editorPanel.add(editorHeader, BorderLayout.NORTH)
         editorPanel.add(markdownEditor, BorderLayout.CENTER)
+        editorPanel.minimumSize = JBUI.size(0, 100)
 
         val variablePanel = JPanel(BorderLayout(JBUI.scale(8), JBUI.scale(8)))
         variablePanel.border = JBUI.Borders.empty(8, 0, 0, 0)
         val variableListScroll = JBScrollPane(variableList).apply {
-            minimumSize = Dimension(JBUI.scale(140), JBUI.scale(210))
+            minimumSize = JBUI.size(0, 64)
         }
 
         optionsField.toolTipText = "Separate choices with semicolons. The selected choice is inserted unchanged."
         optionsLabel.labelFor = optionsField
         val renameButton = JButton("Rename")
         renameButton.addActionListener { renameSelectedVariable() }
+        keyField.accessibleContext.accessibleName = "Variable key"
         val keyRow = JPanel(BorderLayout(JBUI.scale(4), 0)).apply {
             add(keyField, BorderLayout.CENTER)
             add(renameButton, BorderLayout.EAST)
         }
         val inspector = FormBuilder.createFormBuilder()
+            .setVertical(true)
             .addLabeledComponent("Key:", keyRow)
             .addLabeledComponent("Label:", labelField)
             .addLabeledComponent("Type:", typeField)
@@ -145,11 +166,32 @@ class TemplateAuthorPanel(
             .addLabeledComponent("Description:", descriptionVariableField)
             .addLabeledComponent(optionsLabel, optionsField)
             .panel
-        inspector.minimumSize = Dimension(JBUI.scale(280), JBUI.scale(210))
+        val inspectorScroll = JBScrollPane(inspector).apply {
+            horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+            minimumSize = JBUI.size(0, 100)
+            accessibleContext.accessibleName = "Variable inspector"
+        }
+        listOf(keyField, renameButton, labelField, typeField, requiredField, descriptionVariableField, optionsField)
+            .forEach { field ->
+                field.addFocusListener(object : FocusAdapter() {
+                    override fun focusGained(event: FocusEvent) {
+                        inspector.scrollRectToVisible(SwingUtilities.convertRectangle(field, Rectangle(field.size), inspector))
+                    }
+                })
+            }
 
         val variableSplitter = OnePixelSplitter(false, 0.34f)
         variableSplitter.firstComponent = variableListScroll
-        variableSplitter.secondComponent = inspector
+        variableSplitter.secondComponent = inspectorScroll
+        variableSplitter.addComponentListener(object : ComponentAdapter() {
+            override fun componentResized(event: ComponentEvent) {
+                val stacked = variableSplitter.width < JBUI.scale(560)
+                if (variableSplitter.orientation != stacked) {
+                    variableSplitter.orientation = stacked
+                    variableSplitter.proportion = if (stacked) 0.28f else 0.34f
+                }
+            }
+        })
         variablePanel.add(variableSplitter, BorderLayout.CENTER)
 
         val splitter = OnePixelSplitter(true, 0.56f)
@@ -159,8 +201,7 @@ class TemplateAuthorPanel(
     }
 
     private fun createFooter(): JComponent {
-        diagnostics.foreground = JBColor.RED
-        val buttons = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(8), 0))
+        val buttons = ResponsiveActionsPanel(FlowLayout.RIGHT)
         JButton("Cancel").also { button ->
             button.addActionListener { onCancel() }
             buttons.add(button)
@@ -171,8 +212,8 @@ class TemplateAuthorPanel(
         }
         return JPanel(BorderLayout()).apply {
             border = JBUI.Borders.emptyTop(8)
-            add(diagnostics, BorderLayout.CENTER)
-            add(buttons, BorderLayout.EAST)
+            add(diagnosticScroll, BorderLayout.CENTER)
+            add(buttons, BorderLayout.SOUTH)
         }
     }
 
@@ -215,7 +256,7 @@ class TemplateAuthorPanel(
         if (variables.isNotEmpty()) variableList.selectedIndex = selectedIndex
 
         val parseErrors = parser.parse(markdownEditor.text).diagnostics.map { it.message }
-        diagnostics.text = (parseErrors + result.unknownContextKeys.map { "Unknown context: $it" }).firstOrNull().orEmpty()
+        showDiagnostic((parseErrors + result.unknownContextKeys.map { "Unknown context: $it" }).firstOrNull().orEmpty())
         revalidate()
         repaint()
     }
@@ -274,8 +315,8 @@ class TemplateAuthorPanel(
         val newKey = keyField.text.trim()
         val oldKey = variables[index].key
         when {
-            !USER_VARIABLE_KEY_REGEX.matches(newKey) -> diagnostics.text = "Invalid variable key '$newKey'."
-            variables.any { it.key == newKey && it.key != oldKey } -> diagnostics.text = "Variable '$newKey' already exists."
+            !USER_VARIABLE_KEY_REGEX.matches(newKey) -> showDiagnostic("Invalid variable key '$newKey'.")
+            variables.any { it.key == newKey && it.key != oldKey } -> showDiagnostic("Variable '$newKey' already exists.")
             else -> {
                 variableState.updateAt(index) { it.copy(key = newKey) }
                 WriteCommandAction.runWriteCommandAction(project) {
@@ -293,10 +334,18 @@ class TemplateAuthorPanel(
             else -> null
         }
         if (error != null) {
-            diagnostics.text = error
+            showDiagnostic(error)
             return
         }
         onSave(currentDraft())
+    }
+
+    private fun showDiagnostic(message: String) {
+        diagnostics.text = message
+        diagnostics.accessibleContext.accessibleName = message
+        diagnostics.caretPosition = 0
+        diagnosticScroll.isVisible = message.isNotEmpty()
+        revalidate()
     }
 
     internal fun confirmDiscardChanges(): Boolean {

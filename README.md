@@ -40,6 +40,8 @@ An external template edit keeps the inspected preview visible and blocks deliver
 
 In the author view, **Cancel** closes a clean draft immediately. For changed Markdown or metadata, it offers **Discard** and **Keep Editing**, with Keep Editing selected by default. Reverting all editable inputs makes the draft clean again. Word wrap, hiding the tool window, and changing its layout do not discard the draft. Drafts remain in memory only.
 
+At narrow widths, variable navigation moves above the author inspector. The inspector scrolls to controls as you move through them with Tab. Save and Cancel stay below the editor. The Use footer contains Copy Prompt, Insert and Edit; **Delete** is in the File menu and the library context menu, with confirmation before removal.
+
 ## Storage format
 
 The default library is `~/Prompt Templates`, configurable under **Settings | Tools | Prompt Templates**.
