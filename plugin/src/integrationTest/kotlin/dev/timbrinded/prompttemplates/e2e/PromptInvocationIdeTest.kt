@@ -47,10 +47,10 @@ class PromptInvocationIdeTest {
             ui.selectTemplate("Other")
             waitFor("new library starts with authored defaults", 30.seconds) { ui.renderedText() == "Review: other" }
             ui.clickButton("Edit")
-            ideFrame().textField { byVisibleText("Other") }.waitFound(30.seconds).text = "Unsaved draft"
+            ideFrame().textField { and(byClass("JBTextField"), byAccessibleName("Name:")) }.waitFound(30.seconds).text = "Unsaved draft"
             ui.changeLibrary(originalRoot)
             ui.waitForPath("Original")
-            assertEquals("Unsaved draft", ideFrame().textField { byVisibleText("Unsaved draft") }.waitFound(30.seconds).text)
+            assertEquals("Unsaved draft", ideFrame().textField { and(byClass("JBTextField"), byAccessibleName("Name:")) }.waitFound(30.seconds).text)
             ideFrame().button("Save Template").waitFound(30.seconds)
         }
     }
