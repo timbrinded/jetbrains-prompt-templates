@@ -20,6 +20,7 @@ Implemented workflows:
 - Discover and highlight `{{variable}}` placeholders while typing.
 - Configure Text, Multiline and Enum variables.
 - Resolve `ide.selection`, current-file, project and clipboard context.
+- Attach selected file buffers or explicit Git diffs to the frozen preview.
 - Validate required values and show an exact, whitespace-preserving preview.
 - Copy the inspected prompt or insert it into the labelled editor target as one undoable command.
 - Capture only referenced IDE/clipboard context, then retain that snapshot until explicit refresh.
@@ -39,6 +40,16 @@ Type to search. Up and Down select a row; Enter opens its form and exact preview
 Empty search puts favourites and recents first, followed by the remaining library. Explicit searches rank exact names, name prefixes, other name matches, tags/folder paths, then descriptions/body text. Text relevance comes before favourite/recent ordering. Each row shows its folder path and input/context counts.
 
 Favourites and the last 20 successful template deliveries are local IDE settings, scoped to the library directory and keyed by UUID. Rename and move preserve identity. Missing entries are ignored. This state stores only library paths, template identities and ordering; it contains no prompt text, captured context or input values.
+
+### File and Git context
+
+Add `{{ide.attachments}}` where context belongs in the template, using the author variable chooser. In Use, choose **File | Add Context…**; Quick Use has an **Add Context…** button. Capture **Current File**, **Selected Files…**, or an explicit **Git Diff…**. Inspect the captured text and provenance, then choose **Apply Attachments**. Cancel retains the existing invocation.
+
+Local open files use editor-buffer text, including unsaved edits. Remote and virtual-only sources are unsupported. Other files use on-disk text. Each item shows its source, capture time and size. Items retain addition order; a multi-file selection is sorted by full path. Repeated captures replace the same source in place. **Refresh Selected** captures that source again; **Remove** removes its complete block. Normal **Refresh Context** and Reset do not refresh attachments. Opening/reloading a template or switching libraries clears them; Quick Use handoff retains them.
+
+The limits are 16 items, 256 KiB of UTF-8 text per item, and 1 MiB total, with a 1 MiB encoded-file read limit. Missing, binary, unreadable or oversized sources fail visibly. No content is truncated. Empty files are valid. Attachment text, including placeholder syntax, stays literal inside labelled Markdown blocks. Preview and all output use the same frozen payload.
+
+Git capture requires the optional Git plugin and its configured executable. Choose the repository and **Staged: HEAD → index** or **Unstaged: index → working tree**. The captured HEAD and scope are shown. Diffs include tracked on-disk changes; unsaved buffers and untracked files must be attached separately. Binary/submodule changes, repositories without a HEAD commit and unsupported UTF-8 output are rejected. Capture uses fixed local read operations with external content-processing helpers disabled. It opens no terminal and makes no network request. See the [implementation design](docs/context-attachments.md) for the capability boundaries.
 
 ### Duplicate and capture
 

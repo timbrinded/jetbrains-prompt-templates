@@ -9,6 +9,7 @@ val BUILT_IN_CONTEXT_VARIABLES: List<ContextVariableDescription> = listOf(
     ContextVariableDescription("ide.file.relativePath", "The source file path relative to the project."),
     ContextVariableDescription("ide.language", "The source file type description reported by the IDE."),
     ContextVariableDescription("ide.project.name", "The current project name."),
+    ContextVariableDescription(ATTACHMENTS_CONTEXT_KEY, "Files and Git diffs explicitly captured with Add Context…; frozen until refreshed."),
     ContextVariableDescription("clipboard", "Plain text captured from the clipboard."),
 )
 

@@ -130,7 +130,9 @@ class TemplateCreationIdeTest {
             main.clickButton("Save Template")
             main.waitForPath("Captured literal")
             main.clickButton("Copy Prompt")
-            assertEquals(literal, utility(IdeClipboard::class).getInstance().getContents(DataFlavor.stringFlavor))
+            waitFor("Copy delivers the exact captured selection", 10.seconds) {
+                utility(IdeClipboard::class).getInstance().getContents(DataFlavor.stringFlavor) == literal
+            }
             val created = harness.workspace.library.listDirectoryEntries().single { it.resolve("prompt.meta.json").isRegularFile() }
             val saved = assertIs<MetadataDecodeResult.Success>(TemplateMetadataCodec().decode(created.resolve("prompt.meta.json").readText())).metadata
             assertEquals(emptyList(), saved.variables)

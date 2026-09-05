@@ -19,6 +19,9 @@ import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import com.intellij.util.ui.UIUtil
+import dev.timbrinded.prompttemplates.attachments.CapturedAttachment
+import dev.timbrinded.prompttemplates.core.ATTACHMENTS_CONTEXT_KEY
+import dev.timbrinded.prompttemplates.core.ContextAttachments
 import dev.timbrinded.prompttemplates.context.EditorAnchor
 import dev.timbrinded.prompttemplates.context.PromptContextResolver
 import dev.timbrinded.prompttemplates.core.DiagnosticSeverity
@@ -48,6 +51,7 @@ internal data class InvocationPresentation(
     val capturing: Boolean = false,
     val contextChanged: Boolean = false,
     val templateProblem: String? = null,
+    val attachments: List<CapturedAttachment> = emptyList(),
 ) {
     val deliveryProblem: String?
         get() = when {
@@ -147,6 +151,20 @@ internal class PromptInvocationSession(
         mutableState.value = current.copy(invocation = current.invocation.resetValues())
     }
 
+    val attachmentGeneration: Int get() = sessionGeneration
+
+    fun setAttachments(expectedGeneration: Int, attachments: List<CapturedAttachment>): Boolean {
+        val current = mutableState.value ?: return false
+        if (disposed || sessionGeneration != expectedGeneration || ATTACHMENTS_CONTEXT_KEY !in current.invocation.referencedContext) return false
+        val captured = ContextAttachments(attachments.map(CapturedAttachment::content))
+        mutableState.value = current.copy(
+            attachments = attachments.toList(),
+            invocation = PromptInvocation(current.invocation.stored, current.invocation.values,
+                current.invocation.context + (ATTACHMENTS_CONTEXT_KEY to captured.contextValue())),
+        )
+        return true
+    }
+
     fun refreshContext() = capture(activeAnchor())
 
     fun selectInsertionTarget() {
@@ -164,11 +182,14 @@ internal class PromptInvocationSession(
             val context = PromptContextResolver.resolve(project, current.invocation.referencedContext, source)
             if (!isCurrent(request)) return@launch
             val latest = mutableState.value ?: return@launch
+            val capturedContext = if (ATTACHMENTS_CONTEXT_KEY in latest.invocation.referencedContext) {
+                context + (ATTACHMENTS_CONTEXT_KEY to ContextAttachments(latest.attachments.map(CapturedAttachment::content)).contextValue())
+            } else context
             mutableState.value = latest.copy(
-                invocation = PromptInvocation(latest.invocation.stored, latest.invocation.values, context),
+                invocation = PromptInvocation(latest.invocation.stored, latest.invocation.values, capturedContext),
                 capturing = false,
                 contextChanged = latest.contextChanged || (
-                    latest.invocation.referencedContext.any { it.startsWith("ide.") && it != "ide.project.name" } &&
+                    latest.invocation.referencedContext.any { it.startsWith("ide.") && it != "ide.project.name" && it != ATTACHMENTS_CONTEXT_KEY } &&
                         source?.isCurrent() == false
                     ),
             )
@@ -270,7 +291,7 @@ internal class PromptInvocationSession(
     private fun checkSource() = UIUtil.invokeLaterIfNeeded {
         if (disposed) return@invokeLaterIfNeeded
         val current = mutableState.value ?: return@invokeLaterIfNeeded
-        if (current.invocation.referencedContext.none { it.startsWith("ide.") && it != "ide.project.name" }) return@invokeLaterIfNeeded
+        if (current.invocation.referencedContext.none { it.startsWith("ide.") && it != "ide.project.name" && it != ATTACHMENTS_CONTEXT_KEY }) return@invokeLaterIfNeeded
         val source = sourceAnchor
         if (source == null || !source.isCurrent() || selectedEditor() !== source.editor) markContextChanged()
     }

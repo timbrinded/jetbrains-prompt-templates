@@ -40,6 +40,8 @@ dependencies {
 
     intellijPlatform {
         intellijIdea("2026.2.0.1")
+        bundledPlugin("Git4Idea")
+        bundledModules("intellij.platform.vcs.dvcs", "intellij.platform.vcs.dvcs.impl")
         testFramework(
             TestFrameworkType.Starter,
             configurationName = "integrationTestImplementation",

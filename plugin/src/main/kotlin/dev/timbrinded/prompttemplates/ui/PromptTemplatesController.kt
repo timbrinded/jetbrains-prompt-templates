@@ -362,6 +362,7 @@ internal class PromptTemplatesController(
             UseViewAction.EXPORT_TEMPLATE -> exportTemplate()
             UseViewAction.EXPORT_RENDERED -> exportRendered()
             UseViewAction.DELETE -> deleteActive()
+            UseViewAction.ADD_CONTEXT -> projectService.manageAttachments()
             UseViewAction.REFRESH_CONTEXT -> invocation.refreshContext()
             UseViewAction.RELOAD_TEMPLATE -> invocation.checkTemplate(reload = true)
             UseViewAction.SELECT_INSERTION_TARGET -> invocation.selectInsertionTarget()

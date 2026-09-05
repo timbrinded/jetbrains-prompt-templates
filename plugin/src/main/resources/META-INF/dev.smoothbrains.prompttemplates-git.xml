@@ -1,0 +1,7 @@
+<idea-plugin>
+    <extensions defaultExtensionNs="com.intellij">
+        <projectService
+                serviceInterface="dev.timbrinded.prompttemplates.attachments.GitDiffCapture"
+                serviceImplementation="dev.timbrinded.prompttemplates.attachments.git.GitDiffCaptureImpl"/>
+    </extensions>
+</idea-plugin>

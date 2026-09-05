@@ -303,6 +303,7 @@ internal class QuickUseDialog(
             useHost.add(JBLabel(current.stored.template.metadata.name), BorderLayout.NORTH)
             useHost.add(createUseViewContent(inputs.isNotEmpty(), formScroll, previewPanel), BorderLayout.CENTER)
             useHost.add(ResponsiveActionsPanel().apply {
+                add(JButton("Add Context…").apply { addActionListener { service.manageAttachments() } })
                 add(JButton("Choose Another").apply { addActionListener { showPicker(); filterResults() } })
                 add(JButton("Open in Tool Window").apply {
                     addActionListener {
