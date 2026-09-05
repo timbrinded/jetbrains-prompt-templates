@@ -4,6 +4,8 @@ The twelve implementation issues in [roadmap #15](https://github.com/timbrinded/
 
 The library manages templates. Quick Use invokes them through the same session, validation, rendering and delivery code. Templates remain portable Markdown with typed JSON metadata. The plugin uses native JetBrains UI and does not execute prompts or contact an agent service.
 
+The closing roadmap review also corrected reused form controls after Quick Use Copy. Both open views now show the current session values, including changes from the other view and resets; unchanged text selections are retained.
+
 ## Delivered work
 
 Each issue had a separate PR. Each PR was merged only after exploratory testing, the full end-to-end suite, unit/build checks, compatibility verification and green CI. The next issue started after that merge.
@@ -25,7 +27,7 @@ Each issue had a separate PR. Each PR was merged only after exploratory testing,
 
 ## Validation and operating limits
 
-The final feature commit, [`166d79b`](https://github.com/timbrinded/jetbrains-prompt-templates/commit/166d79b0a64717d429dac7b616741fa3b011827c), passed 153 unit tests and all 23 end-to-end scenarios with no failures or skipped tests. The real-IDE suite uses isolated WebStorm 2026.2 instances. Plugin Verifier checks RustRover 2026.2 and WebStorm 2026.2. These are distinct checks; they do not establish runtime coverage for every compatible IDE or operating system.
+At the completion of PRs #16–#27, commit [`166d79b`](https://github.com/timbrinded/jetbrains-prompt-templates/commit/166d79b0a64717d429dac7b616741fa3b011827c) passed 153 unit tests and all 23 end-to-end scenarios with no failures or skipped tests. The closing review adds unit and IDE regressions for shared form controls. The real-IDE suite uses isolated WebStorm 2026.2 instances. Plugin Verifier checks RustRover 2026.2 and WebStorm 2026.2. These are distinct checks; they do not establish runtime coverage for every compatible IDE or operating system.
 
 The [README](../README.md#build-and-run) explains full-suite execution, native exploratory sessions and the required `signoff/e2e` status. PR descriptions record validation for each delivered change. The [Quick Use benchmark](quick-use-benchmark.md) records the 500-template workload and review targets.
 

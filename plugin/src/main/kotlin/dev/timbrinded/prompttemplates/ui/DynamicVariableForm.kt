@@ -25,14 +25,16 @@ import javax.swing.JButton
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import javax.swing.event.DocumentEvent
+import javax.swing.text.JTextComponent
 
 internal class DynamicVariableForm(
-    variables: List<PromptVariable>,
+    private val variables: List<PromptVariable>,
     private val accents: Map<String, VariableAccent>,
     private val values: Map<String, String>,
     private val onChanged: (String, String) -> Unit,
 ) : JPanel() {
     private val controls = mutableMapOf<String, JComponent>()
+    private var updatingValues = false
 
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -49,6 +51,24 @@ internal class DynamicVariableForm(
 
     fun focusVariable(key: String) {
         controls[key]?.requestFocusInWindow()
+    }
+
+    fun updateValues(values: Map<String, String>) {
+        // Session updates must not feed back through listeners or replace the document being typed in.
+        updatingValues = true
+        try {
+            for (variable in variables) {
+                val value = values[variable.key] ?: variable.initialValue()
+                when (val input = controls.getValue(variable.key)) {
+                    is JTextComponent -> if (input.text != value) input.text = value
+                    is ComboBox<*> -> if ((input.selectedItem as? EnumChoice)?.id != value) {
+                        input.selectedItem = enumChoices(variable).firstOrNull { it.id == value }
+                    }
+                }
+            }
+        } finally {
+            updatingValues = false
+        }
     }
 
     private fun createVariableRow(variable: PromptVariable): JPanel {
@@ -114,7 +134,7 @@ internal class DynamicVariableForm(
         field.accessibleContext.accessibleName = variable.label
         field.document.addDocumentListener(object : DocumentAdapter() {
             override fun textChanged(event: DocumentEvent) {
-                onChanged(variable.key, field.text)
+                if (!updatingValues) onChanged(variable.key, field.text)
             }
         })
         controls[variable.key] = field
@@ -131,7 +151,7 @@ internal class DynamicVariableForm(
         area.accessibleContext.accessibleName = variable.label
         area.document.addDocumentListener(object : DocumentAdapter() {
             override fun textChanged(event: DocumentEvent) {
-                onChanged(variable.key, area.text)
+                if (!updatingValues) onChanged(variable.key, area.text)
             }
         })
         val scroll = JBScrollPane(area)
@@ -147,7 +167,7 @@ internal class DynamicVariableForm(
         val selectedChoice = choices.firstOrNull { it.id == selected } ?: choices.first()
         combo.selectedItem = selectedChoice
         combo.addActionListener {
-            onChanged(variable.key, (combo.selectedItem as? EnumChoice)?.id.orEmpty())
+            if (!updatingValues) onChanged(variable.key, (combo.selectedItem as? EnumChoice)?.id.orEmpty())
         }
         controls[variable.key] = combo
         return combo

@@ -318,6 +318,7 @@ internal class QuickUseDialog(
             }, BorderLayout.SOUTH)
             useHost.revalidate()
         }
+        form?.updateValues(current.values)
         preview.text = current.render.renderedText
         context.text = current.referencedContext.joinToString("\n") { key ->
             val value = current.context[key]
