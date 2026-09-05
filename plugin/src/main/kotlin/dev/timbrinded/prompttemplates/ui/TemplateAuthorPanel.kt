@@ -1,7 +1,6 @@
 package dev.timbrinded.prompttemplates.ui
 
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
@@ -21,7 +20,6 @@ import dev.timbrinded.prompttemplates.core.PromptTemplateDraft
 import dev.timbrinded.prompttemplates.core.PromptVariable
 import dev.timbrinded.prompttemplates.core.PromptVariableType
 import dev.timbrinded.prompttemplates.core.TemplateReconciler
-import dev.timbrinded.prompttemplates.core.USER_VARIABLE_KEY_REGEX
 import dev.timbrinded.prompttemplates.core.VariableEditorState
 import java.awt.BorderLayout
 import java.awt.Dimension
@@ -30,6 +28,8 @@ import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import javax.swing.DefaultListModel
 import javax.swing.JButton
+import javax.swing.JMenuItem
+import javax.swing.JPopupMenu
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.ListSelectionModel
@@ -56,6 +56,7 @@ class TemplateAuthorPanel(
         FileTypeManager.getInstance().getFileTypeByExtension("md"),
     )
     private val wordWrapToggle = JBCheckBox("Word wrap", true)
+    private val contextExplanation = JBLabel().setAllowAutoWrapping(true).apply { isVisible = false }
     private val variableModel = DefaultListModel<PromptVariable>()
     private val variableList = JBList(variableModel)
     private val inspector = VariableInspectorPanel(
@@ -65,6 +66,11 @@ class TemplateAuthorPanel(
     )
     private val moveUp = JButton("Move Up").apply { addActionListener { moveVariable(-1) } }
     private val moveDown = JButton("Move Down").apply { addActionListener { moveVariable(1) } }
+    private val variableActions = AuthorVariableActions(project, markdownEditor, variableState, this,
+        refresh = ::refreshVariableSelection,
+        explainContext = { text -> contextExplanation.text = text; contextExplanation.isVisible = text.isNotEmpty(); revalidate() },
+        showError = ::showDiagnostic,
+    )
     private val diagnostics = JBTextArea(2, 0).apply {
         isEditable = false
         lineWrap = true
@@ -128,8 +134,16 @@ class TemplateAuthorPanel(
         editorPanel.border = JBUI.Borders.emptyTop(8)
         val editorHeader = JPanel(BorderLayout()).apply {
             isOpaque = false
-            add(JBLabel("Template Markdown"), BorderLayout.WEST)
+            add(JButton("Template Markdown ▾").apply {
+                addActionListener {
+                    JPopupMenu().apply {
+                        add(JMenuItem("Insert Variable…").apply { addActionListener { variableActions.insertVariable() } })
+                        add(JMenuItem("Extract as Variable…").apply { addActionListener { variableActions.extractVariable() } })
+                    }.show(this, 0, height)
+                }
+            }, BorderLayout.WEST)
             add(wordWrapToggle, BorderLayout.EAST)
+            add(contextExplanation, BorderLayout.SOUTH)
         }
         editorPanel.add(editorHeader, BorderLayout.NORTH)
         editorPanel.add(markdownEditor, BorderLayout.CENTER)
@@ -210,6 +224,16 @@ class TemplateAuthorPanel(
         moveDown.isEnabled = variableList.selectedIndex in 0 until variableModel.size - 1
     }
 
+    private fun refreshVariableSelection(key: String?, focus: Boolean) {
+        reconcileVariables()
+        val index = variableState.variables.indexOfFirst { it.key == key }
+        if (index >= 0) {
+            variableList.selectedIndex = index
+            variableList.ensureIndexIsVisible(index)
+            if (focus) inspector.focusKey()
+        }
+    }
+
     private fun moveVariable(offset: Int) {
         val index = variableList.selectedIndex
         val destination = index + offset
@@ -245,21 +269,7 @@ class TemplateAuthorPanel(
     }
 
     private fun renameSelectedVariable() {
-        val index = variableList.selectedIndex
-        val variables = variableState.variables
-        if (index !in variables.indices) return
-        val newKey = inspector.keyText.trim()
-        val oldKey = variables[index].key
-        when {
-            !USER_VARIABLE_KEY_REGEX.matches(newKey) -> showDiagnostic("Invalid variable key '$newKey'.")
-            variables.any { it.key == newKey && it.key != oldKey } -> showDiagnostic("Variable '$newKey' already exists.")
-            else -> {
-                variableState.updateAt(index) { it.copy(key = newKey) }
-                WriteCommandAction.runWriteCommandAction(project) {
-                    markdownEditor.document.setText(reconciler.rename(markdownEditor.text, oldKey, newKey))
-                }
-            }
-        }
+        variableActions.renameVariable(variableList.selectedIndex, inspector.keyText.trim())
     }
 
     private fun save() {

@@ -70,6 +70,11 @@ class PromptTemplatesUi(
         clickContextMenuItem(label)
     }
 
+    fun clickAuthorAction(label: String) {
+        clickButton("Template Markdown ▾")
+        clickContextMenuItem(label)
+    }
+
     fun newTemplate() {
         clickButton("New")
         clickContextMenuItem("New Template")
