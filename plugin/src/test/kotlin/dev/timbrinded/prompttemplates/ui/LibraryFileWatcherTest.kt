@@ -140,6 +140,22 @@ class LibraryFileWatcherTest {
     }
 
     @Test
+    fun `poll snapshot detects a journal created and removed between polls`() {
+        val library = Files.createDirectory(temporaryDirectory.resolve("library"))
+        val template = Files.createDirectory(library.resolve("Template"))
+        Files.writeString(template.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE), "unchanged")
+        val before = snapshotPromptLibrary(library)
+        val modified = Files.getLastModifiedTime(template)
+        val journal = Files.writeString(template.resolve(FileSystemPromptTemplateRepository.SAVE_JOURNAL_FILE), "transient")
+        Files.delete(journal)
+        // Ensure the distinction also holds on filesystems with coarse timestamp precision.
+        Files.setLastModifiedTime(template, FileTime.fromMillis(modified.toMillis() + 10_000L))
+        val after = snapshotPromptLibrary(library)
+        assertEquals(before.entries.filterNot { it.directory }, after.entries.filterNot { it.directory })
+        assertNotEquals(before, after)
+    }
+
+    @Test
     fun `poll snapshot detects same-size control file modifications from metadata`() {
         val library = Files.createDirectory(temporaryDirectory.resolve("library"))
         val template = Files.createDirectory(library.resolve("Template"))

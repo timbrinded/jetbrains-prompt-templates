@@ -157,10 +157,6 @@ internal fun snapshotPromptLibrary(root: Path): LibraryPollSnapshot {
         val directoryAttributes = (if (isRoot) readRootAttributes(directory) else readAttributesNoFollow(directory))
             ?: continue
         if (!directoryAttributes.isDirectory || (!isRoot && directoryAttributes.isSymbolicLink)) continue
-        entries += LibraryPollEntry(
-            relativePath = relativePollPath(normalizedRoot, directory),
-            directory = true,
-        )
 
         // One attribute read per child serves both the control-file records and the descent below.
         val children = listDirectoryNoFollow(directory).mapNotNull { child ->
@@ -182,11 +178,19 @@ internal fun snapshotPromptLibrary(root: Path): LibraryPollSnapshot {
                 fileKey = attributes.fileKey()?.toString(),
             )
         }
+        val isTemplatePackage = controlFiles.any { entry -> entry.relativePath.substringAfterLast('/') in TEMPLATE_PACKAGE_FILES }
+        entries += LibraryPollEntry(
+            relativePath = relativePollPath(normalizedRoot, directory),
+            directory = true,
+            // A UI scan can see a transient journal that appears and disappears between two polls.
+            // Its parent mtime still changes, so the next poll clears that intermediate recovery state.
+            modifiedAt = directoryAttributes.lastModifiedTime().takeIf { isTemplatePackage },
+        )
         entries += controlFiles
 
         // A canonical template file makes this directory one template package. Its nested files and
         // directories are support data, not organiser nodes, so stop at the package boundary.
-        if (controlFiles.any { entry -> entry.relativePath.substringAfterLast('/') in TEMPLATE_PACKAGE_FILES }) {
+        if (isTemplatePackage) {
             continue
         }
         children.forEach { (child, attributes) ->
