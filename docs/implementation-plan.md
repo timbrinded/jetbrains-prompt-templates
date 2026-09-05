@@ -1,10 +1,12 @@
 # JetBrains Prompt Templates Plugin — Full Implementation Plan
 
 **Working product name:** Prompt Templates  
-**Document status:** Implementation-ready proposal  
+**Document status:** Original plan with later implementation notes  
 **Prepared:** 3 August 2026  
 **Primary platforms:** IntelliJ Platform-based desktop IDEs, including IntelliJ IDEA, WebStorm and RustRover  
 **Primary language:** Kotlin  
+
+The [invocation and authoring roadmap](roadmap.md) records the delivered scope of issues #3–#14. Other proposals and version-1.0 acceptance criteria in this plan are not implied complete by that delivery.
 
 ---
 

@@ -4,9 +4,11 @@ A native JetBrains workbench for reusable, typed prompt templates. Templates are
 
 The plugin is agent-agnostic. It renders exact text, copies it to the clipboard, or inserts it into an explicitly identified editor target. It does not make network requests, execute prompts, or depend on private AI Assistant or Junie APIs.
 
-## Current release
+## Release and development status
 
 `0.2.0` is the latest functional beta for standalone JetBrains IDEs based on IntelliJ Platform, with minimum build 262 (2026.2). The explicit verification matrix covers RustRover 2026.2 and WebStorm 2026.2; other compatible products are intended targets but have not yet been individually verified.
+
+The workflows below describe the current source tree. The [completed invocation and authoring roadmap](docs/roadmap.md) records changes merged after `0.2.0`; these changes have not yet been published in a new release.
 
 Implemented workflows:
 
