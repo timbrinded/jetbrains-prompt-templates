@@ -16,6 +16,7 @@ Implemented workflows:
 - Move and reorder folders or templates with drag-and-drop or keyboard actions.
 - Use focused root, folder and template context menus for common library actions.
 - Create and edit templates inside a native tool window.
+- Duplicate authored templates or create a draft from an editor selection.
 - Discover and highlight `{{variable}}` placeholders while typing.
 - Configure Text, Multiline and Enum variables.
 - Resolve `ide.selection`, current-file, project and clipboard context.
@@ -38,6 +39,12 @@ Type to search. Up and Down select a row; Enter opens its form and exact preview
 Empty search puts favourites and recents first, followed by the remaining library. Explicit searches rank exact names, name prefixes, other name matches, tags/folder paths, then descriptions/body text. Text relevance comes before favourite/recent ordering. Each row shows its folder path and input/context counts.
 
 Favourites and the last 20 successful template deliveries are local IDE settings, scoped to the library directory and keyed by UUID. Rename and move preserve identity. Missing entries are ignored. This state stores only library paths, template identities and ordering; it contains no prompt text, captured context or input values.
+
+### Duplicate and capture
+
+Choose **Duplicate Template…** in a template's context menu or its **File** menu, then choose a destination folder. The author draft has a new UUID and an available suggested name. It retains the source Markdown, schema, tags and authored defaults. Current input values and captured context are not copied into defaults. Only **Save Template** writes the new package; Cancel leaves the source unchanged.
+
+Run **Create Template from Selection…** from Find Action or the editor context menu. You can bind `PromptTemplates.CreateFromSelection` in the keymap. It captures the selected text before opening the author view. With no selection, it asks you to select text. If the selection contains `{{`, choose **Preserve Literally** (the default) or **Interpret Placeholders**. Literal capture escapes each opening so rendering restores the original text, including existing backslashes. Interpretation uses the normal placeholder and variable rules. Save validates the name and destination through the normal creation path. Finish or cancel an open author draft before starting another.
 
 ### Context and output
 

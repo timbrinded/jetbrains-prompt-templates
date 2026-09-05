@@ -4,6 +4,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.application.EDT
@@ -83,6 +84,23 @@ class PromptTemplatesProjectService(
     }
 
     fun newTemplate() = show(PromptTemplatesPanel::startNewTemplate)
+
+    internal fun createFromSelection(editor: Editor?) {
+        if (panelReference?.get()?.authorOpen == true) {
+            PromptTemplatesNotifications.warning(project, "Save or cancel the open template before creating another template.")
+            show()
+            return
+        }
+        val source = (editor ?: FileEditorManager.getInstance(project).selectedTextEditor)?.takeIf { !it.isDisposed }
+        val text = source?.selectionModel?.selectedText
+        if (text.isNullOrEmpty()) {
+            PromptTemplatesNotifications.warning(project, "Select text in an editor before creating a template from selection.")
+            return
+        }
+        val sourceName = FileDocumentManager.getInstance().getFile(source.document)?.name ?: "selected text"
+        quickUseDialog?.close(DialogWrapper.CANCEL_EXIT_CODE)
+        show { panel -> panel.startTemplateFromSelection(text, sourceName) }
+    }
 
     internal fun quickUse(editor: Editor?) {
         quickUseDialog?.let { it.toFront(); return }

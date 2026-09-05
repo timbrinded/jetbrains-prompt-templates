@@ -55,6 +55,7 @@ internal enum class LibraryTreeCommand {
     EXPAND_ALL,
     COLLAPSE_ALL,
     EDIT_TEMPLATE,
+    DUPLICATE_TEMPLATE,
     MOVE_TO_FOLDER,
     MOVE_UP,
     MOVE_DOWN,
@@ -457,6 +458,7 @@ internal val FOLDER_COMMANDS: List<MenuCommand?> = listOf(
 
 internal val TEMPLATE_COMMANDS: List<MenuCommand?> = listOf(
     MenuCommand(LibraryTreeCommand.EDIT_TEMPLATE, "Edit"),
+    MenuCommand(LibraryTreeCommand.DUPLICATE_TEMPLATE, "Duplicate Template…"),
     MenuCommand(LibraryTreeCommand.OPEN_MARKDOWN, "Open Markdown"),
     null,
     MenuCommand(LibraryTreeCommand.MOVE_TO_FOLDER, "Move to Folder…"),

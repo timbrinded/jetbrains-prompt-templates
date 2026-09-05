@@ -8,6 +8,23 @@ class PlaceholderParserTest {
     private val parser = LinearPlaceholderParser()
 
     @Test
+    fun `literal capture round trips escaped malformed and overlapping openings through rendering`() {
+        val renderer = StrictPromptRenderer(parser)
+        val selections = listOf(
+            "", "  \t\r\n", "猫 {{name}} 🦧", "{{ide.selection}} {{clipboard}}",
+            "\\{{already_escaped}}", "\\\\{{two_backslashes}}", "{{", "{{bad key}}",
+            "{{{name}}}", "{{{{", "{{outer {{inner}}", "\\{{{{{\\{{end}}",
+        )
+        for (selection in selections) {
+            val draft = PromptTemplateDraft(name = "Captured text", markdown = escapePlaceholderOpenings(selection))
+            val rendered = renderer.render(draft.toTemplate(), emptyMap(), emptyMap())
+            assertTrue(rendered.isValid, rendered.diagnostics.toString())
+            assertEquals(selection, rendered.renderedText)
+            assertTrue(parser.parse(draft.markdown).placeholders.isEmpty())
+        }
+    }
+
+    @Test
     fun `parses user and context placeholders with whitespace`() {
         val result = parser.parse("Hello {{ name }} from {{ide.project.name}} and {{repeat}} {{repeat}}")
 

@@ -19,6 +19,9 @@ fun interface PlaceholderParser {
     fun parse(markdown: String): ParseResult
 }
 
+/** Preserve every opening literally, including an opening that already has a backslash. */
+fun escapePlaceholderOpenings(text: String): String = text.replace("{{", "\\{{")
+
 class LinearPlaceholderParser : PlaceholderParser {
     override fun parse(markdown: String): ParseResult {
         val placeholders = mutableListOf<PlaceholderToken>()

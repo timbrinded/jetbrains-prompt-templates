@@ -54,6 +54,13 @@
 
     <actions>
         <action
+                id="PromptTemplates.CreateFromSelection"
+                class="dev.timbrinded.prompttemplates.action.CreateTemplateFromSelectionAction"
+                text="Create Template from Selection…"
+                description="Capture selected text into a new prompt template draft">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+        <action
                 id="PromptTemplates.Use"
                 class="dev.timbrinded.prompttemplates.action.UsePromptTemplateAction"
                 text="Use Prompt Template…"

@@ -1150,6 +1150,8 @@ The design rule is not merely “use Swing”. It is to reuse the IntelliJ Platf
 
 Authoring operates on an in-memory draft rather than immediately modifying canonical files.
 
+Duplicate Template opens this same draft flow with a fresh UUID, an available suggested name and a chosen destination folder. It copies stored Markdown and authored metadata, including defaults and unused variable definitions. It does not read invocation values or captured context. Create Template from Selection captures the editor selection before moving focus. Missing selection produces a clear message. Text containing placeholder openings requires an explicit literal-or-interpret choice, with literal preservation selected by default. Literal capture adds one escape before every opening, including already escaped openings, so rendering reproduces the original selection. Both flows write only through the existing validated create operation on Save; open author drafts block replacement.
+
 Benefits:
 
 - `Cancel` is reliable.

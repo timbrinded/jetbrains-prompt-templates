@@ -3,7 +3,7 @@ package dev.timbrinded.prompttemplates.ui
 import java.util.concurrent.atomic.AtomicInteger
 import java.nio.file.Path
 
-internal enum class TemplateDetailIntent { USE, EDIT }
+internal enum class TemplateDetailIntent { USE, EDIT, DUPLICATE }
 
 internal data class TemplateDetailTarget(
     val directory: Path,

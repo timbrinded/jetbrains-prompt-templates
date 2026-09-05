@@ -226,6 +226,7 @@ class TemplateLibraryTreeTest {
         assertEquals(
             listOf(
                 LibraryTreeCommand.EDIT_TEMPLATE,
+                LibraryTreeCommand.DUPLICATE_TEMPLATE,
                 LibraryTreeCommand.OPEN_MARKDOWN,
                 null,
                 LibraryTreeCommand.MOVE_TO_FOLDER,
