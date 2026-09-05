@@ -42,6 +42,7 @@ internal class WorkedExamplesDialog(project: Project, destination: Path, example
 
     override fun createCenterPanel(): JComponent = JPanel(BorderLayout(JBUI.scale(8), JBUI.scale(8))).apply {
         preferredSize = JBUI.size(780, 460)
+        minimumSize = JBUI.size(480, 320)
         add(introduction, BorderLayout.NORTH)
         add(OnePixelSplitter(false, .3f).apply {
             firstComponent = JBScrollPane(choices)
