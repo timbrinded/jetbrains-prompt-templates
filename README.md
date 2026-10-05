@@ -209,9 +209,11 @@ The plugin has no networking, telemetry or prompt execution. Current variable va
 
 ## Compatibility and release work
 
-The plugin declares only the shared `com.intellij.modules.platform` dependency. Product compatibility therefore covers standalone JetBrains IDEs that provide that module, with minimum platform build 262. It does not depend on a product-specific language or framework module.
+The plugin's only mandatory dependency is the shared `com.intellij.modules.platform` module. Product compatibility therefore covers standalone JetBrains IDEs that provide that module, with minimum platform build 262. It does not depend on a product-specific language or framework module. Git4Idea is an optional dependency: without it, the attachment manager reports that Git capture is unavailable and file capture still works.
 
-CI compiles, tests and builds the plugin ZIP on JDK 25, then runs Plugin Verifier against RustRover 2026.2 and WebStorm 2026.2. The slower WebStorm Starter/Driver E2E suite is a local check. Those verified hosts are not a product whitelist. Before a public 1.0 release, the verifier and manual UI matrix should expand across representative compatible products. Remote-development topology remains a separate, unverified target.
+CI compiles, tests and builds the plugin ZIP on JDK 25, then runs Plugin Verifier against RustRover 2026.2 and WebStorm 2026.2. The core tests also run on Windows and macOS. A weekly workflow verifies the plugin against the newest release and EAP builds of IntelliJ IDEA, RustRover and WebStorm, so platform changes surface before Marketplace verification. The slower WebStorm Starter/Driver E2E suite is a local check. Those verified hosts are not a product whitelist. Before a public 1.0 release, the verifier and manual UI matrix should expand across representative compatible products. Remote-development topology remains a separate, unverified target.
+
+Pull requests to `main` require the CI `build` check and the local `signoff/e2e` status. Releases are cut by pushing a `v<version>` tag that matches the project version. The release workflow tests, builds and verifies the plugin, then publishes a GitHub release with the plugin ZIP, the component JARs, `SHA256SUMS` and notes taken from the matching `CHANGELOG.md` entry. When the `PUBLISH_TOKEN` repository secret is set, the same workflow uploads the ZIP to JetBrains Marketplace. The plugin's Marketplace change notes are also generated from `CHANGELOG.md`.
 
 ## License
 
