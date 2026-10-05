@@ -1,19 +1,16 @@
 package dev.timbrinded.prompttemplates.core
 
 import java.io.IOException
-import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.DirectoryIteratorException
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.nio.file.attribute.BasicFileAttributes
 import java.util.UUID
 import kotlin.io.path.extension
 import kotlin.io.path.name
 import kotlin.io.path.nameWithoutExtension
 import kotlin.io.path.useDirectoryEntries
-import kotlin.uuid.Uuid
 
 internal inline fun <T> protectRepositoryOperation(
     operation: String,
@@ -260,9 +257,9 @@ class FileSystemPromptTemplateRepository internal constructor(
 
         val previousOrder = orders.effective(parent)
         if (destinationExists) {
-            moveCaseOnlyFolder(safeDirectory, destination)
+            LibraryMoves.moveCaseOnly(safeDirectory, destination)
         } else {
-            moveWithoutReplacement(safeDirectory, destination)
+            LibraryMoves.moveWithoutReplacement(safeDirectory, destination)
         }
         val updatedOrder = previousOrder.replacing(
             safeDirectory.name,
@@ -325,7 +322,7 @@ class FileSystemPromptTemplateRepository internal constructor(
                     "Entries cannot be moved between filesystems. No files were changed.",
                 )
             }
-            moveWithoutReplacement(safeEntry, target)
+            LibraryMoves.moveWithoutReplacement(safeEntry, target)
             target
         }
 
@@ -411,69 +408,6 @@ class FileSystemPromptTemplateRepository internal constructor(
             candidate.path != excluded && candidate.visibleName.trim().equals(name.trim(), ignoreCase = true)
         }
     }
-
-    private fun moveWithoutReplacement(source: Path, destination: Path): Path {
-        try {
-            return Files.move(source, destination, StandardCopyOption.ATOMIC_MOVE)
-        } catch (_: AtomicMoveNotSupportedException) {
-            return Files.move(source, destination)
-        }
-    }
-
-    private fun moveCaseOnlyFolder(source: Path, destination: Path) {
-        val temporary = nextCaseRenameTemporaryPath(source.parent)
-        moveWithoutReplacement(source, temporary)
-        try {
-            moveWithoutReplacement(temporary, destination)
-        } catch (error: IOException) {
-            throw rollbackCaseOnlyRename(temporary, source, error)
-        } catch (error: SecurityException) {
-            throw rollbackCaseOnlyRename(
-                temporary,
-                source,
-                IOException("Permission was denied while applying the requested folder-name casing.", error),
-            )
-        }
-    }
-
-    private fun nextCaseRenameTemporaryPath(parent: Path): Path {
-        while (true) {
-            val candidate = parent.resolve("${LibraryLayout.RENAME_SCRATCH_PREFIX}${Uuid.random()}")
-            if (!Files.exists(candidate, NOFOLLOW_LINKS)) return candidate
-        }
-    }
-
-    private fun rollbackCaseOnlyRename(
-        temporary: Path,
-        source: Path,
-        renameError: IOException,
-    ): IOException {
-        if (!Files.exists(temporary, NOFOLLOW_LINKS) || Files.exists(source, NOFOLLOW_LINKS)) {
-            return IOException(
-                "Unable to apply the requested folder-name casing. ${retainedScratchFolderHint(temporary)}",
-                renameError,
-            )
-        }
-        return try {
-            moveWithoutReplacement(temporary, source)
-            renameError
-        } catch (rollbackError: IOException) {
-            IOException(
-                "Unable to apply the requested folder-name casing or restore the original name. " +
-                    retainedScratchFolderHint(temporary),
-                renameError,
-            ).apply { addSuppressed(rollbackError) }
-        } catch (rollbackError: SecurityException) {
-            IOException(
-                "Unable to apply the requested folder-name casing or restore the original name. " +
-                    retainedScratchFolderHint(temporary),
-                renameError,
-            ).apply { addSuppressed(rollbackError) }
-        }
-    }
-
-    private fun retainedScratchFolderHint(temporary: Path): String =
-        "The folder remains at '$temporary'. It is hidden from the library; rename it in a file manager to restore it."
 
     private fun ensureDestinationParent(destination: Path) {
         destination.parent?.let(Files::createDirectories)
