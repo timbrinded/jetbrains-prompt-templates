@@ -24,8 +24,9 @@ internal data class TemplateFiles(val markdown: String?, val metadata: String?) 
     val revision: TemplateRevision get() = TemplateRevision.of(markdown, metadata)
 }
 
+/** Commit boundaries of a save. Each leaves a different set of files on disk, so crash tests stop at each one. */
 internal enum class TemplateSaveStep {
-    BEFORE_STAGE, AFTER_STAGE, BEFORE_MARKDOWN, AFTER_MARKDOWN, BEFORE_METADATA, AFTER_METADATA,
+    BEFORE_STAGE, AFTER_STAGE, AFTER_MARKDOWN, AFTER_METADATA,
 }
 
 internal class TemplateRevisionMismatch : IOException("The template changed while preparing the save.")
@@ -86,12 +87,10 @@ internal class TemplateFileStore(
             }
             return current
         }
-        step(TemplateSaveStep.BEFORE_MARKDOWN)
         if (checkedCurrent().revision.markdown != next.markdown) {
             replaceAtomically(directory.resolve(LibraryLayout.MARKDOWN_FILE), journal.markdown)
         }
         step(TemplateSaveStep.AFTER_MARKDOWN)
-        step(TemplateSaveStep.BEFORE_METADATA)
         if (checkedCurrent().revision.metadata != next.metadata) {
             replaceAtomically(directory.resolve(LibraryLayout.METADATA_FILE), journal.metadata)
         }
