@@ -151,11 +151,11 @@ Requirements are JDK 25 and the included Gradle wrapper. Gradle can provision th
 
 The installable ZIP is written to `plugin/build/distributions/`. Install it with **Settings | Plugins | ⚙ | Install Plugin from Disk…**.
 
-The integration task is a local E2E check. It installs the built plugin into an isolated WebStorm 2026.2 instance (build `262.8665.259`), uses a temporary project and user home, and drives the real Swing UI with JetBrains Starter and Driver. Swing hierarchies, tree state, isolated paths and library manifests are written below `plugin/build/ui-test/`. A screenshot is also written when the display server supports capture; otherwise the directory contains a screenshot capture-error file. On headless Linux, run the task under Xvfb. A local X11 session can use its native display if it is left idle while the suite runs. Wayland compositors do not give keyboard focus to the test IDE while you use other windows, so keyboard steps fail there. Run the suite against Xvfb instead, either with `xvfb-run -a ./gradlew :plugin:integrationTest` or, without a local Xvfb, in a container that shares only its X socket:
+The integration task is a local E2E check. It installs the built plugin into an isolated WebStorm 2026.2 instance (build `262.8665.259`), uses a temporary project and user home, and drives the real Swing UI with JetBrains Starter and Driver. Swing hierarchies, tree state, isolated paths and library manifests are written below `plugin/build/ui-test/`. A screenshot is also written when the display server supports capture; otherwise the directory contains a screenshot capture-error file. On headless Linux, run the task under Xvfb. A local X11 session can use its native display if it is left idle while the suite runs. Wayland compositors do not give keyboard focus to the test IDE while you use other windows, so keyboard steps fail there. Run the suite against Xvfb with a window manager instead; several scenarios need focus to return to the IDE after a dialog closes, which bare Xvfb does not provide. Without a local Xvfb, use a container that shares only its X socket:
 
 ```bash
-docker run -d --rm --name prompt-templates-xvfb -v /tmp/.X11-unix:/tmp/.X11-unix alpine:3.22 \
-  sh -c "apk add --no-cache xvfb xkbcomp xkeyboard-config font-misc-misc font-cursor-misc && exec Xvfb :99 -screen 0 1920x1200x24 -nolisten tcp -ac"
+docker run -d --rm --name prompt-templates-xvfb -v /tmp/.X11-unix:/tmp/.X11-unix alpine:3.22 sh -c \
+  "apk add --no-cache xvfb xkbcomp xkeyboard-config font-misc-misc font-cursor-misc fluxbox && (Xvfb :99 -screen 0 1920x1200x24 -nolisten tcp -ac &) && sleep 2 && exec env DISPLAY=:99 fluxbox"
 env -u WAYLAND_DISPLAY DISPLAY=:99 ./gradlew :plugin:integrationTest
 docker stop prompt-templates-xvfb
 ```
