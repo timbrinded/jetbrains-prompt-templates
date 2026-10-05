@@ -6,7 +6,9 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.util.xmlb.annotations.Property
+import java.nio.file.InvalidPathException
 import java.nio.file.Path
 
 @Service(Service.Level.APP)
@@ -44,7 +46,7 @@ class PromptTemplatesSettings :
         }
 
     val libraryRoot: Path
-        get() = Path.of(libraryPath.ifBlank { defaultLibraryPath() }).toAbsolutePath().normalize()
+        get() = libraryRootOf(libraryPath)
 
     fun usage(root: Path = libraryRoot): LibraryUsage = state.libraryUsage
         .firstOrNull { it.libraryPath == root.toAbsolutePath().normalize().toString() }
@@ -75,8 +77,27 @@ class PromptTemplatesSettings :
 
     companion object {
         fun getInstance(): PromptTemplatesSettings = service()
-
-        private fun defaultLibraryPath(): String =
-            Path.of(System.getProperty("user.home"), "Prompt Templates").toString()
     }
+}
+
+private val LOG = logger<PromptTemplatesSettings>()
+
+@Volatile
+private var reportedInvalidLibraryPath: String? = null
+
+private fun defaultLibraryPath(): String =
+    Path.of(System.getProperty("user.home"), "Prompt Templates").toString()
+
+/**
+ * The library root for a stored path. A stored path that no longer parses, such as one saved before Settings
+ * validated it, falls back to the default library instead of breaking every project.
+ */
+internal fun libraryRootOf(libraryPath: String): Path = try {
+    Path.of(libraryPath.ifBlank { defaultLibraryPath() }).toAbsolutePath().normalize()
+} catch (_: InvalidPathException) {
+    if (reportedInvalidLibraryPath != libraryPath) {
+        reportedInvalidLibraryPath = libraryPath
+        LOG.warn("The configured prompt template library path is invalid; using the default library instead.")
+    }
+    Path.of(defaultLibraryPath()).toAbsolutePath().normalize()
 }
