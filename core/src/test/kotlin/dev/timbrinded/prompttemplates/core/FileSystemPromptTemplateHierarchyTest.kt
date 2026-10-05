@@ -695,14 +695,19 @@ class FileSystemPromptTemplateHierarchyTest(
     fun `rejects symlink paths and portable reserved folder names`() {
         val root = temporaryDirectory.resolve("library")
         val repository = FileSystemPromptTemplateRepository(root)
-        success(repository.createFolder(root, "Safe"))
+        val safe = success(repository.createFolder(root, "Safe"))
+        val sub = success(repository.createFolder(safe, "Sub"))
         val outside = temporaryDirectory.resolve("outside")
         Files.createDirectories(outside)
         val link = root.resolve("Link")
         Files.createSymbolicLink(link, outside)
+        // An alias inside the library passes the real-path containment check, so only the per-segment guard stops it.
+        Files.createSymbolicLink(root.resolve("Alias"), safe)
 
         assertIs<RepositoryResult.Failure>(repository.createFolder(link, "Escaped"))
         assertFalse(Files.exists(outside.resolve("Escaped")))
+        assertIs<RepositoryResult.Failure>(repository.createFolder(root.resolve("Alias").resolve("Sub"), "Aliased"))
+        assertFalse(Files.exists(sub.resolve("Aliased")))
         assertIs<RepositoryResult.Failure>(repository.createFolder(root, "prompt.md"))
         assertIs<RepositoryResult.Failure>(repository.createFolder(root, "bad/name"))
     }
