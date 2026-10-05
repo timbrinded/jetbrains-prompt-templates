@@ -1,5 +1,6 @@
 package dev.timbrinded.prompttemplates.core
 
+import org.junit.jupiter.api.Assumptions.assumeFalse
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.io.TempDir
@@ -7,6 +8,7 @@ import java.io.IOException
 import java.nio.file.DirectoryIteratorException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -15,6 +17,7 @@ import kotlin.io.path.readText
 import kotlin.io.path.useDirectoryEntries
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
@@ -533,6 +536,30 @@ class FileSystemPromptTemplateHierarchyTest(
         assertEquals("outside", outside.resolve("victim.txt").readText())
         assertEquals("original", displaced.resolve("victim.txt").readText())
         assertFalse(hasQuarantine(temporaryDirectory))
+    }
+
+    @Test
+    fun `forced fallback deletion restores the target when a nested entry cannot be deleted`() {
+        assumePosixPermissions()
+        val target = temporaryDirectory.resolve("target")
+        val locked = target.resolve("locked")
+        Files.createDirectories(locked)
+        Files.writeString(target.resolve("first.txt"), "first")
+        Files.writeString(locked.resolve("kept.txt"), "kept")
+        Files.setPosixFilePermissions(locked, PosixFilePermissions.fromString("r-xr-xr-x"))
+        try {
+            assumeFalse(Files.isWritable(locked), "Directory permissions do not restrict this user.")
+
+            val failure = assertFailsWith<IOException> {
+                LibraryTreeDeletion.deleteTree(target, LibraryDeletionMode.CONSERVATIVE_FALLBACK)
+            }
+
+            assertTrue(failure.message.orEmpty().contains("restored to '$target'"), failure.message)
+            assertEquals("kept", locked.resolve("kept.txt").readText())
+            assertFalse(hasQuarantine(temporaryDirectory))
+        } finally {
+            if (Files.exists(locked)) Files.setPosixFilePermissions(locked, PosixFilePermissions.fromString("rwxr-xr-x"))
+        }
     }
 
     @Test
