@@ -2,11 +2,13 @@ import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.bundling.Zip
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import org.jetbrains.intellij.platform.gradle.models.ProductRelease
 import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
 
 plugins {
     kotlin("jvm")
     id("org.jetbrains.intellij.platform")
+    id("org.jetbrains.changelog")
 }
 
 base {
@@ -63,11 +65,28 @@ intellijPlatform {
 
     pluginVerification {
         ides {
-            // Explicit verification matrix, not a product-compatibility whitelist.
-            create(IntelliJPlatformType.RustRover, "2026.2")
-            create(IntelliJPlatformType.WebStorm, "2026.2")
+            // -PverifyLatest=<IntelliJPlatformType> checks the newest release and EAP of one product (scheduled CI).
+            val latestType = providers.gradleProperty("verifyLatest").orNull?.let(IntelliJPlatformType::valueOf)
+            if (latestType != null) {
+                listOf(ProductRelease.Channel.RELEASE, ProductRelease.Channel.EAP).forEach { channel ->
+                    latest {
+                        types = listOf(latestType)
+                        channels = listOf(channel)
+                    }
+                }
+            } else {
+                // Explicit verification matrix, not a product-compatibility whitelist.
+                create(IntelliJPlatformType.RustRover, "2026.2")
+                create(IntelliJPlatformType.WebStorm, "2026.2")
+            }
         }
     }
+}
+
+changelog {
+    // The plugin's change notes are rendered from the CHANGELOG.md entry for the project version.
+    path = rootProject.file("CHANGELOG.md").canonicalPath
+    headerParserRegex = """(\d+\.\d+\.\d+)""".toRegex()
 }
 
 tasks.test {

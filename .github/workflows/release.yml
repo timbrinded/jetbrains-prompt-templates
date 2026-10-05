@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Marketplace upload runs only when this repository secret is configured.
+      PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Check tag matches the project version
+        run: |
+          version=$(sed -n 's/^ *version = "\(.*\)"$/\1/p' build.gradle.kts)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match project version $version."
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Test, build and verify plugin
+        run: ./gradlew check :plugin:buildPlugin :plugin:verifyPlugin
+
+      - name: Assemble release assets
+        run: |
+          zip="plugin/build/distributions/prompt-templates-$VERSION.zip"
+          mkdir release
+          cp "$zip" release/
+          unzip -p "$zip" "prompt-templates/lib/core-$VERSION.jar" > "release/prompt-templates-core-$VERSION.jar"
+          unzip -p "$zip" "prompt-templates/lib/plugin-$VERSION.jar" > "release/prompt-templates-plugin-$VERSION.jar"
+          (cd release && sha256sum -- *.zip *.jar > SHA256SUMS)
+
+      - name: Write release notes
+        run: |
+          ./gradlew -q :plugin:getChangelog --project-version "$VERSION" --no-header --output-file "$RUNNER_TEMP/changes.md"
+          {
+            cat "$RUNNER_TEMP/changes.md"
+            echo
+            echo "This remains a functional beta. It targets standalone JetBrains IDEs on IntelliJ Platform build 262 (2026.2) or later. RustRover 2026.2 and WebStorm 2026.2 are the verified hosts. Other compatible products and remote-development setups have not been individually verified."
+            echo
+            echo "Download \`prompt-templates-$VERSION.zip\` below and use **Settings | Plugins | ⚙ | Install Plugin from Disk…**. Marketplace availability is listed on the [Prompt Templates page](https://plugins.jetbrains.com/plugin/33414-prompt-templates)."
+            echo
+            echo "The component JARs are for inspection and reuse. Install the ZIP as the complete plugin. The GitHub ZIP is built by this workflow and is not author-signed; JetBrains signs the Marketplace distribution."
+            echo
+            echo "Use \`SHA256SUMS\` to verify the three binary assets."
+          } > "$RUNNER_TEMP/notes.md"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --verify-tag \
+            --title "Prompt Templates $VERSION" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            "release/prompt-templates-$VERSION.zip#Installable JetBrains plugin ZIP" \
+            "release/prompt-templates-core-$VERSION.jar#Core module JAR" \
+            "release/prompt-templates-plugin-$VERSION.jar#Plugin module JAR" \
+            "release/SHA256SUMS#SHA-256 checksums"
+
+      - name: Publish to JetBrains Marketplace
+        if: env.PUBLISH_TOKEN != ''
+        run: ./gradlew :plugin:publishPlugin
