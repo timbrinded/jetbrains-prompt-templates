@@ -10,8 +10,10 @@ import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
+import kotlin.io.path.name
 import kotlin.io.path.readText
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
@@ -166,21 +168,23 @@ class FileSystemPromptTemplateRepositoryTest(
     }
 
     @Test
-    fun `creates a new template without changing an existing template`() {
+    fun `creates a template whose directory name collides without changing the existing template`() {
         val repository = FileSystemPromptTemplateRepository(temporaryDirectory.resolve("library"))
         val existing = assertIs<RepositoryResult.Success<StoredTemplate>>(
-            repository.create(PromptTemplateDraft(name = "Existing", markdown = "Keep this")),
+            repository.create(PromptTemplateDraft(name = "Review!", markdown = "Keep this")),
         ).value
+        val canonicalFiles = listOf(FileSystemPromptTemplateRepository.MARKDOWN_FILE, FileSystemPromptTemplateRepository.METADATA_FILE)
+            .map(existing.directory::resolve)
+        val originalBytes = canonicalFiles.map(Files::readAllBytes)
 
         val created = assertIs<RepositoryResult.Success<StoredTemplate>>(
-            repository.create(PromptTemplateDraft(name = "New prompt", markdown = "Save this")),
+            repository.create(PromptTemplateDraft(name = "Review?", markdown = "Save this")),
         ).value
 
+        assertEquals("review", existing.directory.name)
+        assertEquals(existing.directory.resolveSibling("review-2"), created.directory)
         assertEquals("Save this", created.template.markdown)
-        assertEquals(
-            "Keep this",
-            assertIs<RepositoryResult.Success<StoredTemplate>>(repository.load(existing.directory)).value.template.markdown,
-        )
+        canonicalFiles.zip(originalBytes).forEach { (file, bytes) -> assertContentEquals(bytes, Files.readAllBytes(file)) }
     }
 
     @Test
