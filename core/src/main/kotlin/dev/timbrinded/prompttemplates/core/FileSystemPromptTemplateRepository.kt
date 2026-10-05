@@ -12,6 +12,7 @@ import java.util.UUID
 import kotlin.io.path.extension
 import kotlin.io.path.name
 import kotlin.io.path.nameWithoutExtension
+import kotlin.io.path.useDirectoryEntries
 import kotlin.uuid.Uuid
 
 internal inline fun <T> protectRepositoryOperation(
@@ -150,8 +151,22 @@ class FileSystemPromptTemplateRepository internal constructor(
         RepositoryResult.Success(StoredTemplate(template, safeDirectory, revision = revision))
     }
 
-    override fun deleteTemplate(directory: Path): RepositoryResult<Unit> = mutateLibrary("delete template") {
+    override fun deleteTemplate(directory: Path, expectedId: TemplateId?): RepositoryResult<Unit> = mutateLibrary("delete template") {
         val safeDirectory = requireTemplateDirectory(directory)
+        val unexpected = unexpectedPackageEntries(safeDirectory)
+        if (unexpected.isNotEmpty()) {
+            val shown = unexpected.take(3).joinToString(", ") { "'$it'" }
+            val more = if (unexpected.size > 3) " and ${unexpected.size - 3} more" else ""
+            return@mutateLibrary RepositoryResult.Failure(
+                "The template folder also contains $shown$more, which are not template files. " +
+                    "Move or remove them in a file manager, then delete the template again.",
+            )
+        }
+        if (expectedId != null && !currentTemplateId(safeDirectory)?.value.equals(expectedId.value, ignoreCase = true)) {
+            return@mutateLibrary RepositoryResult.Failure(
+                "The template changed on disk. Refresh the library and try again.",
+            )
+        }
         val parent = safeDirectory.parent
         val previousOrder = effectiveOrder(parent)
         LibraryTreeDeletion.deleteTree(safeDirectory)
@@ -344,8 +359,31 @@ class FileSystemPromptTemplateRepository internal constructor(
         RepositoryResult.Success(Unit, persistOrderWarnings(parent, updated))
     }
 
+    private fun unexpectedPackageEntries(directory: Path): List<String> = directory.useDirectoryEntries { entries ->
+        entries
+            .filter { Files.isDirectory(it, NOFOLLOW_LINKS) || !LibraryLayout.isTemplatePackageFileName(it.name) }
+            .map { it.name }
+            .sortedWith(String.CASE_INSENSITIVE_ORDER)
+            .toList()
+    }
+
+    /** The identity [loadLocked] would report, or null when the package cannot be read as a template. */
+    private fun currentTemplateId(directory: Path): TemplateId? {
+        val contents = try {
+            files.read(directory)
+        } catch (_: IOException) {
+            return null
+        }
+        val metadata = contents.metadata ?: return contents.markdown?.let { TemplateId(inferredId(directory)) }
+        val decoded = codec.decode(metadata) as? MetadataDecodeResult.Success ?: return null
+        return TemplateId(decoded.metadata.id)
+    }
+
+    private fun inferredId(directory: Path): String =
+        UUID.nameUUIDFromBytes(directory.toAbsolutePath().normalize().toString().encodeToByteArray()).toString()
+
     private fun inferredMetadata(directory: Path, markdown: String): TemplateMetadata {
-        val id = UUID.nameUUIDFromBytes(directory.toAbsolutePath().normalize().toString().encodeToByteArray()).toString()
+        val id = inferredId(directory)
         val variables = parser.parse(markdown).placeholders
             .filterNot(PlaceholderToken::contextReference)
             .map(PlaceholderToken::key)

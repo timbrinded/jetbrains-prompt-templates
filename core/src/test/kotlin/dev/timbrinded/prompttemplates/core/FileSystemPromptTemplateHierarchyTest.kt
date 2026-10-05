@@ -496,7 +496,7 @@ class FileSystemPromptTemplateHierarchyTest(
     }
 
     @Test
-    fun `deletes a nested template without following its support symlinks`() {
+    fun `template deletion refuses support entries and never follows a canonical symlink`() {
         val root = temporaryDirectory.resolve("library")
         val repository = FileSystemPromptTemplateRepository(root)
         val folder = success(repository.createFolder(root, "Folder"))
@@ -506,10 +506,75 @@ class FileSystemPromptTemplateHierarchyTest(
         Files.writeString(outside.resolve("keep.txt"), "keep")
         Files.createSymbolicLink(stored.directory.resolve("support"), outside)
 
+        val refused = assertIs<RepositoryResult.Failure>(repository.deleteTemplate(stored.directory))
+
+        assertTrue(refused.message.contains("'support'"), refused.message)
+        assertTrue(Files.isRegularFile(stored.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE)))
+        Files.delete(stored.directory.resolve("support"))
+        Files.delete(stored.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE))
+        Files.createSymbolicLink(stored.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE), outside.resolve("keep.txt"))
+
         success(repository.deleteTemplate(stored.directory))
 
         assertFalse(Files.exists(stored.directory))
         assertEquals("keep", outside.resolve("keep.txt").readText())
+    }
+
+    @Test
+    fun `refuses to delete an organiser folder that only looks like a template because of a stray prompt`() {
+        val root = temporaryDirectory.resolve("library")
+        val reviews = root.resolve("Reviews")
+        val nested = writeTemplate(reviews.resolve("Security/audit"), "Audit", TemplateId.random())
+        writeTemplate(reviews.resolve("archive/old"), "Old", TemplateId.random())
+        Files.writeString(reviews.resolve("notes.txt"), "notes")
+        Files.writeString(reviews.resolve("todo.md"), "todo")
+        Files.writeString(reviews.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE), "stray")
+        val repository = FileSystemPromptTemplateRepository(root)
+        assertIs<LibraryEntry.Template>(repository.scan().children.single())
+
+        val failure = assertIs<RepositoryResult.Failure>(repository.deleteTemplate(reviews))
+
+        assertTrue(failure.message.contains("'archive', 'notes.txt', 'Security' and 1 more"), failure.message)
+        assertTrue(failure.message.contains("file manager"))
+        assertEquals("stray", reviews.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE).readText())
+        assertEquals("notes", reviews.resolve("notes.txt").readText())
+        assertEquals("# Audit", nested.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE).readText())
+        assertTrue(Files.isRegularFile(reviews.resolve("archive/old").resolve(FileSystemPromptTemplateRepository.METADATA_FILE)))
+    }
+
+    @Test
+    fun `template deletion accepts save working files and OS metadata`() {
+        val root = temporaryDirectory.resolve("library")
+        val repository = FileSystemPromptTemplateRepository(root)
+        val stored = success(repository.create(PromptTemplateDraft(name = "Template", markdown = "body")))
+        listOf(".DS_Store", "Thumbs.db", "desktop.ini", "${TemplateFileStore.STAGE_PREFIX}leftover.tmp").forEach {
+            Files.writeString(stored.directory.resolve(it), "")
+        }
+
+        success(repository.deleteTemplate(stored.directory, stored.template.id))
+
+        assertFalse(Files.exists(stored.directory))
+    }
+
+    @Test
+    fun `template deletion with an expected id refuses a different or unreadable template at the same path`() {
+        val root = temporaryDirectory.resolve("library")
+        val repository = FileSystemPromptTemplateRepository(root)
+        val stored = success(repository.create(PromptTemplateDraft(name = "Review", markdown = "old")))
+        val metadataPath = stored.directory.resolve(FileSystemPromptTemplateRepository.METADATA_FILE)
+        // Another IDE moved the template away and created a different one with the same slug.
+        Files.writeString(metadataPath, TemplateMetadataCodec().encode(metadata("Review", TemplateId.random())))
+
+        val replaced = assertIs<RepositoryResult.Failure>(repository.deleteTemplate(stored.directory, stored.template.id))
+        assertTrue(replaced.message.contains("changed on disk"), replaced.message)
+        Files.writeString(metadataPath, "not metadata")
+        assertIs<RepositoryResult.Failure>(repository.deleteTemplate(stored.directory, stored.template.id))
+        assertTrue(Files.isRegularFile(metadataPath))
+
+        Files.delete(metadataPath)
+        val recoverable = success(repository.load(stored.directory))
+        success(repository.deleteTemplate(stored.directory, recoverable.template.id))
+        assertFalse(Files.exists(stored.directory))
     }
 
     @Test

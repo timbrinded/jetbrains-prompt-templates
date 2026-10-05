@@ -7,6 +7,16 @@ import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
 
 internal object LibraryLayout {
+    private val OS_METADATA_FILES = setOf(".ds_store", "thumbs.db", "desktop.ini")
+
+    /** Files a template package may contain when the template is deleted as one unit. */
+    fun isTemplatePackageFileName(name: String): Boolean =
+        name.equals(FileSystemPromptTemplateRepository.MARKDOWN_FILE, ignoreCase = true) ||
+            name.equals(FileSystemPromptTemplateRepository.METADATA_FILE, ignoreCase = true) ||
+            name.equals(FileSystemPromptTemplateRepository.SAVE_JOURNAL_FILE, ignoreCase = true) ||
+            name.startsWith(TemplateFileStore.STAGE_PREFIX, ignoreCase = true) ||
+            name.lowercase() in OS_METADATA_FILES
+
     /**
      * Whether traversal must treat [path] as a link and never descend into it. Windows reports a directory
      * junction as a directory that is not a symbolic link, so a reparse-point directory also counts unless it

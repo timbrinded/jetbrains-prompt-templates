@@ -83,7 +83,11 @@ interface PromptTemplateRepository {
     fun load(directory: Path): RepositoryResult<StoredTemplate>
     fun create(draft: PromptTemplateDraft, destinationFolder: Path = root): RepositoryResult<StoredTemplate>
     fun update(directory: Path, draft: PromptTemplateDraft, expectedRevision: TemplateRevision?): RepositoryResult<StoredTemplate>
-    fun deleteTemplate(directory: Path): RepositoryResult<Unit>
+    /**
+     * Deletes a template package that holds only template files. With [expectedId], the package must still
+     * contain that template, so a stale view cannot delete a different template now at the same path.
+     */
+    fun deleteTemplate(directory: Path, expectedId: TemplateId? = null): RepositoryResult<Unit>
     fun importMarkdown(source: Path, destinationFolder: Path = root): RepositoryResult<StoredTemplate>
     fun exportTemplateMarkdown(directory: Path, destination: Path): RepositoryResult<Path>
     fun exportRenderedMarkdown(rendered: String, destination: Path): RepositoryResult<Path>
