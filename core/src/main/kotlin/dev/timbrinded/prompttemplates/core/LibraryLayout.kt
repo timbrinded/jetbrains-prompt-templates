@@ -37,7 +37,9 @@ internal object LibraryLayout {
             name.equals(METADATA_FILE, ignoreCase = true) ||
             name.equals(SAVE_JOURNAL_FILE, ignoreCase = true) ||
             name.startsWith(STAGE_PREFIX, ignoreCase = true) ||
-            name.lowercase() in OS_METADATA_FILES
+            name.lowercase() in OS_METADATA_FILES ||
+            // macOS writes AppleDouble "._name" companions beside files on FAT, exFAT and network volumes.
+            name.startsWith("._")
 
     fun isReservedFileName(name: String): Boolean = RESERVED_FILE_NAMES.any { it.equals(name, ignoreCase = true) }
 

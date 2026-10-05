@@ -614,7 +614,7 @@ class FileSystemPromptTemplateHierarchyTest(
         val root = temporaryDirectory.resolve("library")
         val repository = FileSystemPromptTemplateRepository(root)
         val stored = success(repository.create(PromptTemplateDraft(name = "Template", markdown = "body")))
-        listOf(".DS_Store", "Thumbs.db", "desktop.ini", "${LibraryLayout.STAGE_PREFIX}leftover.tmp").forEach {
+        listOf(".DS_Store", "Thumbs.db", "desktop.ini", "._prompt.md", "${LibraryLayout.STAGE_PREFIX}leftover.tmp").forEach {
             Files.writeString(stored.directory.resolve(it), "")
         }
 
