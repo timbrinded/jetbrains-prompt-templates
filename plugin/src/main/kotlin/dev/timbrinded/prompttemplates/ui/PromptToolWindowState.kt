@@ -42,5 +42,4 @@ internal class PromptToolWindowState(root: Path) {
     var libraryLoaded = false
     val bodyIndex = mutableMapOf<Path, String>()
     var detail: PromptDetailState = PromptDetailState.Empty
-    var mutationInProgress = false
 }
