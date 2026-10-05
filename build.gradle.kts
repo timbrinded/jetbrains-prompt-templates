@@ -7,7 +7,7 @@ plugins {
 
 allprojects {
     group = "dev.smoothbrains.prompttemplates"
-    version = "0.3.0"
+    version = "0.3.1"
 
     repositories {
         mavenCentral()
