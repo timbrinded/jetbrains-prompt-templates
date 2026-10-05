@@ -224,6 +224,19 @@ internal class PromptTemplatesController(
         }
     }
 
+    /**
+     * Reloads after a finished mutation. Its [preferred] selection, or clearing the selection when it is null,
+     * applies only if the user has not selected something else since the mutation started.
+     */
+    private fun reloadAfterMutation(preferred: LibrarySelectionKey?, keyAtStart: LibrarySelectionKey?) {
+        if (!isSameLibrarySelection(selectedKey, keyAtStart)) {
+            reloadLibrary()
+            return
+        }
+        if (preferred == null) clearSelectedTemplate()
+        reloadLibrary(preferred)
+    }
+
     private fun reconcileDetailAfterReload(
         selected: LibraryTreeSelection?,
         pendingDetail: TemplateDetailRequest?,
@@ -653,11 +666,12 @@ internal class PromptTemplatesController(
             "New Prompt Template Folder",
             Messages.getQuestionIcon(),
         )?.trim()?.takeIf(String::isNotEmpty) ?: return
+        val keyAtStart = selectedKey
         runRepositoryOperation(
             operation = { repo -> repo.createFolder(parent, name) },
             successMessage = "Folder '$name' created.",
             afterSuccess = { directory ->
-                reloadLibrary(LibrarySelectionKey.Folder(portableRelativePath(settings.libraryRoot, directory)))
+                reloadAfterMutation(LibrarySelectionKey.Folder(portableRelativePath(settings.libraryRoot, directory)), keyAtStart)
             },
         )
     }
@@ -674,6 +688,7 @@ internal class PromptTemplatesController(
             null,
         )?.trim()?.takeIf(String::isNotEmpty) ?: return
         val oldRelative = portableRelativePath(settings.libraryRoot, target.directory)
+        val keyAtStart = selectedKey
         runRepositoryOperation(
             operation = { repo -> repo.renameFolder(target.directory, newName) },
             successMessage = "Folder renamed to '$newName'.",
@@ -684,7 +699,7 @@ internal class PromptTemplatesController(
                     oldRelative,
                     newRelative,
                 ))
-                reloadLibrary(LibrarySelectionKey.Folder(newRelative))
+                reloadAfterMutation(LibrarySelectionKey.Folder(newRelative), keyAtStart)
             },
         )
     }
@@ -729,6 +744,7 @@ internal class PromptTemplatesController(
         if (!canChangeLibrary()) return
         val keyBeforeMove = selectionKey(source, state.librarySnapshot.root)
         val oldRelative = portableRelativePath(state.librarySnapshot.root, source.directory)
+        val keyAtStart = selectedKey
         runRepositoryOperation(
             operation = { repo -> repo.moveEntry(source.directory, destination, placement) },
             successMessage = "Library entry moved.",
@@ -745,7 +761,7 @@ internal class PromptTemplatesController(
                     is LibrarySelectionKey.TemplatePath -> LibrarySelectionKey.TemplatePath(newRelative)
                     null -> null
                 }
-                reloadLibrary(preferred)
+                reloadAfterMutation(preferred, keyAtStart)
             },
         )
     }
@@ -787,13 +803,11 @@ internal class PromptTemplatesController(
             )
             if (answer != Messages.YES) return
         }
+        val keyAtStart = selectedKey
         runRepositoryOperation(
             operation = { repo -> repo.deleteTemplate(directory) },
             successMessage = "Prompt template deleted.",
-            afterSuccess = {
-                clearSelectedTemplate()
-                reloadLibrary(null)
-            },
+            afterSuccess = { reloadAfterMutation(preferred = null, keyAtStart) },
         )
     }
 
@@ -801,6 +815,8 @@ internal class PromptTemplatesController(
         if (!canChangeLibrary()) return
         val requestRepository = repository
         val requestRoot = requestRepository.root
+        // The selection can change while the preview is read, so the deletion compares against this one.
+        val keyAtStart = selectedKey
         state.mutationInProgress = true
         updateInteractionState()
         coroutineScope.launch {
@@ -818,6 +834,7 @@ internal class PromptTemplatesController(
                         target,
                         previewResult.value,
                         requestRepository,
+                        keyAtStart,
                     )
                 }
             }
@@ -828,6 +845,7 @@ internal class PromptTemplatesController(
         target: LibraryTreeSelection.Folder,
         preview: FolderDeletionPreview,
         requestRepository: FileSystemPromptTemplateRepository,
+        keyAtStart: LibrarySelectionKey?,
     ) {
         val name = target.entry.displayName
         val typed = Messages.showInputDialog(
@@ -850,8 +868,7 @@ internal class PromptTemplatesController(
                 workspace.replaceExpandedFolderPaths(workspace.expandedFolderPaths.filterNot { path ->
                     path == deletedPath || path.startsWith("$deletedPath/")
                 })
-                clearSelectedTemplate()
-                reloadLibrary(null)
+                reloadAfterMutation(preferred = null, keyAtStart)
             },
         )
     }

@@ -63,6 +63,14 @@ internal fun resolveLibrarySelection(
     }
 }
 
+/** Whether two keys select the same entry; a template keeps its identity when only its known path differs. */
+internal fun isSameLibrarySelection(first: LibrarySelectionKey?, second: LibrarySelectionKey?): Boolean =
+    if (first is LibrarySelectionKey.Template && second is LibrarySelectionKey.Template) {
+        first.templateId.equals(second.templateId, ignoreCase = true)
+    } else {
+        first == second
+    }
+
 internal fun readSearchIndexBody(markdownPath: Path): String {
     if (!Files.isRegularFile(markdownPath, NOFOLLOW_LINKS)) return ""
     return try {
