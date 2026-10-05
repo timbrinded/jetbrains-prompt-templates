@@ -167,6 +167,7 @@ internal class TemplateLibraryTree(
         searchQuery: String,
         selectedKey: LibrarySelectionKey?,
         expandedPaths: Collection<String>,
+        loading: Boolean = false,
     ) {
         val willSearch = searchQuery.isNotBlank()
         if (!willSearch) {
@@ -178,7 +179,7 @@ internal class TemplateLibraryTree(
 
         this.snapshot = snapshot
         query = searchQuery
-        emptyText.text = snapshot.diagnostic ?: "No prompt templates yet"
+        emptyText.text = if (loading) LIBRARY_LOADING_TEXT else snapshot.diagnostic ?: "No prompt templates yet"
         rebuilding = true
         try {
             val root = DefaultMutableTreeNode(LibraryTreeSelection.Root(snapshot.root))
@@ -575,3 +576,6 @@ internal fun visibleEntries(
 }
 
 internal const val LIBRARY_TREE_ACCESSIBLE_NAME = "Prompt template library tree"
+
+/** The tree's empty text until the library's first scan lands; UI tests wait for it to go. */
+internal const val LIBRARY_LOADING_TEXT = "Loading prompt templates…"

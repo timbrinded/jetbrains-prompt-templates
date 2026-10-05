@@ -38,6 +38,8 @@ internal data class TemplateAuthorState(
 
 internal class PromptToolWindowState(root: Path) {
     var librarySnapshot = LibrarySnapshot(root, emptyList())
+    /** False while [librarySnapshot] is the placeholder shown before the current library's first scan lands. */
+    var libraryLoaded = false
     val bodyIndex = mutableMapOf<Path, String>()
     var detail: PromptDetailState = PromptDetailState.Empty
     var mutationInProgress = false

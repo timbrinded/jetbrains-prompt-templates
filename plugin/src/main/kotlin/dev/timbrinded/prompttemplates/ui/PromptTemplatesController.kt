@@ -61,6 +61,7 @@ internal interface PromptTemplatesView {
         bodyIndex: Map<Path, String>,
         selectedKey: LibrarySelectionKey?,
         expandedPaths: Collection<String>,
+        loading: Boolean,
     )
 
     fun clearLibrarySelection()
@@ -179,6 +180,7 @@ internal class PromptTemplatesController(
 
         if (clearTree) {
             state.librarySnapshot = LibrarySnapshot(normalizedRoot, emptyList())
+            state.libraryLoaded = false
             state.bodyIndex.clear()
             refreshTree()
         }
@@ -212,6 +214,7 @@ internal class PromptTemplatesController(
                 }
                 repository = nextRepository
                 state.librarySnapshot = scanned
+                state.libraryLoaded = true
                 state.bodyIndex.clear()
                 state.bodyIndex.putAll(indexedBodies)
 
@@ -279,6 +282,7 @@ internal class PromptTemplatesController(
             bodyIndex = state.bodyIndex,
             selectedKey = selectedKey,
             expandedPaths = workspace.expandedFolderPaths,
+            loading = !state.libraryLoaded,
         )
     }
 

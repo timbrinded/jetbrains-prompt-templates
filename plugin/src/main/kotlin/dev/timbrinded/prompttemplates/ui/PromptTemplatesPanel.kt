@@ -131,6 +131,7 @@ internal class PromptTemplatesPanel(
         bodyIndex: Map<Path, String>,
         selectedKey: LibrarySelectionKey?,
         expandedPaths: Collection<String>,
+        loading: Boolean,
     ) {
         val diagnostic = snapshot.diagnostic?.takeIf(String::isNotBlank)
         libraryDiagnosticLabel.text = diagnostic.orEmpty()
@@ -143,6 +144,7 @@ internal class PromptTemplatesPanel(
             searchQuery = searchField.text,
             selectedKey = selectedKey,
             expandedPaths = expandedPaths,
+            loading = loading,
         )
     }
 
