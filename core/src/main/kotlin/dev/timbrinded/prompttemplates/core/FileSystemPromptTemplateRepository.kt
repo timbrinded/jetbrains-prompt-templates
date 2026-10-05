@@ -46,16 +46,16 @@ class FileSystemPromptTemplateRepository internal constructor(
     fun scan(): LibrarySnapshot {
         if (!Files.isDirectory(root)) return treeScanner.scan()
         return when (val result = protect("scan library") {
-            LibraryFileLock.withLock(root) { RepositoryResult.Success(treeScanner.scan()) }
+            // Reads wait for another IDE instead of reporting a library they could not read.
+            LibraryFileLock.withLock(root, timeout = null) { RepositoryResult.Success(treeScanner.scan()) }
         }) {
             is RepositoryResult.Success -> result.value
-            is RepositoryResult.Failure ->
-                LibrarySnapshot(paths.root, emptyList(), result.message, locked = result.cause is LibraryLockedException)
+            is RepositoryResult.Failure -> LibrarySnapshot(paths.root, emptyList(), result.message)
         }
     }
 
-    fun load(directory: Path): RepositoryResult<StoredTemplate> = mutateLibrary("load template") {
-        loadLocked(directory)
+    fun load(directory: Path): RepositoryResult<StoredTemplate> = protect("load template") {
+        LibraryFileLock.withLock(paths.requireRoot(), timeout = null) { loadLocked(directory) }
     }
 
     private fun loadLocked(directory: Path): RepositoryResult<StoredTemplate> = protect("load template") {

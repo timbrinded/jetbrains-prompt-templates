@@ -205,11 +205,6 @@ internal class PromptTemplatesController(
             }
             withContext(Dispatchers.EDT) {
                 if (isDisposed() || !loadGenerations.acceptLibraryLoad(generation, scanned.root)) return@withContext
-                if (scanned.locked && state.libraryLoaded && !hasLibraryRootChanged(state.librarySnapshot.root, scanned.root)) {
-                    // Another IDE held the lock, so this scan describes nothing: keep the current tree and selection.
-                    PromptTemplatesNotifications.warning(project, scanned.diagnostic ?: "The template library is busy.")
-                    return@withContext
-                }
                 if (hasLibraryRootChanged(state.librarySnapshot.root, scanned.root)) {
                     applyLibraryRootTransition(scanned.root, clearTree = false)
                 }

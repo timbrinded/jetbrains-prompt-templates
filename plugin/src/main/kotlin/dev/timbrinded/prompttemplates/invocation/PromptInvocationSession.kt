@@ -26,7 +26,6 @@ import dev.timbrinded.prompttemplates.context.EditorAnchor
 import dev.timbrinded.prompttemplates.context.PromptContextResolver
 import dev.timbrinded.prompttemplates.core.DiagnosticSeverity
 import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository
-import dev.timbrinded.prompttemplates.core.LibraryLockedException
 import dev.timbrinded.prompttemplates.core.PromptInvocation
 import dev.timbrinded.prompttemplates.core.PromptVariable
 import dev.timbrinded.prompttemplates.core.RepositoryResult
@@ -255,8 +254,7 @@ internal class PromptInvocationSession(
                             templateProblem = null,
                         )
                     }
-                    // Another IDE holding the lock says nothing about this template; keep the current state.
-                    is RepositoryResult.Failure -> if (latest.cause !is LibraryLockedException) {
+                    is RepositoryResult.Failure -> {
                         reloadPending = false
                         mutableState.value = active.copy(templateProblem = latest.message)
                     }

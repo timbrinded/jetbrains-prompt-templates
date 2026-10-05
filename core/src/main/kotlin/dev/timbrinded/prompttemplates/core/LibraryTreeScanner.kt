@@ -99,6 +99,7 @@ internal class LibraryTreeScanner(
 
                             else -> {
                                 val nested = scanFolder(child)
+                                if (nested.removed) return@mapNotNull null
                                 LibraryEntry.Folder(
                                     directory = child.toAbsolutePath().normalize(),
                                     relativeDirectory = relativeToRoot(child),
@@ -111,6 +112,8 @@ internal class LibraryTreeScanner(
                     }
                     .toList()
             }
+        } catch (error: NoSuchFileException) {
+            return ScannedFolder(emptyList(), "Unable to read folder: ${error.message}", removed = true)
         } catch (error: IOException) {
             return ScannedFolder(emptyList(), "Unable to read folder: ${error.message}")
         } catch (error: DirectoryIteratorException) {
@@ -285,6 +288,8 @@ internal class LibraryTreeScanner(
     private data class ScannedFolder(
         val children: List<LibraryEntry>,
         val diagnostic: String? = null,
+        /** The folder was removed after its parent listed it, so the parent skips it. */
+        val removed: Boolean = false,
     )
 }
 

@@ -2,6 +2,7 @@ package dev.timbrinded.prompttemplates.core
 
 import java.io.IOException
 import java.nio.file.Path
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.exists
 import kotlin.io.path.readText
@@ -162,17 +163,25 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
     }
 
     @Test
-    fun `waiting for a lock held by another process times out with a clear error`() {
+    fun `a change times out on another process's lock while a read waits for it`() {
         val root = temporary.resolve("library")
-        createOriginal(FileSystemPromptTemplateRepository(root))
+        val repository = FileSystemPromptTemplateRepository(root)
+        createOriginal(repository)
         val holding = startProcess(root, "hold", "unused")
         try {
             awaitFile(root.resolve("holding-ready"))
+            val waitingScan = CompletableFuture.supplyAsync { repository.scan() }
+            // The waiting read must not hold this JVM's gate, or the change below could not reach its deadline.
             val error = assertFailsWith<LibraryLockedException> { LibraryFileLock.withLock(root, timeout = 200.milliseconds) {} }
             assertTrue(error.message.orEmpty().contains("locked by another IDE process"), error.message)
+            assertFalse(waitingScan.isDone)
+
             root.resolve("release-holder").writeText("")
             assertTrue(holding.waitFor(15, TimeUnit.SECONDS))
             assertEquals(0, holding.exitValue(), root.resolve("hold.log").readText())
+            val scanned = waitingScan.get(15, TimeUnit.SECONDS)
+            assertEquals(null, scanned.diagnostic)
+            assertEquals(1, scanned.children.size)
         } finally {
             holding.destroyForcibly().waitFor()
         }

@@ -3,7 +3,6 @@ package dev.timbrinded.prompttemplates.core
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.nio.channels.FileChannel
-import java.nio.channels.FileLock
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption.CREATE
@@ -19,39 +18,37 @@ class LibraryLockedException(message: String) : IOException(message)
 
 /**
  * One JVM gate avoids overlapping Java file locks; the stable lock file also gates other IDE processes.
- * Waiting for another process is bounded, so a frozen IDE that holds the lock produces an error instead of
- * blocking forever. Operations in this IDE queue on the gate as before.
+ * While another process holds the lock, a waiting thread polls without holding the gate, so this IDE's other
+ * operations can still try. A [withLock] timeout bounds that wait: changes fail with an error instead of blocking
+ * behind a frozen IDE, while reads pass `null` and wait, keeping the last state they showed.
  */
 internal object LibraryFileLock {
-    private val DEFAULT_TIMEOUT = 10.seconds
+    private val CHANGE_TIMEOUT = 10.seconds
     private val POLL_INTERVAL = 50.milliseconds
     private val gate = ReentrantLock()
     private val heldRoots = mutableSetOf<Path>() // Accessed only by the thread holding the reentrant gate.
 
-    fun <T> withLock(root: Path, timeout: Duration = DEFAULT_TIMEOUT, block: () -> T): T {
-        gate.lock()
-        try {
-            val realRoot = root.toRealPath()
-            if (realRoot in heldRoots) return block()
-            FileChannel.open(realRoot.resolve(LibraryLayout.LOCK_FILE), CREATE, WRITE, NOFOLLOW_LINKS).use { channel ->
-                acquire(channel, TimeSource.Monotonic.markNow() + timeout).use {
-                    heldRoots.add(realRoot)
-                    try {
-                        return block()
-                    } finally {
-                        heldRoots.remove(realRoot)
+    fun <T> withLock(root: Path, timeout: Duration? = CHANGE_TIMEOUT, block: () -> T): T {
+        val deadline = timeout?.let { TimeSource.Monotonic.markNow() + it }
+        while (true) {
+            gate.lock()
+            try {
+                val realRoot = root.toRealPath()
+                if (realRoot in heldRoots) return block()
+                FileChannel.open(realRoot.resolve(LibraryLayout.LOCK_FILE), CREATE, WRITE, NOFOLLOW_LINKS).use { channel ->
+                    channel.tryLock()?.use {
+                        heldRoots.add(realRoot)
+                        try {
+                            return block()
+                        } finally {
+                            heldRoots.remove(realRoot)
+                        }
                     }
                 }
+            } finally {
+                gate.unlock()
             }
-        } finally {
-            gate.unlock()
-        }
-    }
-
-    private fun acquire(channel: FileChannel, deadline: TimeSource.Monotonic.ValueTimeMark): FileLock {
-        while (true) {
-            channel.tryLock()?.let { return it }
-            if (deadline.hasPassedNow()) {
+            if (deadline?.hasPassedNow() == true) {
                 throw LibraryLockedException(
                     "The template library is locked by another IDE process. Try again when it finishes, " +
                         "or close that IDE if it is not responding.",
