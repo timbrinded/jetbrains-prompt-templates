@@ -18,6 +18,8 @@ data class LibrarySnapshot(
     val root: Path,
     val children: List<LibraryEntry>,
     val diagnostic: String? = null,
+    /** The scan timed out waiting for another IDE's lock; [children] say nothing about the library's contents. */
+    val locked: Boolean = false,
 )
 
 sealed interface LibraryEntry {

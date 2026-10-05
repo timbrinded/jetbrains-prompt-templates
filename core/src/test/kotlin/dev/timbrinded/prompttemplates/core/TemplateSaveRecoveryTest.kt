@@ -168,7 +168,7 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
         val holding = startProcess(root, "hold", "unused")
         try {
             awaitFile(root.resolve("holding-ready"))
-            val error = assertFailsWith<IOException> { LibraryFileLock.withLock(root, timeout = 200.milliseconds) {} }
+            val error = assertFailsWith<LibraryLockedException> { LibraryFileLock.withLock(root, timeout = 200.milliseconds) {} }
             assertTrue(error.message.orEmpty().contains("locked by another IDE process"), error.message)
             root.resolve("release-holder").writeText("")
             assertTrue(holding.waitFor(15, TimeUnit.SECONDS))

@@ -49,7 +49,8 @@ class FileSystemPromptTemplateRepository internal constructor(
             LibraryFileLock.withLock(root) { RepositoryResult.Success(treeScanner.scan()) }
         }) {
             is RepositoryResult.Success -> result.value
-            is RepositoryResult.Failure -> LibrarySnapshot(paths.root, emptyList(), result.message)
+            is RepositoryResult.Failure ->
+                LibrarySnapshot(paths.root, emptyList(), result.message, locked = result.cause is LibraryLockedException)
         }
     }
 

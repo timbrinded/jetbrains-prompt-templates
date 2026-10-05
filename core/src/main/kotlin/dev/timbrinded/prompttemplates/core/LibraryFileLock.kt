@@ -14,6 +14,9 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
+/** Another IDE process held the library lock past the wait deadline. The library itself is unchanged. */
+class LibraryLockedException(message: String) : IOException(message)
+
 /**
  * One JVM gate avoids overlapping Java file locks; the stable lock file also gates other IDE processes.
  * Waiting for another process is bounded, so a frozen IDE that holds the lock produces an error instead of
@@ -49,7 +52,7 @@ internal object LibraryFileLock {
         while (true) {
             channel.tryLock()?.let { return it }
             if (deadline.hasPassedNow()) {
-                throw IOException(
+                throw LibraryLockedException(
                     "The template library is locked by another IDE process. Try again when it finishes, " +
                         "or close that IDE if it is not responding.",
                 )
