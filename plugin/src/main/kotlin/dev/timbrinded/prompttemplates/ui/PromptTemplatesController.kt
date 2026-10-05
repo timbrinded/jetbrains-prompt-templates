@@ -189,8 +189,8 @@ internal class PromptTemplatesController(
         reloadSelectedDetail: Boolean = false,
     ) {
         selectedKey = selection
-        val generation = loadGenerations.beginLibraryLoad()
         val nextRepository = FileSystemPromptTemplateRepository(settings.libraryRoot)
+        val generation = loadGenerations.beginLibraryLoad(nextRepository.root)
         coroutineScope.launch {
             val (scanned, templates, indexedBodies) = withContext(Dispatchers.IO) {
                 val snapshot = nextRepository.scan()
@@ -206,7 +206,7 @@ internal class PromptTemplatesController(
                 )
             }
             withContext(Dispatchers.EDT) {
-                if (isDisposed() || !loadGenerations.isCurrentLibraryLoad(generation)) return@withContext
+                if (isDisposed() || !loadGenerations.acceptLibraryLoad(generation, scanned.root)) return@withContext
                 if (hasLibraryRootChanged(state.librarySnapshot.root, scanned.root)) {
                     applyLibraryRootTransition(scanned.root, clearTree = false)
                 }
@@ -558,7 +558,7 @@ internal class PromptTemplatesController(
                 }
                 withContext(Dispatchers.EDT) {
                     if (isDisposed()) return@withContext
-                    val rootChanged = hasLibraryRootChanged(libraryRootAtRequest, settings.libraryRoot)
+                    val rootChanged = !loadGenerations.isCurrentLibraryRoot(libraryRootAtRequest)
                     if (rootChanged || !authorRequests.isCurrent(request)) {
                         // The files are on disk already; never drop that outcome silently.
                         if (rootChanged) authorRequests.invalidate()
@@ -830,7 +830,7 @@ internal class PromptTemplatesController(
                 if (isDisposed()) return@withContext
                 state.mutationInProgress = false
                 updateInteractionState()
-                if (hasLibraryRootChanged(requestRoot, settings.libraryRoot)) return@withContext
+                if (!loadGenerations.isCurrentLibraryRoot(requestRoot)) return@withContext
                 when (previewResult) {
                     is RepositoryResult.Failure -> PromptTemplatesNotifications.error(project, previewResult.message)
                     is RepositoryResult.Success -> confirmFolderDeletion(
@@ -973,7 +973,7 @@ internal class PromptTemplatesController(
                 if (isDisposed()) return@withContext
                 state.mutationInProgress = false
                 updateInteractionState()
-                val rootChanged = hasLibraryRootChanged(requestRoot, settings.libraryRoot)
+                val rootChanged = !loadGenerations.isCurrentLibraryRoot(requestRoot)
                 when (result) {
                     is RepositoryResult.Success -> {
                         if (rootChanged) {

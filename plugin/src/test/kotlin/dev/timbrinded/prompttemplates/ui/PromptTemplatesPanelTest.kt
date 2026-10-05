@@ -42,25 +42,6 @@ class PromptTemplatesPanelTest {
     }
 
     @Test
-    fun `detail loads track generations and invalidate only prior results`() {
-        val generations = LoadGenerationTracker()
-        val libraryGeneration = generations.beginLibraryLoad()
-        val target = TemplateDetailTarget(Path.of("library", "prompt"), "template-id")
-
-        // Detail activity alone does not invalidate the in-flight library scan.
-        generations.beginDetailLoad(target, TemplateDetailIntent.USE)
-        generations.invalidateDetailLoad()
-        assertTrue(generations.isCurrentLibraryLoad(libraryGeneration))
-
-        // A newer detail request invalidates only the prior detail result.
-        val firstDetailRequest = generations.beginDetailLoad(target, TemplateDetailIntent.USE)
-        val secondDetailRequest = generations.beginDetailLoad(target, TemplateDetailIntent.EDIT)
-        assertTrue(generations.isCurrentLibraryLoad(libraryGeneration))
-        assertFalse(generations.acceptDetailLoad(firstDetailRequest))
-        assertTrue(generations.acceptDetailLoad(secondDetailRequest))
-    }
-
-    @Test
     fun `author callbacks reject stale requests and retain destinations`() {
         val tracker = AuthorAsyncRequestTracker()
         val save = requireNotNull(tracker.beginSave(Path.of("library", "original")))

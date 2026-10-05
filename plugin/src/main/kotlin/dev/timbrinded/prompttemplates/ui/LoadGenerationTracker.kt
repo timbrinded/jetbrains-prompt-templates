@@ -16,16 +16,34 @@ internal data class TemplateDetailRequest(
     val intent: TemplateDetailIntent,
 )
 
-/** Keeps background library scans independent from detail loads while rejecting stale results in each channel. */
+/**
+ * Keeps background library scans independent from detail loads while rejecting stale results in each channel.
+ * It also knows which library the newest scan read, so results of requests made against an earlier library
+ * root are recognised as stale.
+ */
 internal class LoadGenerationTracker {
     private val library = AtomicInteger()
     private val detail = AtomicInteger()
     @Volatile
+    private var libraryRoot: Path? = null
+    @Volatile
     private var pendingDetail: TemplateDetailRequest? = null
 
-    fun beginLibraryLoad(): Int = library.incrementAndGet()
+    /** Starts a scan of [root]; it supersedes every earlier scan, of this library or of another one. */
+    @Synchronized
+    fun beginLibraryLoad(root: Path): Int {
+        libraryRoot = root.toAbsolutePath().normalize()
+        return library.incrementAndGet()
+    }
 
-    fun isCurrentLibraryLoad(generation: Int): Boolean = generation == library.get()
+    /** Only the newest scan may replace the view, and only as a scan of the library that scan was started for. */
+    @Synchronized
+    fun acceptLibraryLoad(generation: Int, scannedRoot: Path): Boolean =
+        generation == library.get() && isCurrentLibraryRoot(scannedRoot)
+
+    /** Whether work started against [requestRoot] still targets the library the newest scan reads. */
+    fun isCurrentLibraryRoot(requestRoot: Path): Boolean =
+        libraryRoot?.let { current -> !hasLibraryRootChanged(requestRoot, current) } ?: false
 
     @Synchronized
     fun beginDetailLoad(target: TemplateDetailTarget, intent: TemplateDetailIntent): TemplateDetailRequest =
