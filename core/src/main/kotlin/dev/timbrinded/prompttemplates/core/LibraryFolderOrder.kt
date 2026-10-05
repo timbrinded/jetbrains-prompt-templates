@@ -6,6 +6,7 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
+import kotlin.io.path.name
 
 internal const val LIBRARY_ORDER_SCHEMA_VERSION = 1
 
@@ -44,6 +45,80 @@ internal data class FolderOrderState(
 
     fun replacing(oldName: String, newName: String, kind: EntryKind): FolderOrderState =
         withNames(kind, names(kind).map { if (it == oldName) newName else it })
+}
+
+/** Reads and persists the manual order of organiser folders. Callers hold the library lock. */
+internal class FolderOrderStore(
+    private val scanner: LibraryTreeScanner,
+    private val paths: LibraryPaths,
+) {
+    fun effective(folder: Path): FolderOrderState {
+        val read = LibraryFolderOrderCodec.read(folder)
+        val sorted = scanner.directEntries(folder).sortedWith(
+            LibraryFolderOrderCodec.comparator(
+                order = read.value,
+                kindOf = DirectLibraryEntry::kind,
+                orderKeyOf = { it.path.name },
+                fallbackNameOf = DirectLibraryEntry::visibleName,
+            ),
+        )
+        return FolderOrderState(
+            folders = sorted.filter { it.kind == EntryKind.FOLDER }.map { it.path.name },
+            templates = sorted.filter { it.kind == EntryKind.TEMPLATE }.map { it.path.name },
+            unreadable = read.diagnostic,
+        )
+    }
+
+    fun persist(folder: Path, order: FolderOrderState) {
+        // A malformed or newer-schema order file may hold order this version cannot represent.
+        order.unreadable?.let { throw IOException("$it The existing order file was left unchanged.") }
+        val encoded = LibraryFolderOrderCodec.encode(order)
+        writeTextAtomically(folder.resolve(LibraryLayout.ORDER_FILE), encoded, allowNonAtomicMove = true)
+    }
+
+    /** Persists order after a content change that already succeeded, so a failure is only a warning. */
+    fun persistAfterChange(folder: Path, order: FolderOrderState): List<String> = try {
+        persist(folder, order)
+        emptyList()
+    } catch (error: IOException) {
+        listOf("The library change succeeded, but folder order could not be saved: ${error.message}")
+    } catch (error: SecurityException) {
+        listOf("The library change succeeded, but folder order could not be saved: permission denied.")
+    }
+
+    fun placing(
+        order: FolderOrderState,
+        name: String,
+        kind: EntryKind,
+        placement: EntryPlacement,
+        destinationFolder: Path,
+        source: Path,
+    ): FolderOrderState {
+        val names = order.names(kind).toMutableList().also { it.remove(name) }
+        names.add(placementIndex(placement, destinationFolder, source, kind, names), name)
+        return order.withNames(kind, names)
+    }
+
+    private fun placementIndex(
+        placement: EntryPlacement,
+        destinationFolder: Path,
+        source: Path,
+        kind: EntryKind,
+        names: List<String>,
+    ): Int {
+        val sibling = when (placement) {
+            EntryPlacement.EndOfKind -> return names.size
+            is EntryPlacement.Before -> placement.sibling
+            is EntryPlacement.After -> placement.sibling
+        }
+        val safeSibling = paths.requireEntry(sibling)
+        require(safeSibling.parent == destinationFolder) { "The placement target is not in the destination folder." }
+        require(safeSibling != source) { "An entry cannot be placed relative to itself." }
+        require(scanner.classify(safeSibling).kind == kind) { "Folders and templates cannot be interleaved." }
+        val siblingIndex = names.indexOf(safeSibling.name)
+        require(siblingIndex >= 0) { "The placement target is no longer available." }
+        return siblingIndex + if (placement is EntryPlacement.After) 1 else 0
+    }
 }
 
 internal object LibraryFolderOrderCodec {
