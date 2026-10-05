@@ -154,10 +154,8 @@ class FileSystemPromptTemplateRepository internal constructor(
         val safeDirectory = requireTemplateDirectory(directory)
         val unexpected = unexpectedPackageEntries(safeDirectory)
         if (unexpected.isNotEmpty()) {
-            val shown = unexpected.take(3).joinToString(", ") { "'$it'" }
-            val more = if (unexpected.size > 3) " and ${unexpected.size - 3} more" else ""
             return@mutateLibrary RepositoryResult.Failure(
-                "The template folder also contains $shown$more, which are not template files. " +
+                "The template folder also contains ${quotedEntryNames(unexpected)}, which are not template files. " +
                     "Move or remove them in a file manager, then delete the template again.",
             )
         }
@@ -367,7 +365,6 @@ class FileSystemPromptTemplateRepository internal constructor(
         entries
             .filter { Files.isDirectory(it, NOFOLLOW_LINKS) || !LibraryLayout.isTemplatePackageFileName(it.name) }
             .map { it.name }
-            .sortedWith(String.CASE_INSENSITIVE_ORDER)
             .toList()
     }
 

@@ -85,10 +85,14 @@ class FileSystemPromptTemplateHierarchyTest(
             Files.createDirectories(retained)
             Files.writeString(retained.resolve("prompt.md"), "retained for recovery")
         }
-        Files.createDirectories(root.resolve("Visible"))
+        Files.createDirectories(root.resolve("Visible/${FileSystemPromptTemplateRepository.RENAME_SCRATCH_PREFIX}nested"))
         val repository = FileSystemPromptTemplateRepository(root)
 
-        assertEquals(listOf("Visible"), repository.scan().children.map(LibraryEntry::displayName))
+        val snapshot = repository.scan()
+        assertEquals(listOf("Visible"), snapshot.children.map(LibraryEntry::displayName))
+        scratchNames.forEach { assertTrue(snapshot.diagnostic.orEmpty().contains("'$it'"), snapshot.diagnostic) }
+        assertTrue(snapshot.diagnostic.orEmpty().contains("interrupted rename or deletion"))
+        assertTrue(assertIs<LibraryEntry.Folder>(snapshot.children.single()).diagnostic.orEmpty().contains("nested'"))
         scratchNames.forEach { name ->
             assertIs<RepositoryResult.Failure>(repository.createFolder(root, "$name-new"))
             assertFalse(Files.exists(root.resolve("$name-new")))

@@ -81,9 +81,11 @@ internal class LibraryTreeScanner(
             Files.exists(directory.resolve(FileSystemPromptTemplateRepository.SAVE_JOURNAL_FILE), NOFOLLOW_LINKS)
 
     private fun scanFolder(directory: Path): ScannedFolder {
+        val interrupted = mutableListOf<String>()
         val children = try {
             directory.useDirectoryEntries { entries ->
                 entries
+                    .onEach { if (isInterruptedWorkingDirectoryName(it.name)) interrupted += it.name }
                     .filter(::isScannableDirectoryEntry)
                     .map { child ->
                         when {
@@ -123,9 +125,13 @@ internal class LibraryTreeScanner(
         }
 
         val order = LibraryFolderOrderCodec.read(directory)
+        val interruptedDiagnostic = interrupted.takeIf { it.isNotEmpty() }?.let { names ->
+            "Hidden working folders from an interrupted rename or deletion remain here: ${quotedEntryNames(names)}. " +
+                "Restore or remove them in a file manager."
+        }
         return ScannedFolder(
             children = sortEntries(children, order.value),
-            diagnostic = order.diagnostic,
+            diagnostic = combineDiagnostics(order.diagnostic, interruptedDiagnostic),
         )
     }
 
@@ -244,6 +250,10 @@ internal class LibraryTreeScanner(
         diagnostic = diagnostic,
     )
 
+    private fun isInterruptedWorkingDirectoryName(name: String): Boolean =
+        name.startsWith(FileSystemPromptTemplateRepository.DELETE_SCRATCH_PREFIX, ignoreCase = true) ||
+            name.startsWith(FileSystemPromptTemplateRepository.RENAME_SCRATCH_PREFIX, ignoreCase = true)
+
     private fun isScannableDirectoryEntry(path: Path): Boolean =
         path.name != ORDER_FILE &&
             !isInternalLibraryEntryName(path.name) &&
@@ -278,4 +288,11 @@ internal class LibraryTreeScanner(
         val children: List<LibraryEntry>,
         val diagnostic: String? = null,
     )
+}
+
+/** Names up to three entries for a message, sorted so repeated scans and checks report them identically. */
+internal fun quotedEntryNames(names: List<String>): String {
+    val sorted = names.sortedWith(String.CASE_INSENSITIVE_ORDER)
+    val shown = sorted.take(3).joinToString(", ") { "'$it'" }
+    return if (sorted.size > 3) "$shown and ${sorted.size - 3} more" else shown
 }
