@@ -6,8 +6,10 @@ import java.util.concurrent.TimeUnit
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
@@ -156,6 +158,23 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
         } finally {
             holding?.destroyForcibly()
             waiting.destroyForcibly()
+        }
+    }
+
+    @Test
+    fun `waiting for a lock held by another process times out with a clear error`() {
+        val root = temporary.resolve("library")
+        createOriginal(FileSystemPromptTemplateRepository(root))
+        val holding = startProcess(root, "hold", "unused")
+        try {
+            awaitFile(root.resolve("holding-ready"))
+            val error = assertFailsWith<IOException> { LibraryFileLock.withLock(root, timeout = 200.milliseconds) {} }
+            assertTrue(error.message.orEmpty().contains("locked by another IDE process"), error.message)
+            root.resolve("release-holder").writeText("")
+            assertTrue(holding.waitFor(15, TimeUnit.SECONDS))
+            assertEquals(0, holding.exitValue(), root.resolve("hold.log").readText())
+        } finally {
+            holding.destroyForcibly().waitFor()
         }
     }
 

@@ -695,7 +695,7 @@ class FileSystemPromptTemplateRepository internal constructor(
         block: () -> RepositoryResult<T>,
     ): RepositoryResult<T> = protect(operation) {
         val directory = if (createRoot) ensureRootDirectory() else requireLibraryRoot()
-        LibraryFileLock.withLock(directory, block)
+        LibraryFileLock.withLock(directory, block = block)
     }
 
     companion object {
