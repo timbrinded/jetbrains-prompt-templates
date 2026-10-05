@@ -29,10 +29,8 @@ class StrictPromptRenderer {
         diagnostics += parseResult.diagnostics
 
         val replacements = mutableListOf<Replacement>()
-        parseResult.escapedOpenings.forEach { range ->
-            replacements += Replacement(range, "{{", null)
-            escapedVariable(template.markdown, range, variablesByKey)?.let(diagnostics::add)
-        }
+        parseResult.escapedOpenings.forEach { range -> replacements += Replacement(range, "{{", null) }
+        diagnostics += parseResult.escapedVariablePlaceholders(template.markdown, variablesByKey.keys)
 
         parseResult.placeholders.forEach { token ->
             val replacement = when {
@@ -67,18 +65,6 @@ class StrictPromptRenderer {
         output.append(template.markdown, sourceCursor, template.markdown.length)
 
         return RenderResult(output.toString(), diagnostics, mappings)
-    }
-
-    private fun escapedVariable(
-        markdown: String,
-        opening: SourceRange,
-        variablesByKey: Map<String, PromptVariable>,
-    ): TemplateDiagnostic? {
-        val closing = markdown.indexOf("}}", startIndex = opening.endExclusive)
-        if (closing < 0) return null
-        val key = markdown.substring(opening.endExclusive, closing).trim(' ', '\t')
-        if (key !in variablesByKey) return null
-        return TemplateDiagnostic.EscapedVariablePlaceholder(key, SourceRange(opening.start, closing + 2))
     }
 
     private fun resolveUserVariable(

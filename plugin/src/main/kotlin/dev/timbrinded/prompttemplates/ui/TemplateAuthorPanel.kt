@@ -212,8 +212,11 @@ class TemplateAuthorPanel(
         val selectedIndex = variables.indexOfFirst { it.key == selectedKey }.takeIf { it >= 0 } ?: 0
         if (variables.isNotEmpty()) variableList.selectedIndex = selectedIndex
 
-        val parseErrors = parser.parse(markdownEditor.text).diagnostics.map { it.message }
-        showDiagnostic((parseErrors + result.unknownContextKeys.map { "Unknown context: $it" }).firstOrNull().orEmpty())
+        val parsed = parser.parse(markdownEditor.text)
+        val messages = parsed.diagnostics.map { it.message } +
+            result.unknownContextKeys.map { "Unknown context: $it" } +
+            parsed.escapedVariablePlaceholders(markdownEditor.text, variables.map(PromptVariable::key).toSet()).map { it.message }
+        showDiagnostic(messages.firstOrNull().orEmpty())
         revalidate()
         repaint()
     }

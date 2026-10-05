@@ -13,6 +13,18 @@ data class ParseResult(
 ) {
     val referencedKeys: List<String>
         get() = placeholders.map(PlaceholderToken::key).distinct()
+
+    /** Escaped openings whose text names one of [variableKeys]: they render literally, so the value is never inserted. */
+    fun escapedVariablePlaceholders(
+        markdown: String,
+        variableKeys: Set<String>,
+    ): List<TemplateDiagnostic.EscapedVariablePlaceholder> = escapedOpenings.mapNotNull { opening ->
+        val closing = markdown.indexOf("}}", startIndex = opening.endExclusive)
+        if (closing < 0) return@mapNotNull null
+        val key = markdown.substring(opening.endExclusive, closing).trim(' ', '\t')
+        if (key !in variableKeys) return@mapNotNull null
+        TemplateDiagnostic.EscapedVariablePlaceholder(key, SourceRange(opening.start, closing + 2))
+    }
 }
 
 /** Preserve every opening literally, including an opening that already has a backslash. */
