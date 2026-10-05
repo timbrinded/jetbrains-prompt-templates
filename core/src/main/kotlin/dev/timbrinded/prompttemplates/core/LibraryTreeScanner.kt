@@ -6,6 +6,7 @@ import java.io.IOException
 import java.nio.file.DirectoryIteratorException
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
+import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import kotlin.io.path.name
 import kotlin.io.path.useDirectoryEntries
@@ -46,7 +47,7 @@ internal class LibraryTreeScanner(
     fun directEntries(parent: Path): List<DirectLibraryEntry> = parent.useDirectoryEntries { entries ->
         entries
             .filter(::isScannableDirectoryEntry)
-            .map(::classify)
+            .mapNotNull { path -> skipIfRemoved { classify(path) } }
             .toList()
     }
 
@@ -80,9 +81,10 @@ internal class LibraryTreeScanner(
                 entries
                     .onEach { if (LibraryLayout.isInterruptedWorkingDirectoryName(it.name)) interrupted += it.name }
                     .filter(::isScannableDirectoryEntry)
-                    .map { child ->
+                    .mapNotNull { child ->
+                        val link = skipIfRemoved { LibraryLayout.isLink(child) } ?: return@mapNotNull null
                         when {
-                            LibraryLayout.isLink(child) -> LibraryEntry.Folder(
+                            link -> LibraryEntry.Folder(
                                 directory = child.toAbsolutePath().normalize(),
                                 relativeDirectory = relativeToRoot(child),
                                 displayName = child.name,
@@ -242,6 +244,13 @@ internal class LibraryTreeScanner(
         health = health,
         diagnostic = diagnostic,
     )
+
+    /** An entry removed after it was listed is skipped, as if it had been removed before the scan. */
+    private inline fun <T : Any> skipIfRemoved(read: () -> T): T? = try {
+        read()
+    } catch (_: NoSuchFileException) {
+        null
+    }
 
     private fun isScannableDirectoryEntry(path: Path): Boolean =
         path.name != LibraryLayout.ORDER_FILE &&
