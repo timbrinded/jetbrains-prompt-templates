@@ -85,7 +85,7 @@ The variable inspector exposes authored Text/Multiline defaults, an Enum default
 
 Each Use field has **Reset**, and **File | Reset Values to Defaults** resets all user inputs. Both retain the captured context. Editing authored defaults does not replace retained session inputs; use Reset to apply them to the current invocation. Ordinary input values remain session-only.
 
-At narrow widths, variable navigation moves above the author inspector. The inspector scrolls to controls as you move through them with Tab. Save and Cancel stay below the editor. The Use footer contains Copy Prompt, Insert and Edit; **Delete** is in the File menu and the library context menu, with confirmation before removal.
+At narrow widths, variable navigation moves above the author inspector. The inspector scrolls to controls as you move through them with Tab. Save and Cancel stay below the editor. The Use footer contains Copy Prompt, Insert and Edit; **Delete** is in the File menu and the library context menu, with confirmation before removal. A template folder that contains anything besides its template files, such as a nested folder, is not deleted; the error names the extra entries so they can be moved first.
 
 ## Storage format
 
@@ -102,7 +102,7 @@ Prompt Templates/
         prompt.meta.json
 ```
 
-A directory that contains `prompt.md` or `prompt.meta.json` is a template package and a leaf in the library tree. Other directories are organiser folders. The plugin ignores `.git`, `.hg`, `.svn` and `.idea` management directories, and its own `.prompt-template-delete-*` and `.prompt-template-rename-*` working directories. A working directory that a failed operation leaves behind is named in the error message and is not shown in the library. The optional `.prompt-templates-order.json` file in each organiser folder records manual order; folders without it use alphabetical order. Template UUIDs and schema stay independent of folder location.
+A directory that contains `prompt.md` or `prompt.meta.json` is a template package and a leaf in the library tree. Other directories are organiser folders. The plugin ignores `.git`, `.hg`, `.svn` and `.idea` management directories, and its own `.prompt-template-delete-*` and `.prompt-template-rename-*` working directories. A working directory that a failed or interrupted operation leaves behind is named in the error message and in a folder diagnostic, and is not shown in the library. The optional `.prompt-templates-order.json` file in each organiser folder records manual order; folders without it use alphabetical order. Template UUIDs and schema stay independent of folder location. Folder names cannot be Windows device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`) or exceed 255 bytes. Template directory names are derived from the template name, capped at 64 characters, and given a numeric suffix when a sibling already uses the name.
 
 `prompt.md` remains portable:
 
@@ -136,7 +136,7 @@ Depth: {{review_depth}}
 }
 ```
 
-Metadata is serialized deterministically. Unknown fields are tolerated; a future unsupported schema is opened as an error and is never silently migrated or overwritten.
+Metadata is serialized deterministically. Fields this version does not recognise, such as those written by a newer plugin version, are kept when a template is saved. A future unsupported schema is opened as an error and is never silently migrated or overwritten. An order file that cannot be read is left unchanged; operations in that folder report a warning instead of rewriting it.
 
 ## Build and run
 
@@ -194,8 +194,8 @@ flowchart TD
 - `plugin/` owns settings, native Swing/platform components, context resolution, output destinations, actions and the responsive tool window.
 - Expected validation failures are typed diagnostics rather than exceptions.
 - Template saves stage both contents in a save journal, then replace the canonical files atomically. Reopening completes an interrupted save only if both file fingerprints still match the recorded old or new versions. A later external edit leaves the journal intact and shows a recovery diagnostic.
-- Repository updates check the loaded revision under a library file lock. Conflict review compares the disk version with the draft; overwrite checks that reviewed revision again. Separate IDE processes share the lock.
-- The configured library root can be a symbolic link. Managed entries inside it cannot be symbolic links, and repository traversal does not follow them.
+- Repository updates check the loaded revision under a library file lock. Conflict review compares the disk version with the draft; overwrite checks that reviewed revision again. Separate IDE processes share the lock. If another IDE holds it for more than 10 seconds, the operation fails with an error instead of waiting indefinitely.
+- The configured library root can be a symbolic link. Managed entries inside it cannot be symbolic links or Windows directory junctions, and repository traversal does not follow them. Deleting a folder that contains one removes only the link.
 - Folder deletion uses a fresh subtree preview, typed confirmation and a second fingerprint check before recursive removal. The fingerprint records entry names, sizes, modification times and file identities, not file contents.
 - Expanded folders and the selected template are remembered per project in the workspace file.
 
