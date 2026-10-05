@@ -704,6 +704,23 @@ class FileSystemPromptTemplateHierarchyTest(
     }
 
     @Test
+    fun `rejects Windows device names and keeps generated directory names short`() {
+        val root = temporaryDirectory.resolve("library")
+        val repository = FileSystemPromptTemplateRepository(root)
+
+        listOf("CON", "nul.txt", "Com1", "lpt9.tar.gz", "x".repeat(256)).forEach { name ->
+            assertIs<RepositoryResult.Failure>(repository.createFolder(root, name), name)
+        }
+        success(repository.createFolder(root, "Console"))
+        val device = success(repository.create(PromptTemplateDraft(name = "Con", markdown = "device")))
+        val long = success(repository.create(PromptTemplateDraft(name = "word ".repeat(40), markdown = "long")))
+
+        assertEquals("con-template", device.directory.name)
+        assertEquals("word-".repeat(12) + "word", long.directory.name)
+        assertEquals(listOf("Console"), repository.scan().children.filterIsInstance<LibraryEntry.Folder>().map { it.displayName })
+    }
+
+    @Test
     fun `supports an explicitly configured symlink library root`() {
         val physicalRoot = temporaryDirectory.resolve("physical-library")
         Files.createDirectories(physicalRoot)

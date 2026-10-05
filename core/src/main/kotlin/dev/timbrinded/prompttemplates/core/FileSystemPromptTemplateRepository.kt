@@ -499,6 +499,8 @@ class FileSystemPromptTemplateRepository internal constructor(
             "Folder name contains a character that is not portable across supported systems."
         }
         require(!trimmed.endsWith('.')) { "Folder names cannot end with a period." }
+        require(trimmed.encodeToByteArray().size <= MAX_NAME_BYTES) { "Folder name is too long." }
+        require(!isWindowsDeviceName(trimmed)) { "'$trimmed' is a reserved device name on Windows." }
         require(
             trimmed.lowercase() !in RESERVED_ENTRY_NAMES,
         ) { "'$trimmed' is reserved by the prompt-template library." }
@@ -652,11 +654,15 @@ class FileSystemPromptTemplateRepository internal constructor(
         destination.parent?.let(Files::createDirectories)
     }
 
-    private fun slugify(name: String): String = name
-        .lowercase()
-        .replace(Regex("[^a-z0-9]+"), "-")
-        .trim('-')
-        .ifEmpty { "prompt-template" }
+    private fun slugify(name: String): String {
+        val slug = name
+            .lowercase()
+            .replace(Regex("[^a-z0-9]+"), "-")
+            .take(MAX_SLUG_LENGTH)
+            .trim('-')
+            .ifEmpty { "prompt-template" }
+        return if (isWindowsDeviceName(slug)) "$slug-template" else slug
+    }
 
     private fun firstHeading(markdown: String): String? = markdown.lineSequence()
         .map(String::trim)
@@ -687,6 +693,15 @@ class FileSystemPromptTemplateRepository internal constructor(
             .mapTo(mutableSetOf(), String::lowercase)
         private val LIBRARY_MANAGEMENT_DIRECTORY_NAMES = setOf(".git", ".hg", ".svn", ".idea")
         private val INVALID_FOLDER_NAME_CHARACTERS = setOf('<', '>', ':', '"', '/', '\\', '|', '?', '*')
+        private val WINDOWS_DEVICE_NAMES = setOf("con", "prn", "aux", "nul") + (1..9).flatMap { listOf("com$it", "lpt$it") }
+        private const val MAX_NAME_BYTES = 255
+
+        /** Generated directory names stay short so nested paths remain well inside platform limits. */
+        private const val MAX_SLUG_LENGTH = 64
+
+        /** Windows reserves these stems with any extension, such as `NUL.txt`. */
+        private fun isWindowsDeviceName(name: String): Boolean =
+            name.substringBefore('.').trimEnd(' ').lowercase() in WINDOWS_DEVICE_NAMES
 
         /** Prefixes of the working directories the repository creates beside an entry it is deleting or renaming. */
         const val DELETE_SCRATCH_PREFIX = ".prompt-template-delete-"
