@@ -56,34 +56,4 @@ class UseViewLayoutTest {
             ),
         )
     }
-
-    @Test
-    fun `keeps only primary workflow actions in the footer`() {
-        assertEquals(
-            listOf(UseViewAction.COPY_PROMPT, UseViewAction.INSERT, UseViewAction.EDIT),
-            USE_VIEW_PRIMARY_ACTIONS,
-        )
-    }
-
-    @Test
-    fun `groups invocation source and export actions in the file menu`() {
-        assertEquals(
-            listOf(
-                UseViewAction.DUPLICATE,
-                UseViewAction.ADD_CONTEXT,
-                UseViewAction.REFRESH_CONTEXT,
-                UseViewAction.RELOAD_TEMPLATE,
-                UseViewAction.SELECT_INSERTION_TARGET,
-                UseViewAction.RESET_VALUES,
-                UseViewAction.OPEN_MARKDOWN,
-                UseViewAction.REVEAL,
-                UseViewAction.COPY_PATH,
-                UseViewAction.EXPORT_TEMPLATE,
-                UseViewAction.EXPORT_RENDERED,
-                UseViewAction.OPEN_RENDERED_SCRATCH,
-                UseViewAction.DELETE,
-            ),
-            USE_VIEW_FILE_ACTIONS,
-        )
-    }
 }

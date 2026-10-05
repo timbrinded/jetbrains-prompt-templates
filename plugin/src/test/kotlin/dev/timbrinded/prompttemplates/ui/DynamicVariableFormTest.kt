@@ -8,12 +8,15 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
 import com.intellij.openapi.ui.ComboBox
-import javax.swing.JPanel
+import java.awt.Component
+import java.awt.Container
 import javax.swing.JButton
+import javax.swing.JComponent
 import javax.swing.SwingUtilities
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -30,10 +33,9 @@ class DynamicVariableFormTest {
             )
             val values = mapOf("goal" to "Typed goal", "notes" to "Typed notes", "mode" to "quick")
             val form = DynamicVariableForm(variables, emptyMap(), values) { key, value -> changes.add(key to value) }
-            val rows = form.components.filterIsInstance<JPanel>()
-            val goal = rows[0].components.filterIsInstance<JBTextField>().single()
-            val notes = assertIs<JBTextArea>(rows[1].components.filterIsInstance<JBScrollPane>().single().viewport.view)
-            val mode = rows[2].components.filterIsInstance<ComboBox<*>>().single()
+            val goal = form.control<JBTextField>("Goal")
+            val notes = form.control<JBTextArea>("Notes")
+            val mode = form.control<ComboBox<*>>("Mode")
             notes.select(2, 5)
             form.updateValues(values + ("goal" to "Shared goal") + ("mode" to "deep"))
             assertEquals("Shared goal", goal.text)
@@ -60,16 +62,16 @@ class DynamicVariableFormTest {
                     defaultValue = "Authored\ndefault", minimumRows = rows, placeholder = "Enter notes")),
                 emptyMap(), mapOf("notes" to "Session input"), { _, value -> changes.add(value) },
             )
-            fun scroll(form: DynamicVariableForm) = (form.components.first() as JPanel).components.filterIsInstance<JBScrollPane>().single()
+            fun scroll(form: DynamicVariableForm) =
+                assertNotNull(SwingUtilities.getAncestorOfClass(JBScrollPane::class.java, form.control<JBTextArea>("Notes")))
             val changes = mutableListOf<String>()
             val large = form(8, changes)
             val small = form(2, mutableListOf())
-            val area = assertIs<JBTextArea>(scroll(large).viewport.view)
+            val area = large.control<JBTextArea>("Notes")
             assertEquals(8, area.rows)
             assertEquals("Enter notes", area.emptyText.text)
             assertTrue(scroll(large).preferredSize.height > scroll(small).preferredSize.height)
-            val row = assertIs<JPanel>(large.components.first())
-            row.components.filterIsInstance<JPanel>().single().components.filterIsInstance<JButton>().single().doClick()
+            large.control<JButton>("Reset Notes to Default").doClick()
             assertEquals("Authored\ndefault", area.text)
             assertEquals("Authored\ndefault", changes.last())
         }
@@ -82,10 +84,8 @@ class DynamicVariableFormTest {
                 variables = listOf(PromptVariable("notes", "Notes", type = PromptVariableType.MULTILINE)),
                 accents = emptyMap(), values = emptyMap(), onChanged = { _, _ -> },
             )
-            val row = assertIs<JPanel>(form.components.first())
-            val label = row.components.filterIsInstance<JPanel>().single().components.filterIsInstance<JBLabel>().single()
-            val scroll = row.components.filterIsInstance<JBScrollPane>().single()
-            assertSame(assertIs<JBTextArea>(scroll.viewport.view), label.labelFor)
+            val label = form.descendants().filterIsInstance<JBLabel>().single { it.labelFor != null }
+            assertSame(form.control<JBTextArea>("Notes"), label.labelFor)
         }
     }
 
@@ -100,7 +100,8 @@ class DynamicVariableFormTest {
             )
             form.setSize(500, 300)
             form.doLayout()
-            val row = assertIs<JPanel>(form.components.first())
+            val row = generateSequence<Component>(form.control<JBTextField>("Issue")) { it.parent }
+                .first { it.parent === form }
 
             assertEquals(row.preferredSize.height, row.height)
         }
@@ -120,4 +121,12 @@ class DynamicVariableFormTest {
 
         assertEquals(listOf("low", "high"), enumChoices(variable).map(EnumChoice::id))
     }
+
+    private fun Container.descendants(): Sequence<Component> = components.asSequence().flatMap { child ->
+        sequenceOf(child) + ((child as? Container)?.descendants() ?: emptySequence())
+    }
+
+    /** The control a screen reader announces as [accessibleName], as users of assistive technology find it. */
+    private inline fun <reified T : JComponent> DynamicVariableForm.control(accessibleName: String): T =
+        descendants().filterIsInstance<T>().single { it.accessibleContext.accessibleName == accessibleName }
 }
