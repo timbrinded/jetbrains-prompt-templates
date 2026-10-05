@@ -151,7 +151,15 @@ Requirements are JDK 25 and the included Gradle wrapper. Gradle can provision th
 
 The installable ZIP is written to `plugin/build/distributions/`. Install it with **Settings | Plugins | ⚙ | Install Plugin from Disk…**.
 
-The integration task is a local E2E check. It installs the built plugin into an isolated WebStorm 2026.2 instance (build `262.8665.259`), uses a temporary project and user home, and drives the real Swing UI with JetBrains Starter and Driver. Swing hierarchies, tree state, isolated paths and library manifests are written below `plugin/build/ui-test/`. A screenshot is also written when the display server supports capture; otherwise the directory contains a screenshot capture-error file. On headless Linux, run the task under Xvfb. Local desktop sessions can use their native display.
+The integration task is a local E2E check. It installs the built plugin into an isolated WebStorm 2026.2 instance (build `262.8665.259`), uses a temporary project and user home, and drives the real Swing UI with JetBrains Starter and Driver. Swing hierarchies, tree state, isolated paths and library manifests are written below `plugin/build/ui-test/`. A screenshot is also written when the display server supports capture; otherwise the directory contains a screenshot capture-error file. On headless Linux, run the task under Xvfb. A local X11 session can use its native display if it is left idle while the suite runs. Wayland compositors do not give keyboard focus to the test IDE while you use other windows, so keyboard steps fail there; run the suite on a private headless compositor instead:
+
+```bash
+weston --backend=headless --xwayland --socket=prompt-e2e --width=1920 --height=1200 --idle-time=0 &
+# Use the display Weston reports as "xserver listening on display :N".
+env -u WAYLAND_DISPLAY DISPLAY=:N ./gradlew :plugin:integrationTest
+```
+
+The suite fails fast if the cached test IDE under `out/ide-tests/cache/builds/` no longer matches the pinned build, which happens when an IDE left open after an exploratory run updates itself; delete that directory to extract the pinned installer again.
 
 The suite includes a [500-template Quick Use benchmark](docs/quick-use-benchmark.md), with supported-host measurements and regression review targets.
 
