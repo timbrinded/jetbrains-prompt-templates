@@ -12,7 +12,6 @@ import com.intellij.driver.sdk.ui.components.elements.button
 import com.intellij.driver.sdk.ui.components.elements.dialog
 import com.intellij.driver.sdk.ui.components.elements.list
 import com.intellij.driver.sdk.ui.components.elements.textField
-import com.intellij.driver.sdk.ui.copyToClipboard
 import com.intellij.driver.sdk.ui.ui
 import com.intellij.driver.sdk.waitFor
 import dev.timbrinded.prompttemplates.core.ContextValue
@@ -75,7 +74,7 @@ class WorkedExamplesIdeTest {
             browser.waitNotFound(30.seconds)
             main.waitForPath(examples[0].template.metadata.name)
             waitFor("selection is required instead of using mock context", 30.seconds) { main.renderedText().contains("{{ide.selection}}") }
-            copyToClipboard("missing context sentinel")
+            copyThroughIde("missing context sentinel")
             main.clickButton("Copy Prompt")
             main.waitForNotification("Refresh Context")
             assertEquals("missing context sentinel", clipboard())

@@ -3,7 +3,6 @@ package dev.timbrinded.prompttemplates.e2e
 import com.intellij.driver.client.Remote
 import com.intellij.driver.model.OnDispatcher
 import com.intellij.driver.sdk.ui.boundsOnScreen
-import com.intellij.driver.sdk.ui.copyToClipboard
 import com.intellij.driver.sdk.ui.components.UiComponent.Companion.waitFound
 import com.intellij.driver.sdk.ui.components.common.ideFrame
 import com.intellij.driver.sdk.ui.components.elements.comboBox
@@ -46,7 +45,7 @@ class ReferencedInputsIdeTest {
         )))
         val before = TestLibrary(directory).manifest()
         harness.run { ui ->
-            copyToClipboard("context snapshot")
+            copyThroughIde("context snapshot")
             ui.open().selectTemplate("Review")
             val frame = ideFrame()
             val notes = frame.x { and(byClass("JBTextArea"), byAccessibleName("Notes")) }.waitFound(30.seconds)

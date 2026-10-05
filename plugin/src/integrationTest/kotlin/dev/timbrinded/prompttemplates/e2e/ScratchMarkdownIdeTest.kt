@@ -10,7 +10,6 @@ import com.intellij.driver.sdk.ui.components.common.ideFrame
 import com.intellij.driver.sdk.ui.components.elements.button
 import com.intellij.driver.sdk.ui.components.elements.dialog
 import com.intellij.driver.sdk.ui.components.elements.textField
-import com.intellij.driver.sdk.ui.copyToClipboard
 import com.intellij.driver.sdk.ui.ui
 import com.intellij.driver.sdk.waitFor
 import dev.timbrinded.prompttemplates.core.PromptVariable
@@ -52,13 +51,13 @@ class ScratchMarkdownIdeTest {
             val sourceEditor = ideFrame().codeEditorForFile("source.txt")
             val sourceDocument = sourceEditor.document
             sourceEditor.setSelection(0, 15)
-            copyToClipboard("captured {{literal}} €")
+            copyThroughIde("captured {{literal}} €")
             main.open().selectTemplate("Scratch review")
             val expected = "  Review\tcaptured {{literal}} €\nselected source\n\n"
             waitFor("preview captures exact whitespace and literal context", 30.seconds) { main.renderedText() == expected }
             val manifest = harness.workspace.templates.manifest()
             assertEquals(beforeScratches, scratchFiles(root)) // Preview alone must not create persistent output.
-            copyToClipboard("leave this clipboard unchanged")
+            copyThroughIde("leave this clipboard unchanged")
             sourceEditor.setSelection(16, 25)
             main.clickFileAction(SCRATCH_ACTION)
             waitFor("first scratch is created", 30.seconds) { (scratchFiles(root) - beforeScratches).size == 1 }
@@ -112,7 +111,7 @@ class ScratchMarkdownIdeTest {
             root.parent.createDirectories()
             root.writeText("Existing file: do not overwrite")
             invokeAction("Synchronize")
-            copyToClipboard("failure clipboard sentinel")
+            copyThroughIde("failure clipboard sentinel")
             main.clickFileAction(SCRATCH_ACTION)
             val error = ui.dialog(title = "Error").waitFound(30.seconds)
             val ok = error.button("OK").waitFound(30.seconds)

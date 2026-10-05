@@ -13,7 +13,6 @@ import com.intellij.driver.sdk.ui.components.elements.comboBox
 import com.intellij.driver.sdk.ui.components.elements.dialog
 import com.intellij.driver.sdk.ui.components.elements.list
 import com.intellij.driver.sdk.ui.components.elements.textField
-import com.intellij.driver.sdk.ui.copyToClipboard
 import com.intellij.driver.sdk.ui.ui
 import com.intellij.driver.sdk.waitFor
 import dev.timbrinded.prompttemplates.core.PromptVariable
@@ -51,7 +50,7 @@ class QuickUseIdeTest {
             val editor = ideFrame().codeEditorForFile("source.txt")
             editor.setSelection(0, 5)
             editor.setFocus()
-            copyToClipboard("private clipboard sentinel")
+            copyThroughIde("private clipboard sentinel")
             invokeAction("PromptTemplates.Use", component = editor.component)
             val dialog = ui.dialog(title = "Use Prompt Template").waitFound(30.seconds)
             val search = dialog.textField { byAccessibleName("Search templates") }.waitFound()
@@ -105,7 +104,7 @@ class QuickUseIdeTest {
         create(TestLibrary(otherRoot), "review", "Other library", REVIEW_ID, "Other library prompt")
         harness.run { main ->
             main.dismissTrialNotification()
-            copyToClipboard("handoff snapshot")
+            copyThroughIde("handoff snapshot")
             invokeAction("PromptTemplates.Use", component = ideFrame().component)
             val dialog = ui.dialog(title = "Use Prompt Template").waitFound(30.seconds)
             waitFor("duplicate names include distinct paths", 30.seconds) {
@@ -121,7 +120,7 @@ class QuickUseIdeTest {
             val notes = dialog.x { and(byClass("JBTextArea"), byAccessibleName("Notes")) }.waitFound(30.seconds)
             notes.keyboard { typeText("retained value") }
             waitFor("entered value uses the original snapshot", 30.seconds) { quickPreview() == "retained value: handoff snapshot" }
-            copyToClipboard("changed after preview")
+            copyThroughIde("changed after preview")
             dialog.button("Open in Tool Window").setFocus()
             dialog.button("Open in Tool Window").keyboard { space() }
             dialog.waitNotFound(30.seconds)
@@ -175,7 +174,7 @@ class QuickUseIdeTest {
         harness.run { main ->
             main.dismissTrialNotification()
             main.open().selectTemplate("Review")
-            copyToClipboard("shared snapshot")
+            copyThroughIde("shared snapshot")
             invokeAction("PromptTemplates.Use", component = ideFrame().component)
             val dialog = ui.dialog(title = "Use Prompt Template").waitFound(30.seconds)
             waitFor("review candidate is loaded", 30.seconds) { quickMatches().singleOrNull()?.startsWith("Review —") == true }
@@ -199,7 +198,7 @@ class QuickUseIdeTest {
             assertEquals("Quick\nnotes", frameNotes().text)
             assertEquals("Deep", frameMode().getSelectedItem())
 
-            copyToClipboard("second snapshot")
+            copyThroughIde("second snapshot")
             invokeAction("PromptTemplates.Use", component = ideFrame().component)
             dialog.waitFound(30.seconds)
             waitFor("review candidate is loaded again", 30.seconds) { quickMatches().singleOrNull()?.contains("Review —") == true }
