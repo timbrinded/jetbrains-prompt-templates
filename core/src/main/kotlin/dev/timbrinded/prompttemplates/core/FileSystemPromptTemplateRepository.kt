@@ -1,18 +1,16 @@
 package dev.timbrinded.prompttemplates.core
 
 import java.io.IOException
-import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.DirectoryIteratorException
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
-import java.nio.file.StandardOpenOption
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.UUID
 import kotlin.io.path.extension
 import kotlin.io.path.name
 import kotlin.io.path.nameWithoutExtension
-import kotlin.uuid.Uuid
+import kotlin.io.path.useDirectoryEntries
 
 internal inline fun <T> protectRepositoryOperation(
     operation: String,
@@ -31,35 +29,36 @@ internal inline fun <T> protectRepositoryOperation(
 }
 
 class FileSystemPromptTemplateRepository internal constructor(
-    override val root: Path,
+    val root: Path,
     private val codec: TemplateMetadataCodec,
-    private val parser: PlaceholderParser,
     private val files: TemplateFileStore,
-) : PromptTemplateRepository {
+) {
     constructor(
         root: Path,
         codec: TemplateMetadataCodec = TemplateMetadataCodec(),
-        parser: PlaceholderParser = LinearPlaceholderParser(),
-    ) : this(root, codec, parser, TemplateFileStore(codec))
+    ) : this(root, codec, TemplateFileStore(codec))
 
+    private val paths = LibraryPaths(root)
     private val treeScanner = LibraryTreeScanner(root, codec, files::recover)
+    private val orders = FolderOrderStore(treeScanner, paths)
+    private val reconciler = TemplateReconciler()
 
-    override fun scan(): LibrarySnapshot {
+    fun scan(): LibrarySnapshot {
         if (!Files.isDirectory(root)) return treeScanner.scan()
         return when (val result = protect("scan library") {
             LibraryFileLock.withLock(root) { RepositoryResult.Success(treeScanner.scan()) }
         }) {
             is RepositoryResult.Success -> result.value
-            is RepositoryResult.Failure -> LibrarySnapshot(normalizedRoot(), emptyList(), result.message)
+            is RepositoryResult.Failure -> LibrarySnapshot(paths.root, emptyList(), result.message)
         }
     }
 
-    override fun load(directory: Path): RepositoryResult<StoredTemplate> = mutateLibrary("load template") {
+    fun load(directory: Path): RepositoryResult<StoredTemplate> = mutateLibrary("load template") {
         loadLocked(directory)
     }
 
     private fun loadLocked(directory: Path): RepositoryResult<StoredTemplate> = protect("load template") {
-        val safeDirectory = requireTemplateDirectory(directory)
+        val safeDirectory = paths.requireTemplateDirectory(directory)
         val contents = files.read(safeDirectory)
         val markdown = contents.markdown
             ?: return@protect RepositoryResult.Failure("Template is missing a regular $MARKDOWN_FILE file.")
@@ -83,13 +82,13 @@ class FileSystemPromptTemplateRepository internal constructor(
         }
     }
 
-    override fun create(
+    fun create(
         draft: PromptTemplateDraft,
-        destinationFolder: Path,
+        destinationFolder: Path = root,
     ): RepositoryResult<StoredTemplate> = mutateLibrary("create template", createRoot = true) {
         val template = draft.toTemplate()
         codec.validate(template.metadata)?.let { return@mutateLibrary RepositoryResult.Failure(it) }
-        val destination = requireOrganiserFolder(destinationFolder, createRoot = true)
+        val destination = paths.requireOrganiserFolder(destinationFolder, createRoot = true)
         duplicateVisibleName(destination, template.metadata.name)?.let {
             return@mutateLibrary RepositoryResult.Failure("An entry named '${template.metadata.name}' already exists in this folder.")
         }
@@ -97,8 +96,8 @@ class FileSystemPromptTemplateRepository internal constructor(
             return@mutateLibrary RepositoryResult.Failure("Template UUID '${template.id.value}' already exists in the library.")
         }
 
-        val previousOrder = effectiveOrder(destination)
-        val directory = nextAvailableDirectory(destination, slugify(template.metadata.name))
+        val previousOrder = orders.effective(destination)
+        val directory = LibraryPaths.nextAvailableDirectory(destination, LibraryPaths.slug(template.metadata.name))
         Files.createDirectory(directory)
         val revision = try {
             files.save(directory, template, TemplateRevision.of(null, null))
@@ -111,16 +110,16 @@ class FileSystemPromptTemplateRepository internal constructor(
             EntryKind.TEMPLATE,
             previousOrder.templates + directory.name,
         )
-        val warnings = persistOrderWarnings(destination, updatedOrder)
+        val warnings = orders.persistAfterChange(destination, updatedOrder)
         RepositoryResult.Success(StoredTemplate(template, directory, revision = revision), warnings)
     }
 
-    override fun update(
+    fun update(
         directory: Path,
         draft: PromptTemplateDraft,
         expectedRevision: TemplateRevision?,
     ): RepositoryResult<StoredTemplate> = mutateLibrary("update template") {
-        val safeDirectory = requireTemplateDirectory(directory)
+        val safeDirectory = paths.requireTemplateDirectory(directory)
         val template = draft.toTemplate()
         codec.validate(template.metadata)?.let { return@mutateLibrary RepositoryResult.Failure(it) }
         val stored = when (val result = loadLocked(safeDirectory)) {
@@ -150,40 +149,51 @@ class FileSystemPromptTemplateRepository internal constructor(
         RepositoryResult.Success(StoredTemplate(template, safeDirectory, revision = revision))
     }
 
-    override fun deleteTemplate(directory: Path): RepositoryResult<Unit> = mutateLibrary("delete template") {
-        val safeDirectory = requireTemplateDirectory(directory)
+    /**
+     * Deletes a template package that holds only template files. With [expectedId], the package must still
+     * contain that template, so a stale view cannot delete a different template now at the same path.
+     */
+    fun deleteTemplate(directory: Path, expectedId: TemplateId? = null): RepositoryResult<Unit> = mutateLibrary("delete template") {
+        val safeDirectory = paths.requireTemplateDirectory(directory)
+        val unexpected = unexpectedPackageEntries(safeDirectory)
+        if (unexpected.isNotEmpty()) {
+            return@mutateLibrary RepositoryResult.Failure(
+                "The template folder also contains ${quotedEntryNames(unexpected)}, which are not template files. " +
+                    "Move or remove them in a file manager, then delete the template again.",
+            )
+        }
+        if (expectedId != null && !currentTemplateId(safeDirectory)?.value.equals(expectedId.value, ignoreCase = true)) {
+            return@mutateLibrary RepositoryResult.Failure(
+                "The template changed on disk. Refresh the library and try again.",
+            )
+        }
         val parent = safeDirectory.parent
-        val previousOrder = effectiveOrder(parent)
+        val previousOrder = orders.effective(parent)
         LibraryTreeDeletion.deleteTree(safeDirectory)
         val updated = previousOrder.removing(safeDirectory.name, EntryKind.TEMPLATE)
-        RepositoryResult.Success(Unit, persistOrderWarnings(parent, updated))
+        RepositoryResult.Success(Unit, orders.persistAfterChange(parent, updated))
     }
 
-    override fun importMarkdown(
+    fun importMarkdown(
         source: Path,
-        destinationFolder: Path,
+        destinationFolder: Path = root,
     ): RepositoryResult<StoredTemplate> = protect("import Markdown") {
         if (!Files.isRegularFile(source, NOFOLLOW_LINKS) || source.extension.lowercase() != "md") {
             return@protect RepositoryResult.Failure("Select a regular Markdown (.md) file.")
         }
         val markdown = Files.readString(source, Charsets.UTF_8)
         val inferredName = firstHeading(markdown) ?: source.nameWithoutExtension
-        val variables = parser.parse(markdown).placeholders
-            .filterNot(PlaceholderToken::contextReference)
-            .map(PlaceholderToken::key)
-            .distinct()
-            .map { key -> PromptVariable(key = key, label = defaultVariableLabel(key)) }
         create(
             PromptTemplateDraft(
                 name = inferredName,
-                variables = variables,
+                variables = inferredVariables(markdown),
                 markdown = markdown,
             ),
             destinationFolder,
         )
     }
 
-    override fun exportTemplateMarkdown(
+    fun exportTemplateMarkdown(
         directory: Path,
         destination: Path,
     ): RepositoryResult<Path> = mutateLibrary("export template Markdown") {
@@ -191,24 +201,24 @@ class FileSystemPromptTemplateRepository internal constructor(
             is RepositoryResult.Failure -> loaded
             is RepositoryResult.Success -> {
                 ensureDestinationParent(destination)
-                atomicWrite(destination, loaded.value.template.markdown)
+                writeTextAtomically(destination, loaded.value.template.markdown, allowNonAtomicMove = true)
                 RepositoryResult.Success(destination)
             }
         }
     }
 
-    override fun exportRenderedMarkdown(
+    fun exportRenderedMarkdown(
         rendered: String,
         destination: Path,
     ): RepositoryResult<Path> = protect("export rendered Markdown") {
         ensureDestinationParent(destination)
-        atomicWrite(destination, rendered)
+        writeTextAtomically(destination, rendered, allowNonAtomicMove = true)
         RepositoryResult.Success(destination)
     }
 
-    override fun createFolder(parent: Path, name: String): RepositoryResult<Path> = mutateLibrary("create folder", createRoot = true) {
-        val safeParent = requireOrganiserFolder(parent, createRoot = true)
-        val validName = requireFolderName(name)
+    fun createFolder(parent: Path, name: String): RepositoryResult<Path> = mutateLibrary("create folder", createRoot = true) {
+        val safeParent = paths.requireOrganiserFolder(parent, createRoot = true)
+        val validName = LibraryPaths.requireFolderName(name)
         duplicateVisibleName(safeParent, validName)?.let {
             return@mutateLibrary RepositoryResult.Failure("An entry named '$validName' already exists in this folder.")
         }
@@ -216,18 +226,18 @@ class FileSystemPromptTemplateRepository internal constructor(
         if (Files.exists(directory, NOFOLLOW_LINKS)) {
             return@mutateLibrary RepositoryResult.Failure("A filesystem entry named '$validName' already exists.")
         }
-        val previousOrder = effectiveOrder(safeParent)
+        val previousOrder = orders.effective(safeParent)
         Files.createDirectory(directory)
         val updatedOrder = previousOrder.withNames(EntryKind.FOLDER, previousOrder.folders + validName)
-        val warnings = persistOrderWarnings(safeParent, updatedOrder)
+        val warnings = orders.persistAfterChange(safeParent, updatedOrder)
         RepositoryResult.Success(directory, warnings)
     }
 
-    override fun renameFolder(directory: Path, newName: String): RepositoryResult<Path> =
+    fun renameFolder(directory: Path, newName: String): RepositoryResult<Path> =
         mutateLibrary("rename folder") {
-        val safeDirectory = requireOrganiserFolder(directory)
-        require(safeDirectory != normalizedRoot()) { "The library root cannot be renamed." }
-        val validName = requireFolderName(newName)
+        val safeDirectory = paths.requireOrganiserFolder(directory)
+        require(safeDirectory != paths.root) { "The library root cannot be renamed." }
+        val validName = LibraryPaths.requireFolderName(newName)
         if (safeDirectory.name == validName) {
             return@mutateLibrary RepositoryResult.Success(safeDirectory)
         }
@@ -243,27 +253,27 @@ class FileSystemPromptTemplateRepository internal constructor(
             )
         }
 
-        val previousOrder = effectiveOrder(parent)
+        val previousOrder = orders.effective(parent)
         if (destinationExists) {
-            moveCaseOnlyFolder(safeDirectory, destination)
+            LibraryMoves.moveCaseOnly(safeDirectory, destination)
         } else {
-            moveWithoutReplacement(safeDirectory, destination)
+            LibraryMoves.moveWithoutReplacement(safeDirectory, destination)
         }
         val updatedOrder = previousOrder.replacing(
             safeDirectory.name,
             validName,
             EntryKind.FOLDER,
         )
-        RepositoryResult.Success(destination, persistOrderWarnings(parent, updatedOrder))
+        RepositoryResult.Success(destination, orders.persistAfterChange(parent, updatedOrder))
     }
 
-    override fun moveEntry(
+    fun moveEntry(
         entry: Path,
         destinationFolder: Path,
-        placement: EntryPlacement,
+        placement: EntryPlacement = EntryPlacement.EndOfKind,
     ): RepositoryResult<Path> = mutateLibrary("move library entry") {
-        val safeEntry = requireLibraryEntry(entry)
-        val safeDestination = requireOrganiserFolder(destinationFolder)
+        val safeEntry = paths.requireEntry(entry)
+        val safeDestination = paths.requireOrganiserFolder(destinationFolder)
         val directEntry = treeScanner.classify(safeEntry)
         val kind = directEntry.kind
         if (kind == EntryKind.FOLDER &&
@@ -279,17 +289,23 @@ class FileSystemPromptTemplateRepository internal constructor(
                 "An entry named '${directEntry.visibleName}' already exists in the destination folder.",
             )
         }
-        val target = safeDestination.resolve(safeEntry.name)
+        val target = when {
+            sameParent -> safeEntry
+            // A template's directory name is only a slug, so a hidden collision just needs another free name.
+            kind == EntryKind.TEMPLATE -> LibraryPaths.nextAvailableDirectory(safeDestination, safeEntry.name)
+            else -> safeDestination.resolve(safeEntry.name)
+        }
         if (!sameParent && Files.exists(target, NOFOLLOW_LINKS)) {
             return@mutateLibrary RepositoryResult.Failure(
                 "A filesystem entry named '${safeEntry.fileName}' already exists in the destination folder.",
             )
         }
 
-        val sourceOrder = effectiveOrder(sourceParent)
-        val destinationOrder = if (sameParent) sourceOrder else effectiveOrder(safeDestination)
-        val placedDestinationOrder = destinationOrder.placing(
-            safeEntry.name,
+        val sourceOrder = orders.effective(sourceParent)
+        val destinationOrder = if (sameParent) sourceOrder else orders.effective(safeDestination)
+        val placedDestinationOrder = orders.placing(
+            destinationOrder,
+            target.name,
             kind,
             placement,
             safeDestination,
@@ -304,33 +320,33 @@ class FileSystemPromptTemplateRepository internal constructor(
                     "Entries cannot be moved between filesystems. No files were changed.",
                 )
             }
-            moveWithoutReplacement(safeEntry, target)
+            LibraryMoves.moveWithoutReplacement(safeEntry, target)
             target
         }
 
         val warnings = if (sameParent) {
-            persistOrder(sourceParent, placedDestinationOrder)
+            orders.persist(sourceParent, placedDestinationOrder)
             emptyList()
         } else {
             buildList {
-                addAll(persistOrderWarnings(sourceParent, sourceOrder.removing(safeEntry.name, kind)))
-                addAll(persistOrderWarnings(safeDestination, placedDestinationOrder))
+                addAll(orders.persistAfterChange(sourceParent, sourceOrder.removing(safeEntry.name, kind)))
+                addAll(orders.persistAfterChange(safeDestination, placedDestinationOrder))
             }
         }
         RepositoryResult.Success(resultPath, warnings)
     }
 
-    override fun previewFolderDeletion(directory: Path): RepositoryResult<FolderDeletionPreview> =
+    fun previewFolderDeletion(directory: Path): RepositoryResult<FolderDeletionPreview> =
         protect("inspect folder") {
-            val safeDirectory = requireOrganiserFolder(directory)
-            require(safeDirectory != normalizedRoot()) { "The library root cannot be deleted." }
-            RepositoryResult.Success(LibraryTreeDeletion.manifest(safeDirectory, treeScanner::isTemplatePackage))
+            val safeDirectory = paths.requireOrganiserFolder(directory)
+            require(safeDirectory != paths.root) { "The library root cannot be deleted." }
+            RepositoryResult.Success(LibraryTreeDeletion.manifest(safeDirectory))
         }
 
-    override fun deleteFolder(preview: FolderDeletionPreview): RepositoryResult<Unit> = mutateLibrary("delete folder") {
-        val safeDirectory = requireOrganiserFolder(preview.directory)
-        require(safeDirectory != normalizedRoot()) { "The library root cannot be deleted." }
-        val current = LibraryTreeDeletion.manifest(safeDirectory, treeScanner::isTemplatePackage)
+    fun deleteFolder(preview: FolderDeletionPreview): RepositoryResult<Unit> = mutateLibrary("delete folder") {
+        val safeDirectory = paths.requireOrganiserFolder(preview.directory)
+        require(safeDirectory != paths.root) { "The library root cannot be deleted." }
+        val current = LibraryTreeDeletion.manifest(safeDirectory)
         if (current != preview.copy(directory = safeDirectory)) {
             return@mutateLibrary RepositoryResult.Failure(
                 "The folder contents changed after confirmation. Review the folder and confirm deletion again.",
@@ -338,132 +354,42 @@ class FileSystemPromptTemplateRepository internal constructor(
         }
 
         val parent = safeDirectory.parent
-        val previousOrder = effectiveOrder(parent)
+        val previousOrder = orders.effective(parent)
         LibraryTreeDeletion.deleteTree(safeDirectory)
         val updated = previousOrder.removing(safeDirectory.name, EntryKind.FOLDER)
-        RepositoryResult.Success(Unit, persistOrderWarnings(parent, updated))
+        RepositoryResult.Success(Unit, orders.persistAfterChange(parent, updated))
     }
 
-    private fun inferredMetadata(directory: Path, markdown: String): TemplateMetadata {
-        val id = UUID.nameUUIDFromBytes(directory.toAbsolutePath().normalize().toString().encodeToByteArray()).toString()
-        val variables = parser.parse(markdown).placeholders
-            .filterNot(PlaceholderToken::contextReference)
-            .map(PlaceholderToken::key)
-            .distinct()
-            .map { key -> PromptVariable(key = key, label = defaultVariableLabel(key)) }
-        return TemplateMetadata(
-            id = id,
-            name = firstHeading(markdown) ?: directory.name,
-            variables = variables,
-        )
+    private fun unexpectedPackageEntries(directory: Path): List<String> = directory.useDirectoryEntries { entries ->
+        entries
+            .filter { Files.isDirectory(it, NOFOLLOW_LINKS) || !LibraryLayout.isTemplatePackageFileName(it.name) }
+            .map { it.name }
+            .toList()
     }
 
-    private fun atomicWrite(destination: Path, content: String) {
-        val parent = requireNotNull(destination.parent) { "A destination parent is required." }
-        val temporary = Files.createTempFile(parent, ".${destination.name}.", ".tmp")
-        try {
-            Files.writeString(
-                temporary,
-                content,
-                Charsets.UTF_8,
-                StandardOpenOption.TRUNCATE_EXISTING,
-            )
-            try {
-                Files.move(
-                    temporary,
-                    destination,
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-            } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(temporary, destination, StandardCopyOption.REPLACE_EXISTING)
-            }
-        } finally {
-            Files.deleteIfExists(temporary)
+    /** The identity [loadLocked] would report, or null when the package cannot be read as a template. */
+    private fun currentTemplateId(directory: Path): TemplateId? {
+        val contents = try {
+            files.read(directory)
+        } catch (_: IOException) {
+            return null
         }
+        val metadata = contents.metadata ?: return contents.markdown?.let { TemplateId(inferredId(directory)) }
+        val decoded = codec.decode(metadata) as? MetadataDecodeResult.Success ?: return null
+        return TemplateId(decoded.metadata.id)
     }
 
-    private fun requireTemplateDirectory(directory: Path): Path {
-        val safeDirectory = requireExistingManagedDirectory(directory, allowRoot = false)
-        require(treeScanner.isTemplatePackage(safeDirectory)) {
-            "The selected entry is an organiser folder, not a template."
-        }
-        return safeDirectory
-    }
+    private fun inferredId(directory: Path): String =
+        UUID.nameUUIDFromBytes(directory.toAbsolutePath().normalize().toString().encodeToByteArray()).toString()
 
-    private fun requireOrganiserFolder(directory: Path, createRoot: Boolean = false): Path {
-        val libraryRoot = if (createRoot) ensureRootDirectory() else requireLibraryRoot()
-        val normalDirectory = directory.toAbsolutePath().normalize()
-        require(normalDirectory == libraryRoot || normalDirectory.startsWith(libraryRoot)) {
-            "Folder must be inside the template library."
-        }
-        val safeDirectory = requireExistingManagedDirectory(normalDirectory, allowRoot = true)
-        if (safeDirectory != libraryRoot) {
-            require(!treeScanner.isTemplatePackage(safeDirectory)) { "Templates cannot contain organiser folders." }
-        }
-        return safeDirectory
-    }
+    private fun inferredMetadata(directory: Path, markdown: String): TemplateMetadata = TemplateMetadata(
+        id = inferredId(directory),
+        name = firstHeading(markdown) ?: directory.name,
+        variables = inferredVariables(markdown),
+    )
 
-    private fun requireLibraryEntry(entry: Path): Path =
-        requireExistingManagedDirectory(entry, allowRoot = false)
-
-    private fun requireExistingManagedDirectory(path: Path, allowRoot: Boolean): Path {
-        val libraryRoot = requireLibraryRoot()
-        val normalPath = path.toAbsolutePath().normalize()
-        require(normalPath.startsWith(libraryRoot) && (allowRoot || normalPath != libraryRoot)) {
-            "Entry must be inside the template library."
-        }
-        require(Files.exists(normalPath, NOFOLLOW_LINKS)) { "Library entry does not exist." }
-        require(normalPath == libraryRoot || !Files.isSymbolicLink(normalPath)) {
-            "Symbolic-link entries are not supported."
-        }
-        require(Files.isDirectory(normalPath)) { "Library entry is not a directory." }
-
-        var current = libraryRoot
-        libraryRoot.relativize(normalPath).forEach { segment ->
-            val segmentName = segment.name
-            if (segmentName.isEmpty()) return@forEach
-            require(!isInternalLibraryEntryName(segmentName)) {
-                "IDE metadata, version-control and library working directories are not part of the template library."
-            }
-            current = current.resolve(segment)
-            require(!Files.isSymbolicLink(current)) { "Symbolic-link paths are not supported." }
-            require(Files.isDirectory(current, NOFOLLOW_LINKS)) { "Library path is not a directory." }
-            require(current == normalPath || !treeScanner.isTemplatePackage(current)) {
-                "Entries inside a template package are not part of the managed library hierarchy."
-            }
-        }
-        val realRoot = libraryRoot.toRealPath()
-        val realPath = normalPath.toRealPath()
-        require(realPath.startsWith(realRoot)) { "Entry resolves outside the template library." }
-        return normalPath
-    }
-
-    private fun requireLibraryRoot(): Path {
-        val libraryRoot = normalizedRoot()
-        require(Files.exists(libraryRoot, NOFOLLOW_LINKS)) { "The template library does not exist." }
-        require(Files.isDirectory(libraryRoot)) { "The template library path is not a directory." }
-        libraryRoot.toRealPath()
-        return libraryRoot
-    }
-
-    private fun ensureRootDirectory(): Path {
-        val libraryRoot = normalizedRoot()
-        if (!Files.exists(libraryRoot, NOFOLLOW_LINKS)) Files.createDirectories(libraryRoot)
-        return requireLibraryRoot()
-    }
-
-    private fun normalizedRoot(): Path = root.toAbsolutePath().normalize()
-
-    private fun nextAvailableDirectory(parent: Path, base: String): Path {
-        var candidate = parent.resolve(base)
-        var suffix = 2
-        while (Files.exists(candidate, NOFOLLOW_LINKS)) {
-            candidate = parent.resolve("$base-$suffix")
-            suffix++
-        }
-        return candidate
-    }
+    private fun inferredVariables(markdown: String): List<PromptVariable> =
+        reconciler.reconcile(markdown, existing = emptyList()).variables
 
     private fun duplicateVisibleName(
         parent: Path,
@@ -476,170 +402,9 @@ class FileSystemPromptTemplateRepository internal constructor(
         }
     }
 
-    private fun requireFolderName(name: String): String {
-        val trimmed = name.trim()
-        require(trimmed.isNotEmpty()) { "Folder name is required." }
-        require(trimmed == name) { "Folder names cannot start or end with whitespace." }
-        require(trimmed != "." && trimmed != "..") { "Folder name is not valid." }
-        require(trimmed.none { it.code < 32 || it in INVALID_FOLDER_NAME_CHARACTERS }) {
-            "Folder name contains a character that is not portable across supported systems."
-        }
-        require(!trimmed.endsWith('.')) { "Folder names cannot end with a period." }
-        require(
-            trimmed.lowercase() !in RESERVED_ENTRY_NAMES,
-        ) { "'$trimmed' is reserved by the prompt-template library." }
-        require(!isLibraryManagementDirectoryName(trimmed)) {
-            "'$trimmed' is reserved for IDE or version-control metadata."
-        }
-        require(!isLibraryScratchDirectoryName(trimmed)) {
-            "'$trimmed' uses a prefix reserved for the library's working directories."
-        }
-        return trimmed
-    }
-
-    private fun effectiveOrder(folder: Path): FolderOrderState {
-        val entries = treeScanner.directEntries(folder)
-        val read = LibraryFolderOrderCodec.read(folder)
-        val sorted = sortDirectEntries(entries, read.value)
-        return FolderOrderState(
-            folders = sorted.filter { it.kind == EntryKind.FOLDER }.map { it.path.name },
-            templates = sorted.filter { it.kind == EntryKind.TEMPLATE }.map { it.path.name },
-        )
-    }
-
-    private fun persistOrder(folder: Path, order: FolderOrderState) {
-        val encoded = LibraryFolderOrderCodec.encode(order)
-        atomicWrite(folder.resolve(ORDER_FILE), encoded)
-    }
-
-    private fun persistOrderWarnings(folder: Path, order: FolderOrderState): List<String> = try {
-        persistOrder(folder, order)
-        emptyList()
-    } catch (error: IOException) {
-        listOf("The library change succeeded, but folder order could not be saved: ${error.message}")
-    } catch (error: SecurityException) {
-        listOf("The library change succeeded, but folder order could not be saved: permission denied.")
-    }
-
-    private fun sortDirectEntries(
-        entries: List<DirectLibraryEntry>,
-        order: FolderOrderFile?,
-    ): List<DirectLibraryEntry> =
-        entries.sortedWith(
-            LibraryFolderOrderCodec.comparator(
-                order = order,
-                kindOf = DirectLibraryEntry::kind,
-                orderKeyOf = { it.path.name },
-                fallbackNameOf = DirectLibraryEntry::visibleName,
-            ),
-        )
-
-    private fun FolderOrderState.placing(
-        name: String,
-        kind: EntryKind,
-        placement: EntryPlacement,
-        destinationFolder: Path,
-        source: Path,
-    ): FolderOrderState {
-        val names = names(kind).toMutableList().also { it.remove(name) }
-        val index = placementIndex(placement, destinationFolder, source, kind, names)
-        names.add(index, name)
-        return withNames(kind, names)
-    }
-
-    private fun placementIndex(
-        placement: EntryPlacement,
-        destinationFolder: Path,
-        source: Path,
-        kind: EntryKind,
-        names: List<String>,
-    ): Int {
-        val sibling = when (placement) {
-            EntryPlacement.EndOfKind -> return names.size
-            is EntryPlacement.Before -> placement.sibling
-            is EntryPlacement.After -> placement.sibling
-        }
-        val safeSibling = requireLibraryEntry(sibling)
-        require(safeSibling.parent == destinationFolder) { "The placement target is not in the destination folder." }
-        require(safeSibling != source) { "An entry cannot be placed relative to itself." }
-        require(treeScanner.classify(safeSibling).kind == kind) { "Folders and templates cannot be interleaved." }
-        val siblingIndex = names.indexOf(safeSibling.name)
-        require(siblingIndex >= 0) { "The placement target is no longer available." }
-        return siblingIndex + if (placement is EntryPlacement.After) 1 else 0
-    }
-
-    private fun moveWithoutReplacement(source: Path, destination: Path): Path {
-        try {
-            return Files.move(source, destination, StandardCopyOption.ATOMIC_MOVE)
-        } catch (_: AtomicMoveNotSupportedException) {
-            return Files.move(source, destination)
-        }
-    }
-
-    private fun moveCaseOnlyFolder(source: Path, destination: Path) {
-        val temporary = nextCaseRenameTemporaryPath(source.parent)
-        moveWithoutReplacement(source, temporary)
-        try {
-            moveWithoutReplacement(temporary, destination)
-        } catch (error: IOException) {
-            throw rollbackCaseOnlyRename(temporary, source, error)
-        } catch (error: SecurityException) {
-            throw rollbackCaseOnlyRename(
-                temporary,
-                source,
-                IOException("Permission was denied while applying the requested folder-name casing.", error),
-            )
-        }
-    }
-
-    private fun nextCaseRenameTemporaryPath(parent: Path): Path {
-        while (true) {
-            val candidate = parent.resolve("$RENAME_SCRATCH_PREFIX${Uuid.random()}")
-            if (!Files.exists(candidate, NOFOLLOW_LINKS)) return candidate
-        }
-    }
-
-    private fun rollbackCaseOnlyRename(
-        temporary: Path,
-        source: Path,
-        renameError: IOException,
-    ): IOException {
-        if (!Files.exists(temporary, NOFOLLOW_LINKS) || Files.exists(source, NOFOLLOW_LINKS)) {
-            return IOException(
-                "Unable to apply the requested folder-name casing. ${retainedScratchFolderHint(temporary)}",
-                renameError,
-            )
-        }
-        return try {
-            moveWithoutReplacement(temporary, source)
-            renameError
-        } catch (rollbackError: IOException) {
-            IOException(
-                "Unable to apply the requested folder-name casing or restore the original name. " +
-                    retainedScratchFolderHint(temporary),
-                renameError,
-            ).apply { addSuppressed(rollbackError) }
-        } catch (rollbackError: SecurityException) {
-            IOException(
-                "Unable to apply the requested folder-name casing or restore the original name. " +
-                    retainedScratchFolderHint(temporary),
-                renameError,
-            ).apply { addSuppressed(rollbackError) }
-        }
-    }
-
-    private fun retainedScratchFolderHint(temporary: Path): String =
-        "The folder remains at '$temporary'. It is hidden from the library; rename it in a file manager to restore it."
-
     private fun ensureDestinationParent(destination: Path) {
         destination.parent?.let(Files::createDirectories)
     }
-
-    private fun slugify(name: String): String = name
-        .lowercase()
-        .replace(Regex("[^a-z0-9]+"), "-")
-        .trim('-')
-        .ifEmpty { "prompt-template" }
 
     private fun firstHeading(markdown: String): String? = markdown.lineSequence()
         .map(String::trim)
@@ -656,36 +421,25 @@ class FileSystemPromptTemplateRepository internal constructor(
         createRoot: Boolean = false,
         block: () -> RepositoryResult<T>,
     ): RepositoryResult<T> = protect(operation) {
-        val directory = if (createRoot) ensureRootDirectory() else requireLibraryRoot()
-        LibraryFileLock.withLock(directory, block)
+        val directory = if (createRoot) paths.ensureRoot() else paths.requireRoot()
+        LibraryFileLock.withLock(directory, block = block)
     }
 
     companion object {
-        const val MARKDOWN_FILE = "prompt.md"
-        const val METADATA_FILE = "prompt.meta.json"
-        const val ORDER_FILE = LIBRARY_ORDER_FILE
-        const val SAVE_JOURNAL_FILE = TemplateFileStore.JOURNAL_FILE
+        const val MARKDOWN_FILE = LibraryLayout.MARKDOWN_FILE
+        const val METADATA_FILE = LibraryLayout.METADATA_FILE
+        const val ORDER_FILE = LibraryLayout.ORDER_FILE
+        const val SAVE_JOURNAL_FILE = LibraryLayout.SAVE_JOURNAL_FILE
+        const val DELETE_SCRATCH_PREFIX = LibraryLayout.DELETE_SCRATCH_PREFIX
+        const val RENAME_SCRATCH_PREFIX = LibraryLayout.RENAME_SCRATCH_PREFIX
 
-        private val RESERVED_ENTRY_NAMES = setOf(MARKDOWN_FILE, METADATA_FILE, ORDER_FILE, SAVE_JOURNAL_FILE, LibraryFileLock.FILE_NAME)
-            .mapTo(mutableSetOf(), String::lowercase)
-        private val LIBRARY_MANAGEMENT_DIRECTORY_NAMES = setOf(".git", ".hg", ".svn", ".idea")
-        private val INVALID_FOLDER_NAME_CHARACTERS = setOf('<', '>', ':', '"', '/', '\\', '|', '?', '*')
+        /** Entries the library never shows or manages: version-control metadata and the repository's own working files. */
+        fun isInternalLibraryEntryName(name: String): Boolean = LibraryLayout.isInternalLibraryEntryName(name)
 
-        /** Prefixes of the working directories the repository creates beside an entry it is deleting or renaming. */
-        const val DELETE_SCRATCH_PREFIX = ".prompt-template-delete-"
-        const val RENAME_SCRATCH_PREFIX = ".prompt-template-rename-"
-
-        fun isLibraryManagementDirectoryName(name: String): Boolean =
-            name.lowercase() in LIBRARY_MANAGEMENT_DIRECTORY_NAMES
-
-        fun isLibraryScratchDirectoryName(name: String): Boolean =
-            name.startsWith(DELETE_SCRATCH_PREFIX, ignoreCase = true) ||
-                name.startsWith(RENAME_SCRATCH_PREFIX, ignoreCase = true) ||
-                name.startsWith(TemplateFileStore.STAGE_PREFIX, ignoreCase = true)
-
-        /** Entries the library never shows or manages: version-control metadata and the repository's own scratch directories. */
-        fun isInternalLibraryEntryName(name: String): Boolean =
-            isLibraryManagementDirectoryName(name) || isLibraryScratchDirectoryName(name) ||
-                name.equals(LibraryFileLock.FILE_NAME, ignoreCase = true)
+        /**
+         * Whether a traversal below the library root must treat [path] as a link and not descend into it. This
+         * covers Windows directory junctions, which report as directories that are not symbolic links.
+         */
+        fun isLinkEntry(path: Path, attributes: BasicFileAttributes): Boolean = LibraryLayout.isLink(path, attributes)
     }
 }

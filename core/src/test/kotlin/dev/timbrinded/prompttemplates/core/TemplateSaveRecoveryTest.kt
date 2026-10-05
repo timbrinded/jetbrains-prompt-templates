@@ -6,8 +6,10 @@ import java.util.concurrent.TimeUnit
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
@@ -21,7 +23,7 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
             val repository = FileSystemPromptTemplateRepository(root)
             val original = createOriginal(repository)
             val codec = TemplateMetadataCodec()
-            val failing = FileSystemPromptTemplateRepository(root, codec, LinearPlaceholderParser(), TemplateFileStore(codec) {
+            val failing = FileSystemPromptTemplateRepository(root, codec, TemplateFileStore(codec) {
                 if (it == step) throw IOException("Injected $step")
             })
             assertIs<RepositoryResult.Failure>(failing.update(original.directory, changed(original), original.revision))
@@ -29,7 +31,7 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
             val committed = step != TemplateSaveStep.BEFORE_STAGE
             assertEquals(if (committed) "New body" else "Old body", loaded.template.markdown, step.name)
             assertEquals(if (committed) "Changed" else "Original", loaded.template.metadata.name, step.name)
-            assertFalse(original.directory.resolve(TemplateFileStore.JOURNAL_FILE).exists())
+            assertFalse(original.directory.resolve(LibraryLayout.SAVE_JOURNAL_FILE).exists())
         }
     }
 
@@ -47,7 +49,7 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
             assertEquals(TemplateHealth.HEALTHY, summary.health, step.name)
             assertEquals(if (step == TemplateSaveStep.BEFORE_STAGE) "Old body" else "New body", loaded.template.markdown, step.name)
             assertEquals(if (step == TemplateSaveStep.BEFORE_STAGE) "Original" else "Changed", summary.name, step.name)
-            assertFalse(original.directory.resolve(TemplateFileStore.JOURNAL_FILE).exists())
+            assertFalse(original.directory.resolve(LibraryLayout.SAVE_JOURNAL_FILE).exists())
         }
     }
 
@@ -59,7 +61,7 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
         val child = startProcess(root, "crash", TemplateSaveStep.AFTER_MARKDOWN.name)
         assertTrue(child.waitFor(15, TimeUnit.SECONDS))
         assertEquals(23, child.exitValue())
-        val journal = original.directory.resolve(TemplateFileStore.JOURNAL_FILE)
+        val journal = original.directory.resolve(LibraryLayout.SAVE_JOURNAL_FILE)
         val retained = journal.readText()
         val metadata = original.directory.resolve(FileSystemPromptTemplateRepository.METADATA_FILE)
         val originalMetadata = metadata.readText()
@@ -89,7 +91,7 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
         path.writeText("External two")
         val second = assertIs<RepositoryResult.Conflict>(repository.update(original.directory, changed(original), first.current.revision))
         assertEquals("External two", path.readText())
-        assertFalse(original.directory.resolve(TemplateFileStore.JOURNAL_FILE).exists())
+        assertFalse(original.directory.resolve(LibraryLayout.SAVE_JOURNAL_FILE).exists())
         assertIs<RepositoryResult.Success<StoredTemplate>>(repository.update(original.directory, changed(original), second.current.revision))
         assertEquals("New body", path.readText())
     }
@@ -99,19 +101,19 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
         val root = temporary.resolve("library")
         val original = createOriginal(FileSystemPromptTemplateRepository(root))
         val codec = TemplateMetadataCodec()
-        val repository = FileSystemPromptTemplateRepository(root, codec, LinearPlaceholderParser(), TemplateFileStore(codec) {
+        val repository = FileSystemPromptTemplateRepository(root, codec, TemplateFileStore(codec) {
             if (it == TemplateSaveStep.BEFORE_STAGE) original.directory.resolve("prompt.md").writeText("External change")
         })
         val conflict = assertIs<RepositoryResult.Conflict>(repository.update(original.directory, changed(original), original.revision))
         assertEquals("External change", conflict.current.template.markdown)
-        assertFalse(original.directory.resolve(TemplateFileStore.JOURNAL_FILE).exists())
+        assertFalse(original.directory.resolve(LibraryLayout.SAVE_JOURNAL_FILE).exists())
     }
 
     @Test
     fun `a journal before either canonical file is discoverable as one recoverable template`() {
         val root = temporary.resolve("library")
         val codec = TemplateMetadataCodec()
-        val failing = FileSystemPromptTemplateRepository(root, codec, LinearPlaceholderParser(), TemplateFileStore(codec) {
+        val failing = FileSystemPromptTemplateRepository(root, codec, TemplateFileStore(codec) {
             if (it == TemplateSaveStep.AFTER_STAGE) throw IOException("Interrupted create")
         })
         assertIs<RepositoryResult.Failure>(failing.create(PromptTemplateDraft(name = "Original", markdown = "New body")))
@@ -125,7 +127,7 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
     fun `invalid journal blocks reads and is retained without changing canonical files`() {
         val repository = FileSystemPromptTemplateRepository(temporary.resolve("library"))
         val original = createOriginal(repository)
-        val journal = original.directory.resolve(TemplateFileStore.JOURNAL_FILE)
+        val journal = original.directory.resolve(LibraryLayout.SAVE_JOURNAL_FILE)
         journal.writeText("interrupted or invalid journal")
         assertIs<RepositoryResult.Failure>(repository.load(original.directory))
         assertEquals(TemplateHealth.BROKEN, assertIs<LibraryEntry.Template>(repository.scan().children.single()).summary.health)
@@ -159,6 +161,23 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
         }
     }
 
+    @Test
+    fun `waiting for a lock held by another process times out with a clear error`() {
+        val root = temporary.resolve("library")
+        createOriginal(FileSystemPromptTemplateRepository(root))
+        val holding = startProcess(root, "hold", "unused")
+        try {
+            awaitFile(root.resolve("holding-ready"))
+            val error = assertFailsWith<IOException> { LibraryFileLock.withLock(root, timeout = 200.milliseconds) {} }
+            assertTrue(error.message.orEmpty().contains("locked by another IDE process"), error.message)
+            root.resolve("release-holder").writeText("")
+            assertTrue(holding.waitFor(15, TimeUnit.SECONDS))
+            assertEquals(0, holding.exitValue(), root.resolve("hold.log").readText())
+        } finally {
+            holding.destroyForcibly().waitFor()
+        }
+    }
+
     private fun startProcess(root: Path, mode: String, step: String): Process = ProcessBuilder(
         Path.of(System.getProperty("java.home"), "bin", "java").toString(),
         "-cp", System.getProperty("test.runtime.classpath"),
@@ -189,7 +208,7 @@ object TemplateSaveProcess {
             root.resolve("waiting-attempt").writeText("")
         }
         val codec = TemplateMetadataCodec()
-        val repository = FileSystemPromptTemplateRepository(root, codec, LinearPlaceholderParser(), TemplateFileStore(codec) { step ->
+        val repository = FileSystemPromptTemplateRepository(root, codec, TemplateFileStore(codec) { step ->
             if (mode == "crash" && step.name == args[2]) Runtime.getRuntime().halt(23)
             if (mode == "hold" && step == TemplateSaveStep.AFTER_MARKDOWN) {
                 root.resolve("holding-ready").writeText("")

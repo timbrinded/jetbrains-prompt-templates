@@ -22,18 +22,24 @@ internal enum class LibraryDeletionMode {
 }
 
 internal object LibraryTreeDeletion {
-    fun manifest(
-        directory: Path,
-        isTemplatePackage: (Path) -> Boolean,
-    ): FolderDeletionPreview {
+    fun manifest(directory: Path): FolderDeletionPreview {
         var folderCount = 0
         var templateCount = 0
         var fileCount = 0
         var opaqueTemplatePackage: Path? = null
         val records = mutableListOf<String>()
+        // A Windows junction reads as a directory; record it as a link, which deletion removes without its target.
+        fun recordJunction(junction: Path) {
+            fileCount++
+            records += "L\u0000${directory.relativize(junction).invariantSeparatorsPathString}\u0000${junctionTarget(junction)}"
+        }
         Files.walkFileTree(directory, object : SimpleFileVisitor<Path>() {
             override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
-                val templatePackage = isTemplatePackage(dir)
+                if (dir != directory && LibraryLayout.isLink(dir, attrs)) {
+                    recordJunction(dir)
+                    return FileVisitResult.SKIP_SUBTREE
+                }
+                val templatePackage = LibraryLayout.isTemplatePackage(dir)
                 if (opaqueTemplatePackage == null) {
                     if (templatePackage) {
                         templateCount++
@@ -68,7 +74,12 @@ internal object LibraryTreeDeletion {
                 return FileVisitResult.CONTINUE
             }
 
-            override fun visitFileFailed(file: Path, error: IOException): FileVisitResult = throw error
+            override fun visitFileFailed(file: Path, error: IOException): FileVisitResult {
+                // The walk opens a junction before visiting it, which fails when its target is missing.
+                if (file == directory || !isReadableLink(file)) throw error
+                recordJunction(file)
+                return FileVisitResult.CONTINUE
+            }
         })
         val fingerprint = sha256(records.sorted().joinToString("\n").encodeToByteArray())
         return FolderDeletionPreview(
@@ -152,7 +163,7 @@ internal object LibraryTreeDeletion {
     private fun deleteFreshEntry(entry: Path, ancestors: List<Path>) {
         ancestors.forEach(::requireDirectoryWithoutLinks)
         val attributes = Files.readAttributes(entry, BasicFileAttributes::class.java, NOFOLLOW_LINKS)
-        if (!attributes.isDirectory || attributes.isSymbolicLink) {
+        if (!attributes.isDirectory || LibraryLayout.isLink(entry, attributes)) {
             ancestors.forEach(::requireDirectoryWithoutLinks)
             Files.delete(entry)
             return
@@ -189,14 +200,26 @@ internal object LibraryTreeDeletion {
 
     private fun requireDirectoryWithoutLinks(directory: Path) {
         val attributes = Files.readAttributes(directory, BasicFileAttributes::class.java, NOFOLLOW_LINKS)
-        if (!attributes.isDirectory || attributes.isSymbolicLink) {
+        if (!attributes.isDirectory || LibraryLayout.isLink(directory, attributes)) {
             throw IOException("A library directory changed during deletion. No further entries were deleted.")
         }
     }
 
+    private fun isReadableLink(path: Path): Boolean = try {
+        LibraryLayout.isLink(path)
+    } catch (_: IOException) {
+        false
+    }
+
+    private fun junctionTarget(junction: Path): String = try {
+        junction.toRealPath().toString()
+    } catch (_: IOException) {
+        "unresolved"
+    }
+
     private fun nextQuarantinePath(parent: Path): Path {
         while (true) {
-            val candidate = parent.resolve("${FileSystemPromptTemplateRepository.DELETE_SCRATCH_PREFIX}${Uuid.random()}")
+            val candidate = parent.resolve("${LibraryLayout.DELETE_SCRATCH_PREFIX}${Uuid.random()}")
             if (!Files.exists(candidate, NOFOLLOW_LINKS)) return candidate
         }
     }

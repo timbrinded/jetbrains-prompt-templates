@@ -7,9 +7,10 @@ data class ReconciliationResult(
 )
 
 class TemplateReconciler(
-    private val parser: PlaceholderParser = LinearPlaceholderParser(),
     private val knownContextKeys: Set<String> = BUILT_IN_CONTEXT_KEYS,
 ) {
+    private val parser = LinearPlaceholderParser()
+
     fun reconcile(markdown: String, existing: List<PromptVariable>): ReconciliationResult {
         val parsed = parser.parse(markdown)
         val existingByKey = existing.associateBy(PromptVariable::key)

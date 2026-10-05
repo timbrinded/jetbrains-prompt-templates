@@ -140,6 +140,14 @@ sealed interface TemplateDiagnostic {
         override val severity: DiagnosticSeverity = DiagnosticSeverity.ERROR,
     ) : TemplateDiagnostic
 
+    /** `\{{key}}` renders literally, which hides a value an author may have meant to follow a backslash. */
+    data class EscapedVariablePlaceholder(
+        val key: String,
+        val range: SourceRange,
+        override val message: String = "The backslash before '{{$key}}' makes it literal text, so the '$key' value is not inserted.",
+        override val severity: DiagnosticSeverity = DiagnosticSeverity.WARNING,
+    ) : TemplateDiagnostic
+
     data class UnusedVariableDefinition(
         val key: String,
         override val message: String = "'$key' is defined but not used in the template.",

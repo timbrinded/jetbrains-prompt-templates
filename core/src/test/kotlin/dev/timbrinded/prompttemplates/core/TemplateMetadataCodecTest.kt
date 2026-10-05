@@ -1,10 +1,15 @@
 package dev.timbrinded.prompttemplates.core
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TemplateMetadataCodecTest {
@@ -43,6 +48,43 @@ class TemplateMetadataCodecTest {
 
         val withUnknownField = encoded.replaceFirst("{", "{\n  \"futureField\": true,")
         assertIs<MetadataDecodeResult.Success>(codec.decode(withUnknownField))
+    }
+
+    @Test
+    fun `re-encoding over the original JSON keeps unknown keys but never restores cleared known fields`() {
+        val original = """
+            {
+              "futureTop": {"nested": [1, 2.5, "x"]},
+              "schemaVersion": 1,
+              "id": "${TemplateId.random().value}",
+              "name": "Old name",
+              "description": "Cleared by the edit",
+              "variables": [
+                {"key": "mode", "label": "Mode", "type": "enum", "futureVariable": "kept",
+                 "options": [{"id": "a", "label": "A", "value": "A", "futureOption": 3}]},
+                {"key": "renamed", "label": "Renamed", "futureVariable": "dropped with its key"}
+              ],
+              "zFuture": true
+            }
+        """.trimIndent()
+        val decoded = assertIs<MetadataDecodeResult.Success>(codec.decode(original)).metadata
+        val edited = decoded.copy(
+            name = "New name",
+            description = null,
+            variables = listOf(decoded.variables[0], decoded.variables[1].copy(key = "other")),
+        )
+
+        val encoded = codec.encode(edited, original)
+
+        assertEquals(edited, assertIs<MetadataDecodeResult.Success>(codec.decode(encoded)).metadata)
+        val json = Json.parseToJsonElement(encoded).jsonObject
+        assertEquals(listOf("schemaVersion", "id", "name", "tags", "variables", "futureTop", "zFuture"), json.keys.toList())
+        assertEquals(Json.parseToJsonElement(original).jsonObject["futureTop"], json["futureTop"])
+        val variables = json.getValue("variables").jsonArray.map { it.jsonObject }
+        assertEquals(JsonPrimitive("kept"), variables[0]["futureVariable"])
+        assertEquals(JsonPrimitive(3), variables[0].getValue("options").jsonArray.single().jsonObject["futureOption"])
+        assertNull(variables[1]["futureVariable"])
+        assertEquals(codec.encode(edited), codec.encode(edited, codec.encode(edited)))
     }
 
     @Test

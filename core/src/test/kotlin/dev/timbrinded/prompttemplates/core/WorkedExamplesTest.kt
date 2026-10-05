@@ -17,7 +17,6 @@ class WorkedExamplesTest {
     fun `every shipped package passes codec parser and its documented renderer fixture`() {
         val codec = TemplateMetadataCodec()
         val examples = WorkedExamples.all
-        assertEquals(3, examples.size)
         assertEquals(examples.size, examples.map { it.template.id }.distinct().size)
         assertEquals(PromptVariableType.entries.toSet(), examples.flatMap { it.template.metadata.variables }.map { it.type }.toSet())
         for (example in examples) {

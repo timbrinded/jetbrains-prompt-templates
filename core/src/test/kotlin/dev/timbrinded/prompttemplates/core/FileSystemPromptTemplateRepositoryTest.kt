@@ -1,11 +1,17 @@
 package dev.timbrinded.prompttemplates.core
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.io.TempDir
 import java.nio.charset.MalformedInputException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
+import kotlin.io.path.name
 import kotlin.io.path.readText
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
@@ -48,6 +54,50 @@ class FileSystemPromptTemplateRepositoryTest(
 
         assertIs<RepositoryResult.Success<Unit>>(repository.deleteTemplate(created.directory))
         assertTrue(Files.notExists(created.directory))
+    }
+
+    @Test
+    fun `saving keeps metadata fields written by a newer plugin version`() {
+        val repository = FileSystemPromptTemplateRepository(temporaryDirectory.resolve("library"))
+        val created = assertIs<RepositoryResult.Success<StoredTemplate>>(
+            repository.create(PromptTemplateDraft(name = "Original", markdown = "Body")),
+        ).value
+        val metadataPath = created.directory.resolve(FileSystemPromptTemplateRepository.METADATA_FILE)
+        Files.writeString(metadataPath, metadataPath.readText().replaceFirst("{", "{\n  \"futureField\": \"keep\","))
+        val loaded = assertIs<RepositoryResult.Success<StoredTemplate>>(repository.load(created.directory)).value
+
+        assertIs<RepositoryResult.Success<StoredTemplate>>(
+            repository.update(created.directory, PromptTemplateDraft(created.template.id, "Renamed", markdown = "Body"), loaded.revision),
+        )
+
+        val saved = Json.parseToJsonElement(metadataPath.readText()).jsonObject
+        assertEquals(JsonPrimitive("Renamed"), saved["name"])
+        assertEquals(JsonPrimitive("keep"), saved["futureField"])
+    }
+
+    @Test
+    fun `new files follow the umask and replaced files keep their permissions`() {
+        assumePosixPermissions()
+        val repository = FileSystemPromptTemplateRepository(temporaryDirectory.resolve("library"))
+        val probe = Files.createFile(temporaryDirectory.resolve("probe.md"))
+        val exported = temporaryDirectory.resolve("exported.md")
+
+        assertIs<RepositoryResult.Success<Path>>(repository.exportRenderedMarkdown("rendered", exported))
+
+        assertEquals(Files.getPosixFilePermissions(probe), Files.getPosixFilePermissions(exported))
+        val stored = assertIs<RepositoryResult.Success<StoredTemplate>>(
+            repository.create(PromptTemplateDraft(name = "Restricted", markdown = "Body")),
+        ).value
+        val markdown = stored.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE)
+        val restricted = PosixFilePermissions.fromString("rw-r-----")
+        Files.setPosixFilePermissions(markdown, restricted)
+
+        assertIs<RepositoryResult.Success<StoredTemplate>>(
+            repository.update(stored.directory, PromptTemplateDraft(stored.template.id, "Restricted", markdown = "Changed"), stored.revision),
+        )
+
+        assertEquals("Changed", markdown.readText())
+        assertEquals(restricted, Files.getPosixFilePermissions(markdown))
     }
 
     @Test
@@ -116,21 +166,23 @@ class FileSystemPromptTemplateRepositoryTest(
     }
 
     @Test
-    fun `creates a new template without changing an existing template`() {
+    fun `creates a template whose directory name collides without changing the existing template`() {
         val repository = FileSystemPromptTemplateRepository(temporaryDirectory.resolve("library"))
         val existing = assertIs<RepositoryResult.Success<StoredTemplate>>(
-            repository.create(PromptTemplateDraft(name = "Existing", markdown = "Keep this")),
+            repository.create(PromptTemplateDraft(name = "Review!", markdown = "Keep this")),
         ).value
+        val canonicalFiles = listOf(FileSystemPromptTemplateRepository.MARKDOWN_FILE, FileSystemPromptTemplateRepository.METADATA_FILE)
+            .map(existing.directory::resolve)
+        val originalBytes = canonicalFiles.map(Files::readAllBytes)
 
         val created = assertIs<RepositoryResult.Success<StoredTemplate>>(
-            repository.create(PromptTemplateDraft(name = "New prompt", markdown = "Save this")),
+            repository.create(PromptTemplateDraft(name = "Review?", markdown = "Save this")),
         ).value
 
+        assertEquals("review", existing.directory.name)
+        assertEquals(existing.directory.resolveSibling("review-2"), created.directory)
         assertEquals("Save this", created.template.markdown)
-        assertEquals(
-            "Keep this",
-            assertIs<RepositoryResult.Success<StoredTemplate>>(repository.load(existing.directory)).value.template.markdown,
-        )
+        canonicalFiles.zip(originalBytes).forEach { (file, bytes) -> assertContentEquals(bytes, Files.readAllBytes(file)) }
     }
 
     @Test

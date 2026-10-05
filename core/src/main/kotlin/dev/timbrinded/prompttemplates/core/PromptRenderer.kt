@@ -15,18 +15,10 @@ data class RenderResult(
         get() = diagnostics.none { it.severity == DiagnosticSeverity.ERROR }
 }
 
-interface PromptRenderer {
-    fun render(
-        template: PromptTemplate,
-        userValues: Map<String, String>,
-        contextValues: Map<String, ContextValue>,
-    ): RenderResult
-}
+class StrictPromptRenderer {
+    private val parser = LinearPlaceholderParser()
 
-class StrictPromptRenderer(
-    private val parser: PlaceholderParser = LinearPlaceholderParser(),
-) : PromptRenderer {
-    override fun render(
+    fun render(
         template: PromptTemplate,
         userValues: Map<String, String>,
         contextValues: Map<String, ContextValue>,
@@ -39,6 +31,7 @@ class StrictPromptRenderer(
         val replacements = mutableListOf<Replacement>()
         parseResult.escapedOpenings.forEach { range ->
             replacements += Replacement(range, "{{", null)
+            escapedVariable(template.markdown, range, variablesByKey)?.let(diagnostics::add)
         }
 
         parseResult.placeholders.forEach { token ->
@@ -74,6 +67,18 @@ class StrictPromptRenderer(
         output.append(template.markdown, sourceCursor, template.markdown.length)
 
         return RenderResult(output.toString(), diagnostics, mappings)
+    }
+
+    private fun escapedVariable(
+        markdown: String,
+        opening: SourceRange,
+        variablesByKey: Map<String, PromptVariable>,
+    ): TemplateDiagnostic? {
+        val closing = markdown.indexOf("}}", startIndex = opening.endExclusive)
+        if (closing < 0) return null
+        val key = markdown.substring(opening.endExclusive, closing).trim(' ', '\t')
+        if (key !in variablesByKey) return null
+        return TemplateDiagnostic.EscapedVariablePlaceholder(key, SourceRange(opening.start, closing + 2))
     }
 
     private fun resolveUserVariable(
@@ -120,7 +125,7 @@ class StrictPromptRenderer(
         if (context.status != ContextStatus.AVAILABLE || context.value == null) {
             diagnostics += TemplateDiagnostic.ContextUnavailable(
                 token.key,
-                context.errorMessage ?: "Context '$token.key' is unavailable.",
+                context.errorMessage ?: "Context '${token.key}' is unavailable.",
             )
             return "{{${token.key}}}"
         }
