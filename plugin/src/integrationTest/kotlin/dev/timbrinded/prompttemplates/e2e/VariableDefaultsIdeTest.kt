@@ -10,7 +10,6 @@ import com.intellij.driver.sdk.ui.components.elements.button
 import com.intellij.driver.sdk.ui.components.elements.comboBox
 import com.intellij.driver.sdk.ui.components.elements.list
 import com.intellij.driver.sdk.ui.components.elements.textField
-import com.intellij.driver.sdk.ui.copyToClipboard
 import com.intellij.driver.sdk.waitFor
 import dev.timbrinded.prompttemplates.core.EnumOption
 import dev.timbrinded.prompttemplates.core.MetadataDecodeResult
@@ -101,7 +100,7 @@ class VariableDefaultsIdeTest {
             waitFor("reordering retains selection by key", 10.seconds) { variables.isSelectedIndex(0) && field("Variable key").text == "notes" }
             val author = frame.editor("//div[@class='EditorComponentImpl' and @accessiblename='Template Markdown']").waitFound()
             assertEquals(markdown, author.text)
-            copyToClipboard("Original context snapshot")
+            copyThroughIde("Original context snapshot")
             main.clickButton("Save Template")
             frame.button("Copy Prompt").waitFound(30.seconds)
             main.clickFileAction("Reset Values to Defaults") // Editing defaults does not replace retained session inputs.
@@ -125,7 +124,7 @@ class VariableDefaultsIdeTest {
             goal.text = "Private session goal"
             notes.text = "Private session notes"
             frame.comboBox { and(byClass("ComboBox"), byAccessibleName("Mode")) }.selectItem("Quick")
-            copyToClipboard("Changed after capture")
+            copyThroughIde("Changed after capture")
             val resetNotes = frame.button { byAccessibleName("Reset Notes to Default") }.waitFound()
             resetNotes.setFocus()
             resetNotes.keyboard { space() }

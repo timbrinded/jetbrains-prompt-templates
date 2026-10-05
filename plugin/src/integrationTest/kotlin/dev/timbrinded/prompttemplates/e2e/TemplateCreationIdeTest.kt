@@ -12,7 +12,6 @@ import com.intellij.driver.sdk.ui.components.elements.list
 import com.intellij.driver.sdk.ui.components.elements.popup
 import com.intellij.driver.sdk.ui.components.elements.dialog
 import com.intellij.driver.sdk.ui.components.elements.textField
-import com.intellij.driver.sdk.ui.copyToClipboard
 import com.intellij.driver.sdk.ui.ui
 import com.intellij.driver.sdk.waitFor
 import dev.timbrinded.prompttemplates.core.EnumOption
@@ -55,7 +54,7 @@ class TemplateCreationIdeTest {
         harness.workspace.templates.createTemplate("Destination/existing", "Review copy", OTHER_ID)
         harness.run { main ->
             main.dismissTrialNotification()
-            copyToClipboard("Private captured context")
+            copyThroughIde("Private captured context")
             main.open().selectTemplate("Source", "Review")
             ideFrame().textField { and(byClass("JBTextArea"), byAccessibleName("Goal")) }.waitFound().text = "Private invocation value"
             waitFor("transient input is rendered", 30.seconds) { main.renderedText().startsWith("Private invocation value") }

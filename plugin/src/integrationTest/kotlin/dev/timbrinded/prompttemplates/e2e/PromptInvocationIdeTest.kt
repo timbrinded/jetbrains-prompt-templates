@@ -1,6 +1,5 @@
 package dev.timbrinded.prompttemplates.e2e
 
-import com.intellij.driver.sdk.ui.copyToClipboard
 import com.intellij.driver.client.Remote
 import com.intellij.driver.sdk.openFile
 import com.intellij.driver.sdk.invokeAction
@@ -36,14 +35,14 @@ class PromptInvocationIdeTest {
             )))
         }
         harness.run { ui ->
-            copyToClipboard("original")
+            copyThroughIde("original")
             ui.open().selectTemplate("Original")
             ideFrame().textField { byAccessibleName("Goal") }.waitFound(30.seconds).text = "Explain"
             waitFor("entered values update the session", 30.seconds) { ui.renderedText() == "Explain: original" }
             ui.changeLibrary(otherRoot)
             ui.waitForPath("Other")
             ideFrame().button("Copy Prompt").waitNotFound(30.seconds)
-            copyToClipboard("other")
+            copyThroughIde("other")
             ui.selectTemplate("Other")
             waitFor("new library starts with authored defaults", 30.seconds) { ui.renderedText() == "Review: other" }
             ui.clickButton("Edit")
@@ -71,7 +70,7 @@ class PromptInvocationIdeTest {
             val clipboard = utility(IdeClipboard::class).getInstance()
             val originalClipboard = clipboard.getContents(DataFlavor.stringFlavor)
             try {
-                copyToClipboard("abc")
+                copyThroughIde("abc")
                 ui.open().selectTemplate("Clipboard review")
                 waitFor("preview uses captured clipboard", 30.seconds) { ui.renderedText() == "Review: abc" }
                 repeat(2) {
@@ -79,11 +78,11 @@ class PromptInvocationIdeTest {
                     assertEquals("Review: abc", ui.renderedText())
                     assertEquals("Review: abc", clipboard.getContents(DataFlavor.stringFlavor))
                 }
-                copyToClipboard("changed")
+                copyThroughIde("changed")
                 ui.clickButton("Copy Prompt")
                 assertEquals("Review: abc", ui.renderedText())
                 assertEquals("Review: abc", clipboard.getContents(DataFlavor.stringFlavor))
-                copyToClipboard("refreshed")
+                copyThroughIde("refreshed")
                 ui.clickFileAction("Refresh Context")
                 waitFor("explicit refresh updates the preview", 30.seconds) { ui.renderedText() == "Review: refreshed" }
                 ui.clickButton("Copy Prompt")
@@ -93,7 +92,7 @@ class PromptInvocationIdeTest {
                 directory.resolve("prompt.md").writeText("Updated: {{clipboard}}")
                 ui.waitForAccessibleText("Template changed on disk. Reload Template to use the new version.")
                 assertEquals("Review: refreshed", ui.renderedText())
-                copyToClipboard("retained")
+                copyThroughIde("retained")
                 ui.clickButton("Copy Prompt")
                 ui.renderedText()
                 assertEquals("retained", clipboard.getContents(DataFlavor.stringFlavor))
@@ -106,12 +105,12 @@ class PromptInvocationIdeTest {
                 val moved = directory.resolveSibling("moved-review")
                 directory.moveTo(moved)
                 ui.waitForAccessibleText(moved.toString())
-                copyToClipboard("after move")
+                copyThroughIde("after move")
                 ui.clickButton("Copy Prompt")
                 assertEquals("Updated: retained", ui.renderedText())
                 assertEquals("Updated: retained", clipboard.getContents(DataFlavor.stringFlavor))
             } finally {
-                originalClipboard?.let(::copyToClipboard)
+                originalClipboard?.let { copyThroughIde(it) }
             }
         }
     }
@@ -159,7 +158,7 @@ class PromptInvocationIdeTest {
 
             ui.clickFileAction("Refresh Context")
             ui.waitForAccessibleText("The source editor has no selection. Select text and Refresh Context.")
-            copyToClipboard("unavailable context sentinel")
+            copyThroughIde("unavailable context sentinel")
             ui.clickButton("Copy Prompt")
             ui.renderedText()
             assertEquals("unavailable context sentinel", utility(IdeClipboard::class).getInstance().getContents(DataFlavor.stringFlavor))
@@ -168,10 +167,4 @@ class PromptInvocationIdeTest {
             waitFor("selection recovers after explicit refresh", 30.seconds) { ui.renderedText() == "Review: Review: gamma" }
         }
     }
-}
-
-@Remote("com.intellij.openapi.ide.CopyPasteManager")
-internal interface IdeClipboard {
-    fun getInstance(): IdeClipboard
-    fun getContents(flavor: DataFlavor): String?
 }
