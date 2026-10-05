@@ -505,43 +505,28 @@ class FileSystemPromptTemplateHierarchyTest(
     }
 
     @Test
-    fun `fresh deletion never follows an intermediate replaced after fingerprinting`() {
+    fun `forced Windows-capable fallback deletes a nested tree and never follows an intermediate replaced by a link`() {
         val target = temporaryDirectory.resolve("target")
         val intermediate = target.resolve("intermediate")
         val displaced = temporaryDirectory.resolve("displaced")
         val outside = temporaryDirectory.resolve("outside")
         Files.createDirectories(intermediate)
+        Files.createDirectories(target.resolve("one/two"))
         Files.createDirectories(outside)
+        Files.writeString(target.resolve("root.txt"), "root")
+        Files.writeString(target.resolve("one/two/deep.txt"), "deep")
         Files.writeString(intermediate.resolve("victim.txt"), "original")
         Files.writeString(outside.resolve("victim.txt"), "outside")
-
-        val fingerprint = LibraryTreeDeletion.manifest(target).fingerprint
+        // Deletion traverses afresh, so a directory swapped for a link after the preview is removed as a link.
         Files.move(intermediate, displaced)
         Files.createSymbolicLink(intermediate, outside)
 
         LibraryTreeDeletion.deleteTree(target, LibraryDeletionMode.CONSERVATIVE_FALLBACK)
 
-        assertTrue(fingerprint.isNotBlank())
         assertFalse(Files.exists(target))
         assertEquals("outside", outside.resolve("victim.txt").readText())
         assertEquals("original", displaced.resolve("victim.txt").readText())
-    }
-
-    @Test
-    fun `forced Windows-capable fallback deletes a nested tree without file keys`() {
-        val target = temporaryDirectory.resolve("target")
-        Files.createDirectories(target.resolve("one/two"))
-        Files.writeString(target.resolve("root.txt"), "root")
-        Files.writeString(target.resolve("one/child.txt"), "child")
-        Files.writeString(target.resolve("one/two/deep.txt"), "deep")
-
-        LibraryTreeDeletion.deleteTree(target, LibraryDeletionMode.CONSERVATIVE_FALLBACK)
-
-        assertFalse(Files.exists(target))
-        val hasQuarantine = temporaryDirectory.useDirectoryEntries { entries ->
-            entries.any { it.name.startsWith(FileSystemPromptTemplateRepository.DELETE_SCRATCH_PREFIX) }
-        }
-        assertFalse(hasQuarantine)
+        assertFalse(hasQuarantine(temporaryDirectory))
     }
 
     @Test
@@ -814,6 +799,10 @@ class FileSystemPromptTemplateHierarchyTest(
 
         assertTrue(snapshot.children.isEmpty())
         assertTrue(snapshot.diagnostic.orEmpty().contains("not a regular directory"))
+    }
+
+    private fun hasQuarantine(parent: Path): Boolean = parent.useDirectoryEntries { entries ->
+        entries.any { it.name.startsWith(FileSystemPromptTemplateRepository.DELETE_SCRATCH_PREFIX) }
     }
 
     private fun createJunction(link: Path, target: Path) {
