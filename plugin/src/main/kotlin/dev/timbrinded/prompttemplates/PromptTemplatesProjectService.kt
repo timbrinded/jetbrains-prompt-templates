@@ -30,6 +30,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
@@ -43,8 +44,9 @@ class PromptTemplatesProjectService(
     private var panelReference: WeakReference<PromptTemplatesPanel>? = null
     private var quickUseDialog: QuickUseDialog? = null
     internal val invocation = PromptInvocationSession(project, coroutineScope)
-    // Collectors run on the EDT and keep up; the buffer only absorbs bursts from one EDT cycle.
-    private val changes = MutableSharedFlow<LibraryChange>(extraBufferCapacity = 16)
+    // Collectors run on the EDT and can stall behind a modal dialog; keeping the newest events preserves the
+    // latest external change, and every event already triggers a full reload.
+    private val changes = MutableSharedFlow<LibraryChange>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     internal val libraryChanges = changes.asSharedFlow()
     @Volatile
     private var libraryWatcher: LibraryFileWatcher? = null

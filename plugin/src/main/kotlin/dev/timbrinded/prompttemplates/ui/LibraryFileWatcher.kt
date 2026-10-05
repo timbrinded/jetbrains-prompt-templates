@@ -199,10 +199,12 @@ internal class LibraryFileWatcher(
 
     /**
      * Runs one of the plugin's own writes to this library. Polls wait for it, and a successful write becomes the
-     * known state, so the next poll reports only changes made elsewhere.
+     * known state, so the next poll reports only changes made elsewhere. Changes made elsewhere since the last
+     * poll are reported first, so the new baseline does not absorb them.
      */
     suspend fun <T> ownWrite(write: () -> RepositoryResult<T>): RepositoryResult<T> = withContext(Dispatchers.IO) {
         pollLock.withLock {
+            if (pollChangeTracker.record(snapshotPromptLibrary(root))) queueReload()
             write().also { result ->
                 if (result is RepositoryResult.Success) pollChangeTracker.accept(snapshotPromptLibrary(root))
             }
