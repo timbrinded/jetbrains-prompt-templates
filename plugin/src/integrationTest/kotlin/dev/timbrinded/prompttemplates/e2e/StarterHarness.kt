@@ -57,6 +57,11 @@ class StarterHarness private constructor(
         require(paths.testHome.any { it.toString() == "WS-$PINNED_IDE_BUILD" }) {
             "IDE $IDE_VERSION did not resolve to the pinned build $PINNED_IDE_BUILD: ${paths.testHome}"
         }
+        // An IDE left open after an exploratory run can update its cached installation in place.
+        require(ide.build == PINNED_IDE_BUILD) {
+            "The cached IDE at ${ide.installationPath} is build ${ide.build}, not $PINNED_IDE_BUILD. " +
+                "Delete that directory so the pinned installer is extracted again."
+        }
         PluginConfigurator(this).installPluginFromPath(pluginPath())
         seedStableUiSettings()
         if (disabledPlugins.isNotEmpty()) paths.configDir.resolve("disabled_plugins.txt").writeText(disabledPlugins.joinToString("\n", postfix = "\n"))
