@@ -1013,7 +1013,6 @@ src/main/kotlin/com/example/prompttemplates/
 
 src/main/resources/
   META-INF/plugin.xml
-  messages/PromptTemplatesBundle.properties
   icons/
 
 src/test/kotlin/

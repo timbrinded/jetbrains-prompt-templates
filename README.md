@@ -15,8 +15,8 @@ Implemented workflows:
 - Search a personal prompt library by metadata and body text.
 - Invoke Quick Use from the editor, with ranked search, favourites and recent templates.
 - Organise templates in nested folders with saved manual ordering.
-- Move and reorder folders or templates with drag-and-drop or keyboard actions.
-- Use focused root, folder and template context menus for common library actions.
+- Move and reorder folders or templates with drag-and-drop or keyboard actions (Alt+Up, Alt+Down and Ctrl+Shift+M for **Move to Folder…**).
+- Use focused root, folder and template context menus for common library actions. Right-click anywhere on a row, or use the keyboard context-menu key.
 - Create and edit templates inside a native tool window.
 - Duplicate authored templates or create a draft from an editor selection.
 - Discover and highlight `{{variable}}` placeholders while typing.
@@ -75,9 +75,9 @@ Insert retains the editor and range selected when the invocation began. Changing
 
 An external template edit keeps the inspected preview visible and blocks delivery until **Reload Template**. Reload captures fresh context and retains entered values only for compatible variable types and enum choices. Moving a template preserves its invocation by UUID. Switching libraries clears invocation state while retaining the existing author-draft handling.
 
-In the author view, **Cancel** closes a clean draft immediately. For changed Markdown or metadata, it offers **Discard** and **Keep Editing**, with Keep Editing selected by default. Reverting all editable inputs makes the draft clean again. Word wrap, hiding the tool window, and changing its layout do not discard the draft. Drafts remain in memory only.
+In the author view, **Cancel** closes a clean draft immediately. For changed Markdown or metadata, it offers **Discard** and **Keep Editing**, with Keep Editing selected by default. Reverting all editable inputs makes the draft clean again. Word wrap, hiding the tool window, and changing its layout do not discard the draft. Selecting another library entry while a draft is open keeps the draft selected. Drafts remain in memory only; closing the project or IDE with a changed draft asks whether to discard it.
 
-Use **Template Markdown ▾ | Insert Variable…** to select an existing input or a supported IDE context value. Input selection focuses its inspector; context selection shows an explanation and creates no user field. The chooser inserts at the captured caret or selection and rejects positions inside an existing placeholder or after an escape character.
+Use **Template Markdown ▾ | Insert Variable…** to select an existing input or a supported IDE context value. Input selection focuses its inspector; context selection shows an explanation and creates no user field. The chooser inserts at the captured caret or selection and rejects positions inside an existing placeholder or after an escape character. `\{{` renders a literal `{{`; if an escaped placeholder names a defined variable, the author view warns that its value will not be inserted.
 
 Select author text and choose **Extract as Variable…** to replace it with a new user placeholder. Enter a unique key, choose Text or Multiline, and explicitly check **Use selected text as authored default** to retain the exact selection. The default checkbox starts unchecked. Cancel changes nothing. Undo and Redo in the Markdown editor keep extraction and Rename definitions with their text, while retaining unrelated inspector edits. These actions apply only to the template author view; Save is still required to write the draft.
 
@@ -89,7 +89,7 @@ At narrow widths, variable navigation moves above the author inspector. The insp
 
 ## Storage format
 
-The default library is `~/Prompt Templates`, configurable under **Settings | Tools | Prompt Templates**.
+The default library is `~/Prompt Templates`, configurable under **Settings | Tools | Prompt Templates**. The setting requires an absolute directory path; quotes around a pasted path are removed. Changes made outside the IDE appear in the library within about two seconds.
 
 ```text
 Prompt Templates/
