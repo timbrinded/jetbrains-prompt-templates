@@ -13,17 +13,37 @@ data class ParseResult(
 ) {
     val referencedKeys: List<String>
         get() = placeholders.map(PlaceholderToken::key).distinct()
-}
 
-fun interface PlaceholderParser {
-    fun parse(markdown: String): ParseResult
+    /** Escaped openings whose text names one of [variableKeys]: they render literally, so the value is never inserted. */
+    fun escapedVariablePlaceholders(
+        markdown: String,
+        variableKeys: Set<String>,
+    ): List<TemplateDiagnostic.EscapedVariablePlaceholder> {
+        // Only text short enough to be a padded key is compared, which keeps the scan linear in the text length.
+        val longestCandidate = (variableKeys.maxOfOrNull(String::length) ?: return emptyList()) + KEY_PADDING_LIMIT
+        val found = mutableListOf<TemplateDiagnostic.EscapedVariablePlaceholder>()
+        var closing = -1
+        for (opening in escapedOpenings) {
+            // Openings are in source order, so the closing found for an earlier opening is reused until passed.
+            if (closing < opening.endExclusive) closing = markdown.indexOf("}}", startIndex = opening.endExclusive)
+            if (closing < 0) break
+            if (closing - opening.endExclusive > longestCandidate) continue
+            val key = markdown.substring(opening.endExclusive, closing).trim(' ', '\t')
+            if (key in variableKeys) found += TemplateDiagnostic.EscapedVariablePlaceholder(key, SourceRange(opening.start, closing + 2))
+        }
+        return found
+    }
+
+    private companion object {
+        const val KEY_PADDING_LIMIT = 32
+    }
 }
 
 /** Preserve every opening literally, including an opening that already has a backslash. */
 fun escapePlaceholderOpenings(text: String): String = text.replace("{{", "\\{{")
 
-class LinearPlaceholderParser : PlaceholderParser {
-    override fun parse(markdown: String): ParseResult {
+class LinearPlaceholderParser {
+    fun parse(markdown: String): ParseResult {
         val placeholders = mutableListOf<PlaceholderToken>()
         val escapedOpenings = mutableListOf<SourceRange>()
         val diagnostics = mutableListOf<TemplateDiagnostic.SyntaxError>()

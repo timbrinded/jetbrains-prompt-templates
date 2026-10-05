@@ -12,6 +12,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindowManager
 import dev.timbrinded.prompttemplates.attachments.ContextAttachmentsDialog
 import dev.timbrinded.prompttemplates.core.ATTACHMENTS_CONTEXT_KEY
+import dev.timbrinded.prompttemplates.core.RepositoryResult
 import dev.timbrinded.prompttemplates.invocation.PromptInvocationSession
 import dev.timbrinded.prompttemplates.destination.DestinationResult
 import dev.timbrinded.prompttemplates.destination.PromptTemplatesNotifications
@@ -20,16 +21,20 @@ import dev.timbrinded.prompttemplates.settings.PromptTemplatesSettingsListener
 import dev.timbrinded.prompttemplates.ui.LibraryFileWatcher
 import dev.timbrinded.prompttemplates.ui.PromptTemplatesPanel
 import dev.timbrinded.prompttemplates.ui.QuickUseDialog
+import dev.timbrinded.prompttemplates.ui.hasLibraryRootChanged
 import com.intellij.util.ui.UIUtil
 import java.lang.ref.WeakReference
+import java.nio.file.Path
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Service(Service.Level.PROJECT)
 class PromptTemplatesProjectService(
@@ -39,8 +44,11 @@ class PromptTemplatesProjectService(
     private var panelReference: WeakReference<PromptTemplatesPanel>? = null
     private var quickUseDialog: QuickUseDialog? = null
     internal val invocation = PromptInvocationSession(project, coroutineScope)
-    private val changes = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    // Collectors run on the EDT and can stall behind a modal dialog; keeping the newest events preserves the
+    // latest external change, and every event already triggers a full reload.
+    private val changes = MutableSharedFlow<LibraryChange>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     internal val libraryChanges = changes.asSharedFlow()
+    @Volatile
     private var libraryWatcher: LibraryFileWatcher? = null
 
     init {
@@ -59,10 +67,25 @@ class PromptTemplatesProjectService(
 
     private fun bindLibraryWatcher() {
         libraryWatcher?.let(Disposer::dispose)
-        libraryWatcher = LibraryFileWatcher(project, PromptTemplatesSettings.getInstance().libraryRoot, this, coroutineScope) {
-            invocation.checkTemplate()
-            changes.tryEmit(Unit)
+        libraryWatcher = LibraryFileWatcher(PromptTemplatesSettings.getInstance().libraryRoot, this, coroutineScope) {
+            reportLibraryChange(LibraryChange.EXTERNAL)
         }
+    }
+
+    /**
+     * Runs one of the plugin's own writes to the library at [root]. The watcher does not report it, so a successful
+     * write is reported here once: the invocation follows a moved or edited template and other views reload.
+     */
+    internal suspend fun <T> writeLibrary(root: Path, write: () -> RepositoryResult<T>): RepositoryResult<T> {
+        val watcher = libraryWatcher?.takeUnless { hasLibraryRootChanged(it.root, root) }
+        val result = watcher?.ownWrite(write) ?: withContext(Dispatchers.IO) { write() }
+        if (result is RepositoryResult.Success) withContext(Dispatchers.EDT) { reportLibraryChange(LibraryChange.PLUGIN) }
+        return result
+    }
+
+    private fun reportLibraryChange(change: LibraryChange) {
+        invocation.checkTemplate()
+        changes.tryEmit(change)
     }
 
     internal fun rememberInvocationSource(editor: Editor?) = invocation.rememberSource(editor)
@@ -86,6 +109,14 @@ class PromptTemplatesProjectService(
     }
 
     fun newTemplate() = show(PromptTemplatesPanel::startNewTemplate)
+
+    /** Asks about a changed author draft before the project closes; keeping it cancels the close and shows it. */
+    internal fun canCloseProject(): Boolean {
+        val panel = panelReference?.get() ?: return true
+        if (panel.confirmCloseWithAuthorDraft()) return true
+        show()
+        return false
+    }
 
     internal fun createFromSelection(editor: Editor?) {
         if (panelReference?.get()?.authorOpen == true) {
@@ -124,19 +155,22 @@ class PromptTemplatesProjectService(
         ContextAttachmentsDialog(project, this).show()
     }
 
-    fun copyRendered() = reportDelivery(invocation.copyRendered(), "Prompt copied to the clipboard.")
+    fun copyRendered(): DestinationResult = reportDelivery(invocation.copyRendered(), "Prompt copied to the clipboard.")
 
-    fun insertRendered() = reportDelivery(invocation.insertRendered(), "Prompt inserted into the selected target.")
+    fun insertRendered(): DestinationResult =
+        reportDelivery(invocation.insertRendered(), "Prompt inserted into the selected target.")
 
-    fun openRenderedScratch() = reportDelivery(invocation.openRenderedScratch(), "Rendered prompt exported to a local scratch file.")
+    fun openRenderedScratch(): DestinationResult =
+        reportDelivery(invocation.openRenderedScratch(), "Rendered prompt exported to a local scratch file.")
 
     fun canDeliver(): Boolean = invocation.renderedPayload() != null
 
-    private fun reportDelivery(result: DestinationResult, successMessage: String) {
+    private fun reportDelivery(result: DestinationResult, successMessage: String): DestinationResult {
         when (result) {
             DestinationResult.Success -> PromptTemplatesNotifications.info(project, successMessage)
             is DestinationResult.Failure -> PromptTemplatesNotifications.error(project, result.message)
         }
+        return result
     }
 
     override fun dispose() {
@@ -147,3 +181,6 @@ class PromptTemplatesProjectService(
         const val TOOL_WINDOW_ID = "Prompt Templates"
     }
 }
+
+/** Who changed the library: another process or window ([EXTERNAL]), or this window's own write ([PLUGIN]). */
+internal enum class LibraryChange { EXTERNAL, PLUGIN }

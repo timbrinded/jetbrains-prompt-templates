@@ -12,98 +12,8 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class LibraryFileWatcherTest {
-    private val roots = listOf(Path.of("/library").toAbsolutePath().normalize())
-
     @TempDir
     lateinit var temporaryDirectory: Path
-
-    @Test
-    fun `finds the nearest existing ancestor when the configured root is missing`() {
-        val existingAncestor = Files.createDirectories(temporaryDirectory.resolve("existing-library-parent"))
-        val missingRoot = existingAncestor.resolve("not-created/nested-library")
-
-        assertEquals(existingAncestor, nearestExistingAncestor(missingRoot))
-    }
-
-    @Test
-    fun `reacts to canonical template and order files`() {
-        assertTrue(isPromptLibraryChange(roots, "/library/review/prompt.md"))
-        assertTrue(isPromptLibraryChange(roots, "/library/review/prompt.meta.json"))
-        assertTrue(isPromptLibraryChange(roots, "/library/reviews/.prompt-templates-order.json"))
-    }
-
-    @Test
-    fun `ignores temporary files unrelated root files nested extras and sibling directories`() {
-        assertFalse(isPromptLibraryChange(roots, "/library/review/.prompt.md.123.tmp"))
-        assertFalse(isPromptLibraryChange(roots, "/library/review/notes.txt"))
-        assertFalse(isPromptLibraryChange(roots, "/library/readme.txt"))
-        assertFalse(isPromptLibraryChange(roots, "/library-backup/review/prompt.md"))
-    }
-
-    @Test
-    fun `ignores files and directories inside IDE and version-control metadata`() {
-        val internalDirectories = listOf(
-            ".git",
-            ".hg",
-            ".svn",
-            ".idea",
-            "${FileSystemPromptTemplateRepository.DELETE_SCRATCH_PREFIX}1",
-            "${FileSystemPromptTemplateRepository.RENAME_SCRATCH_PREFIX}1",
-        )
-        internalDirectories.forEach { directory ->
-            assertFalse(isPromptLibraryChange(roots, "/library/$directory/deep/prompt.md"))
-            assertFalse(
-                isPromptLibraryChange(
-                    roots,
-                    eventPaths = listOf("/library/$directory/objects/new-directory"),
-                    directoryEvent = true,
-                ),
-            )
-        }
-    }
-
-    @Test
-    fun `reacts to deep directory create delete and rename events`() {
-        assertTrue(
-            isPromptLibraryChange(
-                roots,
-                eventPaths = listOf("/library/reviews/security"),
-                directoryEvent = true,
-            ),
-        )
-        assertTrue(
-            isPromptLibraryChange(
-                roots,
-                eventPaths = listOf("/library/reviews/security", "/library/reviews/audits"),
-                directoryEvent = true,
-            ),
-        )
-    }
-
-    @Test
-    fun `reacts when a directory move crosses the library boundary using old and new paths`() {
-        assertTrue(
-            isPromptLibraryChange(
-                roots,
-                eventPaths = listOf("/library/reviews", "/archive/reviews"),
-                directoryEvent = true,
-            ),
-        )
-        assertTrue(
-            isPromptLibraryChange(
-                roots,
-                eventPaths = listOf("/archive/ideas", "/library/ideas"),
-                directoryEvent = true,
-            ),
-        )
-        assertFalse(
-            isPromptLibraryChange(
-                roots,
-                eventPaths = listOf("/archive/a", "/archive/b"),
-                directoryEvent = true,
-            ),
-        )
-    }
 
     @Test
     fun `poll snapshot detects organiser directory create rename and delete`() {
@@ -242,13 +152,16 @@ class LibraryFileWatcherTest {
     }
 
     @Test
-    fun `reacts to events reported under either path of a symbolic-link root`() {
-        val target = Files.createDirectory(temporaryDirectory.resolve("target-library")).toRealPath()
-        val linkedRoot = Files.createSymbolicLink(temporaryDirectory.resolve("linked-root"), target)
-        val roots = requireNotNull(libraryRootsOrNull(linkedRoot))
+    fun `an accepted own write is not reported but a later external change is`() {
+        val library = Files.createDirectory(temporaryDirectory.resolve("library"))
+        val tracker = LibraryPollChangeTracker()
+        assertFalse(tracker.record(snapshotPromptLibrary(library)), "The first poll only sets the baseline")
 
-        assertTrue(isPromptLibraryChange(roots, target.resolve("Reviews/prompt.md").toString()))
-        assertTrue(isPromptLibraryChange(roots, linkedRoot.resolve("Reviews/prompt.md").toString()))
-        assertFalse(isPromptLibraryChange(roots, target.resolveSibling("elsewhere/prompt.md").toString()))
+        Files.createDirectory(library.resolve("Own folder"))
+        tracker.accept(snapshotPromptLibrary(library))
+        assertFalse(tracker.record(snapshotPromptLibrary(library)))
+
+        Files.createDirectory(library.resolve("External folder"))
+        assertTrue(tracker.record(snapshotPromptLibrary(library)))
     }
 }

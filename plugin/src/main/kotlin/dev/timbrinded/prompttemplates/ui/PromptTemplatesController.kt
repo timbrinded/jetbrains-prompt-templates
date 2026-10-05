@@ -3,54 +3,37 @@ package dev.timbrinded.prompttemplates.ui
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.fileChooser.FileChooser
-import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
-import com.intellij.openapi.fileChooser.FileChooserFactory
-import com.intellij.openapi.fileChooser.FileSaverDescriptor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.ide.CopyPasteManager
-import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.Messages
-import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.vfs.LocalFileSystem
-import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.ui.UIUtil
 import com.intellij.openapi.components.service
+import dev.timbrinded.prompttemplates.LibraryChange
 import dev.timbrinded.prompttemplates.PromptTemplatesProjectService
 import dev.timbrinded.prompttemplates.core.DiagnosticSeverity
 import dev.timbrinded.prompttemplates.core.EntryPlacement
 import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository
-import dev.timbrinded.prompttemplates.core.FolderDeletionPreview
 import dev.timbrinded.prompttemplates.core.LibraryEntry
 import dev.timbrinded.prompttemplates.core.LibrarySnapshot
-import dev.timbrinded.prompttemplates.core.LinearPlaceholderParser
 import dev.timbrinded.prompttemplates.core.PromptTemplateDraft
-import dev.timbrinded.prompttemplates.core.PromptVariable
 import dev.timbrinded.prompttemplates.core.RepositoryResult
 import dev.timbrinded.prompttemplates.core.StoredTemplate
 import dev.timbrinded.prompttemplates.core.TemplateDiagnostic
 import dev.timbrinded.prompttemplates.core.TemplateHealth
-import dev.timbrinded.prompttemplates.core.TemplateId
 import dev.timbrinded.prompttemplates.core.TemplateSummary
-import dev.timbrinded.prompttemplates.core.WorkedExamples
-import dev.timbrinded.prompttemplates.core.defaultVariableLabel
-import dev.timbrinded.prompttemplates.core.escapePlaceholderOpenings
 import dev.timbrinded.prompttemplates.destination.DestinationResult
 import dev.timbrinded.prompttemplates.destination.PromptTemplatesNotifications
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesSettings
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesSettingsListener
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesWorkspaceState
 import java.awt.datatransfer.StringSelection
-import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.cancellation.CancellationException
 
 internal interface PromptTemplatesView {
     val selectedDestinationFolder: Path
@@ -60,9 +43,11 @@ internal interface PromptTemplatesView {
         bodyIndex: Map<Path, String>,
         selectedKey: LibrarySelectionKey?,
         expandedPaths: Collection<String>,
+        loading: Boolean,
     )
 
     fun clearLibrarySelection()
+    fun revertLibrarySelection(selectedKey: LibrarySelectionKey?)
     fun renderDetail(detail: PromptDetailState)
     fun updateUsePreview(detail: PromptDetailState.Use)
     fun focusVariable(key: String)
@@ -77,23 +62,29 @@ private data class LibraryReload(
     val indexedBodies: Map<Path, String>,
 )
 
+/**
+ * The tool window's state: the library, the selection, the detail it shows and transitions between libraries.
+ * File changes are delegated to [LibraryMutations] and drafts to [AuthorFlow].
+ */
 internal class PromptTemplatesController(
     private val project: Project,
     private val view: PromptTemplatesView,
     private val settings: PromptTemplatesSettings,
     private val workspace: PromptTemplatesWorkspaceState,
     private val coroutineScope: CoroutineScope,
-) : Disposable {
+) : Disposable, LibraryMutationHost, AuthorFlowHost {
     private val state = PromptToolWindowState(settings.libraryRoot)
-    private var repository = FileSystemPromptTemplateRepository(settings.libraryRoot)
+    override var repository = FileSystemPromptTemplateRepository(settings.libraryRoot)
+        private set
     private val projectService = project.service<PromptTemplatesProjectService>()
     private val invocation = projectService.invocation
     private var showingInvocation = invocation.state.value != null
-    private val parser = LinearPlaceholderParser()
     private val loadGenerations = LoadGenerationTracker()
-    private val authorRequests = AuthorAsyncRequestTracker()
-    private var selectedKey: LibrarySelectionKey? =
+    private val mutations = LibraryMutations(project, this, settings, workspace, projectService, coroutineScope)
+    private val authorFlow = AuthorFlow(project, this, view, settings, projectService, coroutineScope)
+    override var selectedKey: LibrarySelectionKey? =
         workspace.selectedTemplateId?.let(LibrarySelectionKey::Template)
+        private set
 
     @Volatile
     private var disposed = false
@@ -101,22 +92,31 @@ internal class PromptTemplatesController(
     val authorOpen: Boolean
         get() = state.detail is PromptDetailState.Author
 
+    override val librarySnapshot: LibrarySnapshot
+        get() = state.librarySnapshot
+
+    override val openAuthor: TemplateAuthorState?
+        get() = (state.detail as? PromptDetailState.Author)?.author
+
     fun start(parentDisposable: Disposable) {
         ApplicationManager.getApplication().messageBus.connect(parentDisposable).subscribe(
             PromptTemplatesSettingsListener.TOPIC,
             PromptTemplatesSettingsListener(::onLibraryRootChanged),
         )
         coroutineScope.launch(Dispatchers.EDT) {
-            projectService.libraryChanges.collect { onLibraryFilesChanged() }
+            // This view reloads after its own writes itself, with the selection that write calls for.
+            projectService.libraryChanges.collect { change -> if (change == LibraryChange.EXTERNAL) onLibraryFilesChanged() }
         }
         coroutineScope.launch(Dispatchers.EDT) {
             invocation.state.collect { session ->
                 if (!showingInvocation || session == null) return@collect
                 val detail = PromptDetailState.Use(session)
                 val previous = state.detail as? PromptDetailState.Use
-                if (previous?.stored?.template?.id != detail.stored.template.id) {
-                    selectedKey = LibrarySelectionKey.Template(detail.stored.template.id.value)
-                    workspace.selectedTemplateId = detail.stored.template.id.value
+                // Another view, such as Quick Use, opened a different template; select it unless it already is.
+                val key = templateKey(detail.stored)
+                if (previous?.stored?.template?.id != detail.stored.template.id && !isSameLibrarySelection(selectedKey, key)) {
+                    selectedKey = key
+                    workspace.selectedTemplateId = key.templateId
                     refreshTree()
                 }
                 state.detail = detail
@@ -153,8 +153,8 @@ internal class PromptTemplatesController(
         repository = FileSystemPromptTemplateRepository(normalizedRoot)
         loadGenerations.invalidateDetailLoad()
         // A save that is mid-flight reports its own outcome when it lands, so its draft needs no rebase warning.
-        val saveInFlight = authorRequests.isSaveInProgress()
-        authorRequests.invalidate()
+        val saveInFlight = authorFlow.saveInProgress
+        authorFlow.invalidateRequests()
         selectedKey = null
         workspace.selectedTemplateId = null
         workspace.replaceExpandedFolderPaths(emptyList())
@@ -176,6 +176,7 @@ internal class PromptTemplatesController(
 
         if (clearTree) {
             state.librarySnapshot = LibrarySnapshot(normalizedRoot, emptyList())
+            state.libraryLoaded = false
             state.bodyIndex.clear()
             refreshTree()
         }
@@ -186,8 +187,8 @@ internal class PromptTemplatesController(
         reloadSelectedDetail: Boolean = false,
     ) {
         selectedKey = selection
-        val generation = loadGenerations.beginLibraryLoad()
         val nextRepository = FileSystemPromptTemplateRepository(settings.libraryRoot)
+        val generation = loadGenerations.beginLibraryLoad(nextRepository.root)
         coroutineScope.launch {
             val (scanned, templates, indexedBodies) = withContext(Dispatchers.IO) {
                 val snapshot = nextRepository.scan()
@@ -203,12 +204,13 @@ internal class PromptTemplatesController(
                 )
             }
             withContext(Dispatchers.EDT) {
-                if (isDisposed() || !loadGenerations.isCurrentLibraryLoad(generation)) return@withContext
+                if (isDisposed() || !loadGenerations.acceptLibraryLoad(generation, scanned.root)) return@withContext
                 if (hasLibraryRootChanged(state.librarySnapshot.root, scanned.root)) {
                     applyLibraryRootTransition(scanned.root, clearTree = false)
                 }
                 repository = nextRepository
                 state.librarySnapshot = scanned
+                state.libraryLoaded = true
                 state.bodyIndex.clear()
                 state.bodyIndex.putAll(indexedBodies)
 
@@ -222,6 +224,15 @@ internal class PromptTemplatesController(
         }
     }
 
+    override fun reloadAfterMutation(preferred: LibrarySelectionKey?, keyAtStart: LibrarySelectionKey?) {
+        if (!isSameLibrarySelection(selectedKey, keyAtStart)) {
+            reloadLibrary()
+            return
+        }
+        if (preferred == null) clearSelectedTemplate()
+        reloadLibrary(preferred)
+    }
+
     private fun reconcileDetailAfterReload(
         selected: LibraryTreeSelection?,
         pendingDetail: TemplateDetailRequest?,
@@ -230,11 +241,11 @@ internal class PromptTemplatesController(
     ) {
         if (authorOpen) return
         val active = state.detail as? PromptDetailState.Use
+        // The project service already re-checked the open invocation when it reported the change.
         if (active != null && pendingDetail == null && (
                 reloadSelectedDetail ||
                     selected is LibraryTreeSelection.Template && selected.entry.summary.id == active.stored.template.id
                 )) {
-            invocation.checkTemplate()
             return
         }
         when (selected) {
@@ -245,6 +256,9 @@ internal class PromptTemplatesController(
                     return
                 }
                 val active = state.detail as? PromptDetailState.Use
+                // A file change may refresh this view's own template, but must not take over an invocation
+                // that Quick Use is showing while this view shows a folder, an empty state or an error.
+                if (reloadSelectedDetail && active == null && invocation.state.value != null) return
                 if (reloadSelectedDetail || active?.stored?.directory != selected.directory) {
                     loadTemplate(selected.entry.summary)
                 }
@@ -260,6 +274,7 @@ internal class PromptTemplatesController(
             bodyIndex = state.bodyIndex,
             selectedKey = selectedKey,
             expandedPaths = workspace.expandedFolderPaths,
+            loading = !state.libraryLoaded,
         )
     }
 
@@ -275,6 +290,8 @@ internal class PromptTemplatesController(
 
     fun onLibrarySelection(selection: LibraryTreeSelection) {
         if (authorOpen) {
+            // The draft stays open, so the tree must keep showing the entry it belongs to.
+            view.revertLibrarySelection(selectedKey)
             view.showNarrowDetail()
             return
         }
@@ -310,8 +327,8 @@ internal class PromptTemplatesController(
                 when (result) {
                     is RepositoryResult.Success -> when (intent) {
                         TemplateDetailIntent.USE -> showUse(result.value)
-                        TemplateDetailIntent.EDIT -> editStored(result.value)
-                        TemplateDetailIntent.DUPLICATE -> duplicateStored(result.value)
+                        TemplateDetailIntent.EDIT -> authorFlow.edit(result.value)
+                        TemplateDetailIntent.DUPLICATE -> authorFlow.duplicate(result.value)
                     }
                     is RepositoryResult.Failure -> if (directoryMissing) {
                         clearSelectedTemplate()
@@ -340,8 +357,9 @@ internal class PromptTemplatesController(
         val current = invocation.state.value ?: return false
         loadGenerations.invalidateDetailLoad()
         showingInvocation = true
-        selectedKey = LibrarySelectionKey.Template(current.invocation.stored.template.id.value)
-        workspace.selectedTemplateId = current.invocation.stored.template.id.value
+        val key = templateKey(current.invocation.stored)
+        selectedKey = key
+        workspace.selectedTemplateId = key.templateId
         state.detail = PromptDetailState.Use(current)
         view.renderDetail(state.detail)
         refreshTree()
@@ -352,152 +370,67 @@ internal class PromptTemplatesController(
     fun setInvocationValue(key: String, value: String) = invocation.setValue(key, value)
 
     fun performUseViewAction(action: UseViewAction) {
+        val use = state.detail as? PromptDetailState.Use
         when (action) {
             UseViewAction.COPY_PROMPT -> deliver(copy = true)
             UseViewAction.INSERT -> deliver(copy = false)
-            UseViewAction.EDIT -> editActive()
-            UseViewAction.DUPLICATE -> (state.detail as? PromptDetailState.Use)?.let { duplicateStored(it.stored) }
-            UseViewAction.OPEN_MARKDOWN -> openMarkdown()
-            UseViewAction.REVEAL -> revealSource()
-            UseViewAction.COPY_PATH -> copyMarkdownPath()
-            UseViewAction.EXPORT_TEMPLATE -> exportTemplate()
-            UseViewAction.EXPORT_RENDERED -> exportRendered()
+            UseViewAction.EDIT -> if (canChangeLibrary() && use != null) authorFlow.edit(use.stored)
+            UseViewAction.DUPLICATE -> use?.let { authorFlow.duplicate(it.stored) }
+            UseViewAction.OPEN_MARKDOWN -> use?.let { openMarkdown(it.stored.directory) }
+            UseViewAction.REVEAL -> use?.let { revealSource(it.stored) }
+            UseViewAction.COPY_PATH -> use?.let { copyMarkdownPath(it.stored) }
+            UseViewAction.EXPORT_TEMPLATE -> use?.let { mutations.exportTemplate(it.stored) }
+            UseViewAction.EXPORT_RENDERED -> use?.let(::exportRendered)
             UseViewAction.OPEN_RENDERED_SCRATCH -> projectService.openRenderedScratch()
-            UseViewAction.DELETE -> deleteActive()
+            UseViewAction.DELETE -> use?.let { mutations.deleteTemplate(it.stored.template.metadata.name, it.stored.directory, it.stored.template.id) }
             UseViewAction.ADD_CONTEXT -> projectService.manageAttachments()
             UseViewAction.REFRESH_CONTEXT -> invocation.refreshContext()
             UseViewAction.RELOAD_TEMPLATE -> invocation.checkTemplate(reload = true)
             UseViewAction.SELECT_INSERTION_TARGET -> invocation.selectInsertionTarget()
-            UseViewAction.RESET_VALUES -> {
-                invocation.resetValues()
-                invocation.state.value?.let { view.renderDetail(PromptDetailState.Use(it)) }
-            }
+            // The session update refreshes the form in place.
+            UseViewAction.RESET_VALUES -> invocation.resetValues()
         }
     }
-
-    fun hasValidRenderedPrompt(): Boolean = invocation.renderedPayload() != null
 
     private fun deliver(copy: Boolean) {
-        val destination = if (copy) invocation.copyRendered() else invocation.insertRendered()
-        when (destination) {
-            DestinationResult.Success -> PromptTemplatesNotifications.info(
-                project,
-                if (copy) "Prompt copied to the clipboard." else "Prompt inserted into the selected target.",
-            )
-            is DestinationResult.Failure -> {
-                val error = invocation.state.value?.invocation?.render?.diagnostics
-                    ?.firstOrNull { it.severity == DiagnosticSeverity.ERROR }
-                if (error is TemplateDiagnostic.MissingRequiredValue) view.focusVariable(error.key)
-                PromptTemplatesNotifications.error(project, destination.message)
-            }
+        val result = if (copy) projectService.copyRendered() else projectService.insertRendered()
+        if (result is DestinationResult.Failure) {
+            val error = invocation.state.value?.invocation?.render?.diagnostics
+                ?.firstOrNull { it.severity == DiagnosticSeverity.ERROR }
+            if (error is TemplateDiagnostic.MissingRequiredValue) view.focusVariable(error.key)
         }
     }
 
-    fun startNewTemplate() = startNewTemplateAt(view.selectedDestinationFolder)
-
-    fun browseExamples() {
-        if (!canChangeLibrary()) return
-        val destination = view.selectedDestinationFolder
-        val request = authorRequests.begin(destination)
-        val dialog = WorkedExamplesDialog(project, destination, WorkedExamples.all)
-        if (!dialog.showAndGet() || !authorRequests.isCurrent(request) || !canChangeLibrary()) return
-        val example = dialog.selectedExample
-        val draft = example.newDraft(availableTemplateName(example.template.metadata.name, siblingNames(destination)))
-        showAuthor(draft, existing = null, destination = destination)
-        saveDraft(draft)
-    }
-
-    fun startNewTemplateAt(destination: Path) {
-        if (!canChangeLibrary()) return
-        showAuthor(
-            PromptTemplateDraft(
-                name = "New prompt",
-                markdown = "# New prompt\n\n{{objective}}\n",
-            ),
-            existing = null,
-            destination = destination,
-        )
-    }
-
-    fun startTemplateFromSelection(text: String, sourceName: String) {
-        if (!canChangeLibrary()) return
-        val destination = view.selectedDestinationFolder
-        val request = authorRequests.begin(destination)
-        val choice = if (text.contains("{{")) Messages.showDialog(
-            project,
-            "The selection contains {{...}}.\nPreserve the text literally, or interpret placeholders as input and IDE context variables.",
-            "Create Template from Selection",
-            arrayOf("Preserve Literally", "Interpret Placeholders", "Cancel"),
-            0,
-            Messages.getQuestionIcon(),
-        ) else 0
-        if (!authorRequests.isCurrent(request) || !canChangeLibrary()) return
-        val markdown = when (choice) {
-            0 -> escapePlaceholderOpenings(text)
-            1 -> text
-            else -> return
+    private fun exportRendered(use: PromptDetailState.Use) {
+        val payload = invocation.renderedPayload()
+        if (payload == null) {
+            PromptTemplatesNotifications.error(project, invocation.state.value?.deliveryProblem ?: "Choose a template first.")
+            return
         }
-        showAuthor(
-            PromptTemplateDraft(name = availableTemplateName("Selection from $sourceName", siblingNames(destination)), markdown = markdown),
-            existing = null,
-            destination = destination,
-        )
+        mutations.exportRendered(use.stored, payload)
     }
 
-    private fun duplicateStored(stored: StoredTemplate) {
-        if (!canChangeLibrary()) return
-        val root = state.librarySnapshot.root
-        val folders = listOf(root) + flattenFolders(state.librarySnapshot.children).map(LibraryEntry.Folder::directory)
-        val options = folders.map { if (it == root) "/ (Library root)" else portableRelativePath(root, it) }
-        val initial = folders.indexOf(stored.directory.parent).takeIf { it >= 0 } ?: 0
-        val request = authorRequests.begin(stored.directory.parent)
-        JBPopupFactory.getInstance().createPopupChooserBuilder(options)
-            .setTitle("Duplicate Template in Folder")
-            .setSelectedValue(options[initial], true)
-            .setItemChosenCallback { choice ->
-                if (isDisposed() || !authorRequests.isCurrent(request) || !canChangeLibrary()) return@setItemChosenCallback
-                val destination = folders[options.indexOf(choice)]
-                val draft = draftOf(stored).copy(
-                    id = TemplateId.random(),
-                    name = availableTemplateName("${stored.template.metadata.name} copy", siblingNames(destination)),
-                )
-                showAuthor(draft, existing = null, destination = destination)
-            }
-            .createPopup().showInFocusCenter()
-    }
+    private fun templateKey(stored: StoredTemplate) = LibrarySelectionKey.Template(
+        stored.template.id.value,
+        portableRelativePath(state.librarySnapshot.root, stored.directory),
+    )
 
-    private fun siblingNames(destination: Path): List<String> {
-        val snapshot = state.librarySnapshot
-        val children = if (destination == snapshot.root) snapshot.children
-        else flattenFolders(snapshot.children).firstOrNull { it.directory == destination }?.children.orEmpty()
-        return children.map(LibraryEntry::displayName)
-    }
+    fun startNewTemplate() = authorFlow.startNewTemplate()
 
-    private fun editActive() {
-        if (!canChangeLibrary()) return
-        val use = state.detail as? PromptDetailState.Use ?: return
-        showAuthor(draftOf(use.stored), use.stored, use.stored.directory.parent)
-    }
+    fun startNewTemplateAt(destination: Path) = authorFlow.startNewTemplateAt(destination)
 
-    private fun showAuthor(
-        draft: PromptTemplateDraft,
-        existing: StoredTemplate?,
-        destination: Path,
-    ) {
-        authorRequests.invalidate()
-        loadGenerations.invalidateDetailLoad()
-        val author = TemplateAuthorState(
-            draft = draft,
-            existing = existing,
-            destination = destination,
-        )
-        showDetail(PromptDetailState.Author(author))
-    }
+    fun browseExamples() = authorFlow.browseExamples()
+
+    fun startTemplateFromSelection(text: String, sourceName: String) = authorFlow.startTemplateFromSelection(text, sourceName)
+
+    fun importMarkdown(destination: Path = view.selectedDestinationFolder) = authorFlow.importMarkdown(destination)
+
+    fun saveDraft(draft: PromptTemplateDraft) = authorFlow.saveDraft(draft)
 
     fun cancelAuthor() {
         if (state.detail !is PromptDetailState.Author) return
         if (!view.confirmDiscardAuthor()) return
-        authorRequests.invalidate()
+        authorFlow.invalidateRequests()
         showDetail(PromptDetailState.Empty)
         val selected = resolveLibrarySelection(state.librarySnapshot, selectedKey)
         adoptSelection(selected)
@@ -509,130 +442,53 @@ internal class PromptTemplatesController(
         }
     }
 
-    fun saveDraft(draft: PromptTemplateDraft) {
-        val author = (state.detail as? PromptDetailState.Author)?.author ?: return
-        val existing = author.existing
-        val request = authorRequests.beginSave(author.destination) ?: return
-        val repo = repository
-        val libraryRootAtRequest = settings.libraryRoot
-        coroutineScope.launch {
-            // Every exit from this block, including early returns, exceptions and cancellation, must
-            // release the save latch; otherwise later Save clicks are silently ignored.
-            try {
-                if (!authorRequests.isCurrent(request)) return@launch
-                var result = withContext(Dispatchers.IO) {
-                    if (existing == null) {
-                        repo.create(draft, request.destination)
-                    } else {
-                        repo.update(existing.directory, draft, existing.revision)
-                    }
-                }
-                if (result is RepositoryResult.Conflict && existing != null) {
-                    val current = result.current
-                    if (!confirmOverwrite(request, current, draft)) return@launch
-                    if (!authorRequests.isCurrent(request)) return@launch
-                    result = withContext(Dispatchers.IO) {
-                        repo.update(existing.directory, draft, current.revision)
-                    }
-                }
-                withContext(Dispatchers.EDT) {
-                    if (isDisposed()) return@withContext
-                    val rootChanged = hasLibraryRootChanged(libraryRootAtRequest, settings.libraryRoot)
-                    if (rootChanged || !authorRequests.isCurrent(request)) {
-                        // The files are on disk already; never drop that outcome silently.
-                        if (rootChanged) authorRequests.invalidate()
-                        reportSupersededSave(result, savedAuthor = author, rootChanged = rootChanged)
-                        return@withContext
-                    }
-                    // Release on the EDT before showing the outcome so the next Save click is accepted at once;
-                    // the finally below covers every other exit.
-                    authorRequests.finishSave(request)
-                    when (result) {
-                        is RepositoryResult.Success -> {
-                            showWarnings(result.warnings)
-                            showUse(result.value)
-                            reloadLibrary(
-                                LibrarySelectionKey.Template(
-                                    result.value.template.id.value,
-                                    portableRelativePath(libraryRootAtRequest, result.value.directory),
-                                ),
-                            )
-                        }
-                        is RepositoryResult.Failure -> PromptTemplatesNotifications.error(project, result.message)
-                    }
-                }
-            } finally {
-                authorRequests.finishSave(request)
-            }
-        }
+    override fun showAuthor(author: TemplateAuthorState) {
+        loadGenerations.invalidateDetailLoad()
+        showDetail(PromptDetailState.Author(author))
     }
 
-    private suspend fun confirmOverwrite(
-        request: AuthorAsyncRequest,
-        current: StoredTemplate,
-        draft: PromptTemplateDraft,
-    ): Boolean = withContext(Dispatchers.EDT) {
-        !isDisposed() && authorRequests.isCurrent(request) && TemplateOverwriteDialog(project, current, draft).showAndGet()
+    override fun showSavedTemplate(saved: StoredTemplate, selection: LibrarySelectionKey) {
+        showUse(saved)
+        reloadLibrary(selection)
     }
 
-    fun importMarkdown(destination: Path = view.selectedDestinationFolder) {
-        if (!canChangeLibrary()) return
-        val descriptor = FileChooserDescriptorFactory.createSingleFileDescriptor("md")
-            .withTitle("Import Prompt Template Markdown")
-        val file = FileChooser.chooseFile(descriptor, project, null) ?: return
-        val request = authorRequests.begin(destination)
-        coroutineScope.launch {
-            val markdown = withContext(Dispatchers.IO) { readMarkdown(file) }
-            withContext(Dispatchers.EDT) {
-                if (isDisposed() || !authorRequests.isCurrent(request)) return@withContext
-                markdown.onSuccess { body ->
-                    val name = body.lineSequence().map(String::trim)
-                        .firstOrNull { it.startsWith("# ") }
-                        ?.removePrefix("# ")
-                        ?.trim()
-                        ?.ifBlank { null }
-                        ?: file.nameWithoutExtension
-                    val variables = parser.parse(body).placeholders
-                        .filterNot { it.contextReference }
-                        .map { it.key }
-                        .distinct()
-                        .map { PromptVariable(it, defaultVariableLabel(it)) }
-                    showAuthor(
-                        PromptTemplateDraft(name = name, variables = variables, markdown = body),
-                        existing = null,
-                        destination = request.destination,
-                    )
-                }.onFailure { PromptTemplatesNotifications.error(project, "Unable to read Markdown: ${it.message}") }
-            }
-        }
-    }
+    override fun closeAuthor() = clearSelectedTemplate()
+
+    override fun reloadLibraryAndDetail() = reloadLibrary(reloadSelectedDetail = true)
 
     fun performLibraryCommand(command: LibraryTreeCommand, target: LibraryTreeSelection) {
         when (command) {
-            LibraryTreeCommand.NEW_TEMPLATE -> startNewTemplateAt(destinationFor(target))
-            LibraryTreeCommand.NEW_FOLDER -> createFolder(destinationFor(target))
-            LibraryTreeCommand.RENAME_FOLDER -> (target as? LibraryTreeSelection.Folder)?.let(::renameFolder)
-            LibraryTreeCommand.EDIT_TEMPLATE -> (target as? LibraryTreeSelection.Template)?.let(::editTemplate)
+            LibraryTreeCommand.NEW_TEMPLATE -> authorFlow.startNewTemplateAt(destinationFor(target))
+            LibraryTreeCommand.NEW_FOLDER -> mutations.createFolder(destinationFor(target))
+            LibraryTreeCommand.RENAME_FOLDER -> (target as? LibraryTreeSelection.Folder)?.let(mutations::renameFolder)
+            LibraryTreeCommand.EDIT_TEMPLATE -> (target as? LibraryTreeSelection.Template)?.let {
+                if (canChangeLibrary()) startTemplateDetailLoad(it.entry.summary, TemplateDetailIntent.EDIT)
+            }
             LibraryTreeCommand.DUPLICATE_TEMPLATE -> (target as? LibraryTreeSelection.Template)?.let {
                 if (canChangeLibrary()) startTemplateDetailLoad(it.entry.summary, TemplateDetailIntent.DUPLICATE)
             }
-            LibraryTreeCommand.MOVE_TO_FOLDER -> if (target !is LibraryTreeSelection.Root) moveToFolder(target)
+            LibraryTreeCommand.MOVE_TO_FOLDER -> if (target !is LibraryTreeSelection.Root) mutations.moveToFolder(target)
             LibraryTreeCommand.MOVE_UP -> if (target !is LibraryTreeSelection.Root) {
-                moveSibling(target, MoveDirection.UP)
+                mutations.moveSibling(target, MoveDirection.UP)
             }
             LibraryTreeCommand.MOVE_DOWN -> if (target !is LibraryTreeSelection.Root) {
-                moveSibling(target, MoveDirection.DOWN)
+                mutations.moveSibling(target, MoveDirection.DOWN)
             }
             LibraryTreeCommand.OPEN_MARKDOWN -> (target as? LibraryTreeSelection.Template)?.let {
                 openMarkdown(it.directory)
             }
-            LibraryTreeCommand.DELETE_FOLDER -> (target as? LibraryTreeSelection.Folder)?.let(::deleteFolder)
-            LibraryTreeCommand.DELETE_TEMPLATE -> (target as? LibraryTreeSelection.Template)?.let(::deleteTemplate)
+            LibraryTreeCommand.DELETE_FOLDER -> (target as? LibraryTreeSelection.Folder)?.let(mutations::deleteFolder)
+            LibraryTreeCommand.DELETE_TEMPLATE -> (target as? LibraryTreeSelection.Template)?.let {
+                mutations.deleteTemplate(it.entry.summary.name, it.directory, it.entry.summary.id)
+            }
             LibraryTreeCommand.EXPAND_ALL,
             LibraryTreeCommand.COLLAPSE_ALL,
             -> Unit
         }
     }
+
+    fun moveEntry(source: LibraryTreeSelection, destination: Path, placement: EntryPlacement) =
+        mutations.moveEntry(source, destination, placement)
 
     private fun destinationFor(target: LibraryTreeSelection): Path = when (target) {
         is LibraryTreeSelection.Root -> target.directory
@@ -640,382 +496,51 @@ internal class PromptTemplatesController(
         is LibraryTreeSelection.Template -> target.directory.parent
     }
 
-    private fun createFolder(parent: Path) {
-        if (!canChangeLibrary()) return
-        val name = Messages.showInputDialog(
-            project,
-            "Folder name:",
-            "New Prompt Template Folder",
-            Messages.getQuestionIcon(),
-        )?.trim()?.takeIf(String::isNotEmpty) ?: return
-        runRepositoryOperation(
-            operation = { repo -> repo.createFolder(parent, name) },
-            successMessage = "Folder '$name' created.",
-            afterSuccess = { directory ->
-                reloadLibrary(LibrarySelectionKey.Folder(portableRelativePath(settings.libraryRoot, directory)))
-            },
-        )
-    }
-
-    private fun renameFolder(target: LibraryTreeSelection.Folder) {
-        if (!canChangeLibrary()) return
-        val oldName = target.entry.displayName
-        val newName = Messages.showInputDialog(
-            project,
-            "New folder name:",
-            "Rename Prompt Template Folder",
-            Messages.getQuestionIcon(),
-            oldName,
-            null,
-        )?.trim()?.takeIf(String::isNotEmpty) ?: return
-        val oldRelative = portableRelativePath(settings.libraryRoot, target.directory)
-        runRepositoryOperation(
-            operation = { repo -> repo.renameFolder(target.directory, newName) },
-            successMessage = "Folder renamed to '$newName'.",
-            afterSuccess = { directory ->
-                val newRelative = portableRelativePath(settings.libraryRoot, directory)
-                workspace.replaceExpandedFolderPaths(remapExpandedPaths(
-                    workspace.expandedFolderPaths,
-                    oldRelative,
-                    newRelative,
-                ))
-                reloadLibrary(LibrarySelectionKey.Folder(newRelative))
-            },
-        )
-    }
-
-    private fun moveToFolder(source: LibraryTreeSelection) {
-        if (!canChangeLibrary()) return
-        val folders = buildList {
-            add(state.librarySnapshot.root)
-            addAll(flattenFolders(state.librarySnapshot.children).map(LibraryEntry.Folder::directory))
-        }.filterNot { candidate ->
-            source is LibraryTreeSelection.Folder &&
-                (candidate == source.directory || candidate.startsWith(source.directory))
-        }
-        if (folders.isEmpty()) return
-        val options = folders.map { directory ->
-            if (directory == state.librarySnapshot.root) "/ (Library root)"
-            else portableRelativePath(state.librarySnapshot.root, directory)
-        }.toTypedArray()
-        val currentParent = source.directory.parent
-        val initialIndex = folders.indexOf(currentParent).takeIf { it >= 0 } ?: 0
-        JBPopupFactory.getInstance()
-            .createPopupChooserBuilder(options.toList())
-            .setTitle("Move Library Entry")
-            .setSelectedValue(options[initialIndex], true)
-            .setItemChosenCallback { choice ->
-                val destination = folders[options.indexOf(choice)]
-                if (source.directory.parent != destination) {
-                    moveEntry(source, destination, EntryPlacement.EndOfKind)
-                }
-            }
-            .createPopup()
-            .showInFocusCenter()
-    }
-
-    private fun moveSibling(source: LibraryTreeSelection, direction: MoveDirection) {
-        if (!canChangeLibrary()) return
-        val move = siblingMove(state.librarySnapshot, source, direction) ?: return
-        moveEntry(source, move.destination, move.placement)
-    }
-
-    fun moveEntry(source: LibraryTreeSelection, destination: Path, placement: EntryPlacement) {
-        if (!canChangeLibrary()) return
-        val keyBeforeMove = selectionKey(source, state.librarySnapshot.root)
-        val oldRelative = portableRelativePath(state.librarySnapshot.root, source.directory)
-        runRepositoryOperation(
-            operation = { repo -> repo.moveEntry(source.directory, destination, placement) },
-            successMessage = "Library entry moved.",
-            afterSuccess = { movedDirectory ->
-                val newRelative = portableRelativePath(settings.libraryRoot, movedDirectory)
-                if (source is LibraryTreeSelection.Folder) {
-                    // Keep the moved folder open by also opening the destination chain it now sits under.
-                    val remapped = remapExpandedPaths(workspace.expandedFolderPaths, oldRelative, newRelative)
-                    workspace.replaceExpandedFolderPaths((remapped + ancestorPortablePaths(newRelative)).distinct())
-                }
-                val preferred = when (keyBeforeMove) {
-                    is LibrarySelectionKey.Folder -> LibrarySelectionKey.Folder(newRelative)
-                    is LibrarySelectionKey.Template -> keyBeforeMove.copy(relativePath = newRelative)
-                    is LibrarySelectionKey.TemplatePath -> LibrarySelectionKey.TemplatePath(newRelative)
-                    null -> null
-                }
-                reloadLibrary(preferred)
-            },
-        )
-    }
-
-    private fun editTemplate(target: LibraryTreeSelection.Template) {
-        if (canChangeLibrary()) startTemplateDetailLoad(target.entry.summary, TemplateDetailIntent.EDIT)
-    }
-
-    private fun editStored(stored: StoredTemplate) {
-        showAuthor(draftOf(stored), stored, stored.directory.parent)
-    }
-
-    private fun draftOf(stored: StoredTemplate) = PromptTemplateDraft(
-        id = stored.template.id,
-        name = stored.template.metadata.name,
-        description = stored.template.metadata.description,
-        tags = stored.template.metadata.tags,
-        variables = stored.template.metadata.variables,
-        markdown = stored.template.markdown,
-    )
-
-    private fun deleteTemplate(target: LibraryTreeSelection.Template) {
-        deleteTemplate(target.entry.summary.name, target.directory)
-    }
-
-    private fun deleteActive() {
-        val use = state.detail as? PromptDetailState.Use ?: return
-        deleteTemplate(use.stored.template.metadata.name, use.stored.directory)
-    }
-
-    private fun deleteTemplate(name: String, directory: Path) {
-        if (!canChangeLibrary()) return
-        if (settings.confirmDeletion) {
-            val answer = Messages.showYesNoDialog(
-                project,
-                "Delete '$name' and its source files?",
-                "Delete Prompt Template",
-                Messages.getQuestionIcon(),
-            )
-            if (answer != Messages.YES) return
-        }
-        runRepositoryOperation(
-            operation = { repo -> repo.deleteTemplate(directory) },
-            successMessage = "Prompt template deleted.",
-            afterSuccess = {
-                clearSelectedTemplate()
-                reloadLibrary(null)
-            },
-        )
-    }
-
-    private fun deleteFolder(target: LibraryTreeSelection.Folder) {
-        if (!canChangeLibrary()) return
-        val requestRepository = repository
-        val requestRoot = requestRepository.root
-        state.mutationInProgress = true
-        updateInteractionState()
-        coroutineScope.launch {
-            val previewResult = withContext(Dispatchers.IO) {
-                requestRepository.previewFolderDeletion(target.directory)
-            }
-            withContext(Dispatchers.EDT) {
-                if (isDisposed()) return@withContext
-                state.mutationInProgress = false
-                updateInteractionState()
-                if (hasLibraryRootChanged(requestRoot, settings.libraryRoot)) return@withContext
-                when (previewResult) {
-                    is RepositoryResult.Failure -> PromptTemplatesNotifications.error(project, previewResult.message)
-                    is RepositoryResult.Success -> confirmFolderDeletion(
-                        target,
-                        previewResult.value,
-                        requestRepository,
-                    )
-                }
-            }
-        }
-    }
-
-    private fun confirmFolderDeletion(
-        target: LibraryTreeSelection.Folder,
-        preview: FolderDeletionPreview,
-        requestRepository: FileSystemPromptTemplateRepository,
-    ) {
-        val name = target.entry.displayName
-        val typed = Messages.showInputDialog(
-            project,
-            "This permanently deletes ${preview.templateCount} template(s), ${preview.folderCount} nested folder(s), " +
-                "and ${preview.fileCount} file(s). Type '$name' to continue.",
-            "Delete Prompt Template Folder",
-            Messages.getWarningIcon(),
-        ) ?: return
-        if (typed != name) {
-            PromptTemplatesNotifications.error(project, "Folder name did not match. Nothing was deleted.")
-            return
-        }
-        runRepositoryOperation(
-            requestRepository = requestRepository,
-            operation = { repo -> repo.deleteFolder(preview) },
-            successMessage = "Folder '$name' deleted.",
-            afterSuccess = {
-                val deletedPath = portableRelativePath(settings.libraryRoot, target.directory)
-                workspace.replaceExpandedFolderPaths(workspace.expandedFolderPaths.filterNot { path ->
-                    path == deletedPath || path.startsWith("$deletedPath/")
-                })
-                clearSelectedTemplate()
-                reloadLibrary(null)
-            },
-        )
-    }
-
-    private fun exportTemplate() {
-        val use = state.detail as? PromptDetailState.Use ?: return
-        val destination = chooseDestination(slug(use.stored.template.metadata.name) + ".md") ?: return
-        runRepositoryOperation(
-            operation = { repo -> repo.exportTemplateMarkdown(use.stored.directory, destination) },
-            successMessage = "Template Markdown exported to $destination.",
-        )
-    }
-
-    private fun exportRendered() {
-        val use = state.detail as? PromptDetailState.Use ?: return
-        val usageRoot = settings.libraryRoot
-        val payload = invocation.renderedPayload()
-        if (payload == null) {
-            PromptTemplatesNotifications.error(project, invocation.state.value?.deliveryProblem ?: "Choose a template first.")
-            return
-        }
-        val destination = chooseDestination(slug(use.stored.template.metadata.name) + "-rendered.md") ?: return
-        runRepositoryOperation(
-            operation = { repo ->
-                repo.exportRenderedMarkdown(payload, destination).also { result ->
-                    if (result is RepositoryResult.Success) settings.recordUse(use.stored.template.id.value, usageRoot)
-                }
-            },
-            successMessage = "Rendered Markdown exported to $destination.",
-        )
-    }
-
-    private fun chooseDestination(suggestedName: String): Path? {
-        val descriptor = FileSaverDescriptor("Export Markdown", "Choose where to export the Markdown file", "md")
-        val baseDirectory: VirtualFile? = null
-        return FileChooserFactory.getInstance()
-            .createSaveFileDialog(descriptor, project)
-            .save(baseDirectory, suggestedName)
-            ?.file
-            ?.toPath()
-    }
-
-    private fun openMarkdown() {
-        val use = state.detail as? PromptDetailState.Use ?: return
-        openMarkdown(use.stored.directory)
-    }
-
     private fun openMarkdown(directory: Path) {
         val path = directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE)
-        val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path)
-        if (file == null) PromptTemplatesNotifications.error(project, "Unable to find $path.")
-        else FileEditorManager.getInstance(project).openFile(file, true)
+        coroutineScope.launch {
+            // Refreshing the file from disk can block on a slow mount, so resolve it off the EDT.
+            val file = withContext(Dispatchers.IO) { LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path) }
+            withContext(Dispatchers.EDT) {
+                if (isDisposed()) return@withContext
+                if (file == null) PromptTemplatesNotifications.error(project, "Unable to find $path.")
+                else FileEditorManager.getInstance(project).openFile(file, true)
+            }
+        }
     }
 
-    private fun revealSource() {
-        val use = state.detail as? PromptDetailState.Use ?: return
-        val path = use.stored.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE)
+    private fun revealSource(stored: StoredTemplate) {
+        val path = stored.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE)
         com.intellij.ide.actions.RevealFileAction.openFile(path.toFile())
     }
 
-    private fun copyMarkdownPath() {
-        val use = state.detail as? PromptDetailState.Use ?: return
-        val path = use.stored.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE)
+    private fun copyMarkdownPath(stored: StoredTemplate) {
+        val path = stored.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE)
         CopyPasteManager.getInstance().setContents(StringSelection(path.toString()))
         PromptTemplatesNotifications.info(project, "Markdown path copied.")
     }
 
-    private fun <T> runRepositoryOperation(
-        requestRepository: FileSystemPromptTemplateRepository = repository,
-        operation: (FileSystemPromptTemplateRepository) -> RepositoryResult<T>,
-        successMessage: String,
-        afterSuccess: (T) -> Unit = {},
-    ) {
-        if (state.mutationInProgress) return
-        val requestRoot = requestRepository.root
-        state.mutationInProgress = true
-        updateInteractionState()
-        coroutineScope.launch {
-            val result = try {
-                withContext(Dispatchers.IO) { runRepositoryOperationSafely { operation(requestRepository) } }
-            } catch (cancelled: ProcessCanceledException) {
-                resetMutationAfterCancellation()
-                throw cancelled
-            } catch (cancelled: CancellationException) {
-                resetMutationAfterCancellation()
-                throw cancelled
-            }
-            withContext(Dispatchers.EDT) {
-                if (isDisposed()) return@withContext
-                state.mutationInProgress = false
-                updateInteractionState()
-                val rootChanged = hasLibraryRootChanged(requestRoot, settings.libraryRoot)
-                when (result) {
-                    is RepositoryResult.Success -> {
-                        if (rootChanged) {
-                            PromptTemplatesNotifications.warning(
-                                project,
-                                "$successMessage The operation used the previous library at '$requestRoot'. " +
-                                    "The current library view was not changed.",
-                            )
-                        } else {
-                            PromptTemplatesNotifications.info(project, successMessage)
-                            afterSuccess(result.value)
-                        }
-                        showWarnings(result.warnings)
-                    }
-                    is RepositoryResult.Failure -> PromptTemplatesNotifications.error(project, result.message)
-                }
-            }
-        }
-    }
-
-    private suspend fun resetMutationAfterCancellation() {
-        withContext(NonCancellable + Dispatchers.EDT) {
-            if (!isDisposed()) {
-                state.mutationInProgress = false
-                updateInteractionState()
-            }
-        }
-    }
-
-    private fun showWarnings(warnings: List<String>) {
-        warnings.forEach { PromptTemplatesNotifications.warning(project, it) }
-    }
+    override fun mutationStateChanged() = updateInteractionState()
 
     private fun updateInteractionState() {
         view.setInteractionState(
-            mutationsEnabled = !state.mutationInProgress && !authorOpen,
+            mutationsEnabled = !mutations.inProgress && !authorOpen,
             authorOpen = authorOpen,
         )
     }
 
-    private fun canChangeLibrary(): Boolean {
-        if (state.mutationInProgress) return false
+    override fun canChangeLibrary(): Boolean {
+        if (mutations.inProgress) return false
         if (!authorOpen) return true
         PromptTemplatesNotifications.error(project, "Save or cancel the open template before changing the library.")
         return false
     }
 
+    override fun isCurrentLibraryRoot(root: Path): Boolean = loadGenerations.isCurrentLibraryRoot(root)
+
     private fun showError(name: String, message: String) {
         loadGenerations.invalidateDetailLoad()
         showDetail(PromptDetailState.LoadError(name, message))
-    }
-
-    /**
-     * A save whose files were written before the library root changed or a newer author action superseded it.
-     * [savedAuthor] identifies the author session that issued the save; only that session's draft is closed.
-     */
-    private fun reportSupersededSave(
-        result: RepositoryResult<StoredTemplate>,
-        savedAuthor: TemplateAuthorState,
-        rootChanged: Boolean,
-    ) {
-        when (result) {
-            is RepositoryResult.Success -> {
-                val saved = result.value
-                val openAuthor = (state.detail as? PromptDetailState.Author)?.author
-                val closeDraft = rootChanged && openAuthor != null && openAuthor.draft == savedAuthor.draft
-                PromptTemplatesNotifications.warning(
-                    project,
-                    "'${saved.template.metadata.name}' was saved to '${saved.directory}'." +
-                        if (closeDraft) " The library location changed afterwards, so the draft was closed to avoid saving it twice." else "",
-                )
-                if (closeDraft) clearSelectedTemplate()
-            }
-            is RepositoryResult.Failure -> PromptTemplatesNotifications.error(project, result.message)
-        }
-        // A root change already reloads the new library; otherwise show the files that were just written.
-        if (!rootChanged) reloadLibrary(reloadSelectedDetail = true)
     }
 
     private fun clearSelectedTemplate() {
@@ -1026,47 +551,20 @@ internal class PromptTemplatesController(
         showDetail(PromptDetailState.Empty)
     }
 
+    /** The only place this view leaves an invocation; it closes the shared session only when this view owns it. */
     private fun showDetail(detail: PromptDetailState) {
+        if (showingInvocation) invocation.close()
         showingInvocation = false
-        invocation.close()
         state.detail = detail
         view.renderDetail(detail)
         updateInteractionState()
     }
 
-    private fun slug(value: String): String = value.lowercase()
-        .replace(Regex("[^a-z0-9]+"), "-")
-        .trim('-')
-        .ifEmpty { "prompt" }
-
-    private fun isDisposed(): Boolean = disposed || project.isDisposed
+    override fun isDisposed(): Boolean = disposed || project.isDisposed
 
     override fun dispose() {
         disposed = true
-        authorRequests.invalidate()
+        authorFlow.invalidateRequests()
         loadGenerations.invalidateDetailLoad()
     }
-}
-
-private fun readMarkdown(file: VirtualFile): Result<String> = try {
-    Result.success(Files.readString(file.toNioPath()))
-} catch (exception: IOException) {
-    Result.failure(exception)
-} catch (exception: SecurityException) {
-    Result.failure(exception)
-} catch (exception: UnsupportedOperationException) {
-    Result.failure(exception)
-}
-
-internal fun <T> runRepositoryOperationSafely(operation: () -> RepositoryResult<T>): RepositoryResult<T> = try {
-    operation()
-} catch (cancelled: ProcessCanceledException) {
-    throw cancelled
-} catch (cancelled: CancellationException) {
-    throw cancelled
-} catch (exception: RuntimeException) {
-    RepositoryResult.Failure(
-        "Unexpected repository error: ${exception.message ?: exception.javaClass.simpleName}",
-        exception,
-    )
 }

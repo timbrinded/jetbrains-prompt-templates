@@ -107,6 +107,37 @@ class PromptRendererTest {
         assertEquals("AB {{literal}}", result.renderedText)
     }
 
+    @Test
+    fun `warns when an escaped placeholder names a defined variable`() {
+        val result = renderer.render(
+            template("C:\\Users\\{{ name }} and \\{{other}}", listOf(PromptVariable("name", "Name"))),
+            mapOf("name" to "tim"),
+            emptyMap(),
+        )
+
+        assertTrue(result.isValid)
+        assertEquals("C:\\Users{{ name }} and {{other}}", result.renderedText)
+        // The escaped warning replaces the less specific unused-definition warning for the same variable.
+        val warning = assertIs<TemplateDiagnostic.EscapedVariablePlaceholder>(result.diagnostics.single())
+        assertEquals("name", warning.key)
+        assertEquals(SourceRange(8, 19), warning.range)
+        assertEquals(DiagnosticSeverity.WARNING, warning.severity)
+    }
+
+    @Test
+    fun `unavailable context without a provider message names its key`() {
+        val result = renderer.render(
+            template("{{ide.selection}}", emptyList()),
+            emptyMap(),
+            mapOf("ide.selection" to ContextValue(ContextStatus.UNAVAILABLE)),
+        )
+
+        assertEquals(
+            "Context 'ide.selection' is unavailable.",
+            assertIs<TemplateDiagnostic.ContextUnavailable>(result.diagnostics.single()).message,
+        )
+    }
+
     private fun template(markdown: String, variables: List<PromptVariable>) = PromptTemplate(
         TemplateMetadata(id = TemplateId.random().value, name = "Test", variables = variables),
         markdown,

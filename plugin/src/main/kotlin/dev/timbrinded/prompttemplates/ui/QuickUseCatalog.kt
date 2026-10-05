@@ -32,11 +32,8 @@ internal fun loadQuickUseCatalog(root: Path): QuickUseCatalog {
 }
 
 internal fun loadQuickUseSelection(root: Path, candidate: QuickUseCandidate): RepositoryResult<StoredTemplate> {
-    val repository = FileSystemPromptTemplateRepository(root)
-    val direct = repository.load(candidate.search.summary.directory)
-    if (direct is RepositoryResult.Success && direct.value.template.id == candidate.search.summary.id) return direct
-    val moved = flattenTemplates(repository.scan().children)
-        .firstOrNull { it.summary.id == candidate.search.summary.id }
-    return moved?.let { repository.load(it.directory) }
-        ?: RepositoryResult.Failure("This template is no longer available. Choose another template.")
+    // The catalog keeps only healthy templates, which always have an id.
+    val id = candidate.search.summary.id
+        ?: return RepositoryResult.Failure("The template is unavailable. Restore it or choose another template.")
+    return loadTemplateFollowingMove(FileSystemPromptTemplateRepository(root), candidate.search.summary.directory, id)
 }

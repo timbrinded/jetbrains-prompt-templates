@@ -15,8 +15,8 @@ Implemented workflows:
 - Search a personal prompt library by metadata and body text.
 - Invoke Quick Use from the editor, with ranked search, favourites and recent templates.
 - Organise templates in nested folders with saved manual ordering.
-- Move and reorder folders or templates with drag-and-drop or keyboard actions.
-- Use focused root, folder and template context menus for common library actions.
+- Move and reorder folders or templates with drag-and-drop or keyboard actions (Alt+Up, Alt+Down and Ctrl+Shift+M for **Move to Folder…**).
+- Use focused root, folder and template context menus for common library actions. Right-click anywhere on a row, or use the keyboard context-menu key.
 - Create and edit templates inside a native tool window.
 - Duplicate authored templates or create a draft from an editor selection.
 - Discover and highlight `{{variable}}` placeholders while typing.
@@ -75,9 +75,9 @@ Insert retains the editor and range selected when the invocation began. Changing
 
 An external template edit keeps the inspected preview visible and blocks delivery until **Reload Template**. Reload captures fresh context and retains entered values only for compatible variable types and enum choices. Moving a template preserves its invocation by UUID. Switching libraries clears invocation state while retaining the existing author-draft handling.
 
-In the author view, **Cancel** closes a clean draft immediately. For changed Markdown or metadata, it offers **Discard** and **Keep Editing**, with Keep Editing selected by default. Reverting all editable inputs makes the draft clean again. Word wrap, hiding the tool window, and changing its layout do not discard the draft. Drafts remain in memory only.
+In the author view, **Cancel** closes a clean draft immediately. For changed Markdown or metadata, it offers **Discard** and **Keep Editing**, with Keep Editing selected by default. Reverting all editable inputs makes the draft clean again. Word wrap, hiding the tool window, and changing its layout do not discard the draft. Selecting another library entry while a draft is open keeps the draft selected. Drafts remain in memory only; closing the project or IDE with a changed draft asks whether to discard it.
 
-Use **Template Markdown ▾ | Insert Variable…** to select an existing input or a supported IDE context value. Input selection focuses its inspector; context selection shows an explanation and creates no user field. The chooser inserts at the captured caret or selection and rejects positions inside an existing placeholder or after an escape character.
+Use **Template Markdown ▾ | Insert Variable…** to select an existing input or a supported IDE context value. Input selection focuses its inspector; context selection shows an explanation and creates no user field. The chooser inserts at the captured caret or selection and rejects positions inside an existing placeholder or after an escape character. `\{{` renders a literal `{{`; if an escaped placeholder names a defined variable, the author view warns that its value will not be inserted.
 
 Select author text and choose **Extract as Variable…** to replace it with a new user placeholder. Enter a unique key, choose Text or Multiline, and explicitly check **Use selected text as authored default** to retain the exact selection. The default checkbox starts unchecked. Cancel changes nothing. Undo and Redo in the Markdown editor keep extraction and Rename definitions with their text, while retaining unrelated inspector edits. These actions apply only to the template author view; Save is still required to write the draft.
 
@@ -85,11 +85,11 @@ The variable inspector exposes authored Text/Multiline defaults, an Enum default
 
 Each Use field has **Reset**, and **File | Reset Values to Defaults** resets all user inputs. Both retain the captured context. Editing authored defaults does not replace retained session inputs; use Reset to apply them to the current invocation. Ordinary input values remain session-only.
 
-At narrow widths, variable navigation moves above the author inspector. The inspector scrolls to controls as you move through them with Tab. Save and Cancel stay below the editor. The Use footer contains Copy Prompt, Insert and Edit; **Delete** is in the File menu and the library context menu, with confirmation before removal.
+At narrow widths, variable navigation moves above the author inspector. The inspector scrolls to controls as you move through them with Tab. Save and Cancel stay below the editor. The Use footer contains Copy Prompt, Insert and Edit; **Delete** is in the File menu and the library context menu, with confirmation before removal. A template folder that contains anything besides its template files, such as a nested folder, is not deleted; the error names the extra entries so they can be moved first.
 
 ## Storage format
 
-The default library is `~/Prompt Templates`, configurable under **Settings | Tools | Prompt Templates**.
+The default library is `~/Prompt Templates`, configurable under **Settings | Tools | Prompt Templates**. The setting requires an absolute directory path; quotes around a pasted path are removed. Changes made outside the IDE appear in the library within about two seconds.
 
 ```text
 Prompt Templates/
@@ -102,7 +102,7 @@ Prompt Templates/
         prompt.meta.json
 ```
 
-A directory that contains `prompt.md` or `prompt.meta.json` is a template package and a leaf in the library tree. Other directories are organiser folders. The plugin ignores `.git`, `.hg`, `.svn` and `.idea` management directories, and its own `.prompt-template-delete-*` and `.prompt-template-rename-*` working directories. A working directory that a failed operation leaves behind is named in the error message and is not shown in the library. The optional `.prompt-templates-order.json` file in each organiser folder records manual order; folders without it use alphabetical order. Template UUIDs and schema stay independent of folder location.
+A directory that contains `prompt.md` or `prompt.meta.json` is a template package and a leaf in the library tree. Other directories are organiser folders. The plugin ignores `.git`, `.hg`, `.svn` and `.idea` management directories, and its own `.prompt-template-delete-*` and `.prompt-template-rename-*` working directories. A working directory that a failed or interrupted operation leaves behind is named in the error message and in a folder diagnostic, and is not shown in the library. The optional `.prompt-templates-order.json` file in each organiser folder records manual order; folders without it use alphabetical order. Template UUIDs and schema stay independent of folder location. Folder names cannot be Windows device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`) or exceed 255 bytes. Template directory names are derived from the template name, capped at 64 characters, and given a numeric suffix when a sibling already uses the name.
 
 `prompt.md` remains portable:
 
@@ -136,7 +136,7 @@ Depth: {{review_depth}}
 }
 ```
 
-Metadata is serialized deterministically. Unknown fields are tolerated; a future unsupported schema is opened as an error and is never silently migrated or overwritten.
+Metadata is serialized deterministically. Fields this version does not recognise, such as those written by a newer plugin version, are kept when a template is saved. A future unsupported schema is opened as an error and is never silently migrated or overwritten. An order file that cannot be read is left unchanged; operations in that folder report a warning instead of rewriting it.
 
 ## Build and run
 
@@ -151,7 +151,16 @@ Requirements are JDK 25 and the included Gradle wrapper. Gradle can provision th
 
 The installable ZIP is written to `plugin/build/distributions/`. Install it with **Settings | Plugins | ⚙ | Install Plugin from Disk…**.
 
-The integration task is a local E2E check. It installs the built plugin into an isolated WebStorm 2026.2 instance (build `262.8665.259`), uses a temporary project and user home, and drives the real Swing UI with JetBrains Starter and Driver. Swing hierarchies, tree state, isolated paths and library manifests are written below `plugin/build/ui-test/`. A screenshot is also written when the display server supports capture; otherwise the directory contains a screenshot capture-error file. On headless Linux, run the task under Xvfb. Local desktop sessions can use their native display.
+The integration task is a local E2E check. It installs the built plugin into an isolated WebStorm 2026.2 instance (build `262.8665.259`), uses a temporary project and user home, and drives the real Swing UI with JetBrains Starter and Driver. Swing hierarchies, tree state, isolated paths and library manifests are written below `plugin/build/ui-test/`. A screenshot is also written when the display server supports capture; otherwise the directory contains a screenshot capture-error file. On headless Linux, run the task under Xvfb. A local X11 session can use its native display if it is left idle while the suite runs. Wayland compositors do not give keyboard focus to the test IDE while you use other windows, so keyboard steps fail there. Run the suite against Xvfb with a window manager instead; several scenarios need focus to return to the IDE after a dialog closes, which bare Xvfb does not provide. Without a local Xvfb, use a container that shares only its X socket:
+
+```bash
+docker run -d --rm --name prompt-templates-xvfb -v /tmp/.X11-unix:/tmp/.X11-unix alpine:3.22 sh -c \
+  "apk add --no-cache xvfb xkbcomp xkeyboard-config font-misc-misc font-cursor-misc fluxbox && (Xvfb :99 -screen 0 1920x1200x24 -nolisten tcp -ac &) && sleep 2 && exec env DISPLAY=:99 fluxbox"
+env -u WAYLAND_DISPLAY DISPLAY=:99 ./gradlew :plugin:integrationTest
+docker stop prompt-templates-xvfb
+```
+
+The suite fails fast if the cached test IDE under `out/ide-tests/cache/builds/` no longer matches the pinned build, which happens when an IDE left open after an exploratory run updates itself; delete that directory to extract the pinned installer again.
 
 The suite includes a [500-template Quick Use benchmark](docs/quick-use-benchmark.md), with supported-host measurements and regression review targets.
 
@@ -194,8 +203,8 @@ flowchart TD
 - `plugin/` owns settings, native Swing/platform components, context resolution, output destinations, actions and the responsive tool window.
 - Expected validation failures are typed diagnostics rather than exceptions.
 - Template saves stage both contents in a save journal, then replace the canonical files atomically. Reopening completes an interrupted save only if both file fingerprints still match the recorded old or new versions. A later external edit leaves the journal intact and shows a recovery diagnostic.
-- Repository updates check the loaded revision under a library file lock. Conflict review compares the disk version with the draft; overwrite checks that reviewed revision again. Separate IDE processes share the lock.
-- The configured library root can be a symbolic link. Managed entries inside it cannot be symbolic links, and repository traversal does not follow them.
+- Repository updates check the loaded revision under a library file lock. Conflict review compares the disk version with the draft; overwrite checks that reviewed revision again. Separate IDE processes share the lock. A change waits at most 10 seconds for another IDE that holds it, then fails with an error; reading the library waits until the lock is released and keeps showing the last state meanwhile.
+- The configured library root can be a symbolic link. Managed entries inside it cannot be symbolic links or Windows directory junctions, and repository traversal does not follow them. Deleting a folder that contains one removes only the link.
 - Folder deletion uses a fresh subtree preview, typed confirmation and a second fingerprint check before recursive removal. The fingerprint records entry names, sizes, modification times and file identities, not file contents.
 - Expanded folders and the selected template are remembered per project in the workspace file.
 
@@ -209,9 +218,11 @@ The plugin has no networking, telemetry or prompt execution. Current variable va
 
 ## Compatibility and release work
 
-The plugin declares only the shared `com.intellij.modules.platform` dependency. Product compatibility therefore covers standalone JetBrains IDEs that provide that module, with minimum platform build 262. It does not depend on a product-specific language or framework module.
+The plugin's only mandatory dependency is the shared `com.intellij.modules.platform` module. Product compatibility therefore covers standalone JetBrains IDEs that provide that module, with minimum platform build 262. It does not depend on a product-specific language or framework module. Git4Idea is an optional dependency: without it, the attachment manager reports that Git capture is unavailable and file capture still works.
 
-CI compiles, tests and builds the plugin ZIP on JDK 25, then runs Plugin Verifier against RustRover 2026.2 and WebStorm 2026.2. The slower WebStorm Starter/Driver E2E suite is a local check. Those verified hosts are not a product whitelist. Before a public 1.0 release, the verifier and manual UI matrix should expand across representative compatible products. Remote-development topology remains a separate, unverified target.
+CI compiles, tests and builds the plugin ZIP on JDK 25, then runs Plugin Verifier against RustRover 2026.2 and WebStorm 2026.2. The core tests also run on Windows and macOS. A weekly workflow verifies the plugin against the newest release and EAP builds of IntelliJ IDEA, RustRover and WebStorm, so platform changes surface before Marketplace verification. The slower WebStorm Starter/Driver E2E suite is a local check. Those verified hosts are not a product whitelist. Before a public 1.0 release, the verifier and manual UI matrix should expand across representative compatible products. Remote-development topology remains a separate, unverified target.
+
+Pull requests to `main` require the local `signoff/e2e` status; merge only once the CI `build` and `core-tests` checks have passed too. Releases are cut by pushing a `v<version>` tag that matches the project version. The release workflow tests, builds and verifies the plugin, then publishes a GitHub release with the plugin ZIP, the component JARs, `SHA256SUMS` and notes taken from the matching `CHANGELOG.md` entry. When the `PUBLISH_TOKEN` repository secret is set, the same workflow uploads the ZIP to JetBrains Marketplace. The plugin's Marketplace change notes are also generated from `CHANGELOG.md`.
 
 ## License
 

@@ -1,10 +1,14 @@
 package dev.timbrinded.prompttemplates.core
 
+import org.junit.jupiter.api.Assumptions.assumeFalse
+import org.junit.jupiter.api.condition.EnabledOnOs
+import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.io.TempDir
 import java.io.IOException
 import java.nio.file.DirectoryIteratorException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -13,6 +17,7 @@ import kotlin.io.path.readText
 import kotlin.io.path.useDirectoryEntries
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
@@ -42,7 +47,7 @@ class FileSystemPromptTemplateHierarchyTest(
         val securityEntry = assertIs<LibraryEntry.Folder>(reviews.children.single())
         val audit = assertIs<LibraryEntry.Template>(securityEntry.children.single())
         assertEquals(nestedTemplate.toAbsolutePath(), audit.directory)
-        assertEquals(Path.of("Reviews/Security/audit"), audit.relativeDirectory)
+        assertEquals(Path.of("Reviews", "Security", "audit"), audit.relativeDirectory)
         assertIs<LibraryEntry.Template>(snapshot.children[2])
     }
 
@@ -83,10 +88,14 @@ class FileSystemPromptTemplateHierarchyTest(
             Files.createDirectories(retained)
             Files.writeString(retained.resolve("prompt.md"), "retained for recovery")
         }
-        Files.createDirectories(root.resolve("Visible"))
+        Files.createDirectories(root.resolve("Visible/${FileSystemPromptTemplateRepository.RENAME_SCRATCH_PREFIX}nested"))
         val repository = FileSystemPromptTemplateRepository(root)
 
-        assertEquals(listOf("Visible"), repository.scan().children.map(LibraryEntry::displayName))
+        val snapshot = repository.scan()
+        assertEquals(listOf("Visible"), snapshot.children.map(LibraryEntry::displayName))
+        scratchNames.forEach { assertTrue(snapshot.diagnostic.orEmpty().contains("'$it'"), snapshot.diagnostic) }
+        assertTrue(snapshot.diagnostic.orEmpty().contains("interrupted rename or deletion"))
+        assertTrue(assertIs<LibraryEntry.Folder>(snapshot.children.single()).diagnostic.orEmpty().contains("nested'"))
         scratchNames.forEach { name ->
             assertIs<RepositoryResult.Failure>(repository.createFolder(root, "$name-new"))
             assertFalse(Files.exists(root.resolve("$name-new")))
@@ -110,7 +119,7 @@ class FileSystemPromptTemplateHierarchyTest(
         Files.createDirectories(linkedMarkdown)
         val outside = temporaryDirectory.resolve("outside.md")
         Files.writeString(outside, "outside")
-        Files.createSymbolicLink(linkedMarkdown.resolve("prompt.md"), outside)
+        createSymbolicLinkOrSkip(linkedMarkdown.resolve("prompt.md"), outside)
 
         val entries = FileSystemPromptTemplateRepository(root).scan().children
 
@@ -170,6 +179,29 @@ class FileSystemPromptTemplateHierarchyTest(
         val unreadable = repository.scan()
         assertEquals(listOf("Alpha", "Zulu"), unreadable.children.map(LibraryEntry::displayName))
         assertTrue(unreadable.diagnostic.orEmpty().startsWith("Unable to read"))
+    }
+
+    @Test
+    fun `never replaces an unreadable or newer order file`() {
+        val root = temporaryDirectory.resolve("library")
+        Files.createDirectories(root.resolve("Alpha"))
+        Files.createDirectories(root.resolve("Bravo"))
+        val repository = FileSystemPromptTemplateRepository(root)
+        val orderPath = root.resolve(FileSystemPromptTemplateRepository.ORDER_FILE)
+        val newer = """{"schemaVersion": 2, "folders": ["Bravo", "Alpha"], "pinned": ["Bravo"]}"""
+        Files.writeString(orderPath, newer)
+
+        val created = assertIs<RepositoryResult.Success<Path>>(repository.createFolder(root, "Charlie"))
+
+        assertTrue(Files.isDirectory(created.value))
+        assertTrue(created.warnings.single().contains("left unchanged"), created.warnings.toString())
+        assertEquals(newer, orderPath.readText())
+
+        Files.writeString(orderPath, "{ malformed")
+        val reorder = repository.moveEntry(root.resolve("Bravo"), root, EntryPlacement.Before(root.resolve("Alpha")))
+
+        assertTrue(assertIs<RepositoryResult.Failure>(reorder).message.contains("left unchanged"))
+        assertEquals("{ malformed", orderPath.readText())
     }
 
     @Test
@@ -293,6 +325,28 @@ class FileSystemPromptTemplateHierarchyTest(
     }
 
     @Test
+    fun `moves a template past a hidden directory-name collision and records the new name`() {
+        val root = temporaryDirectory.resolve("library")
+        val repository = FileSystemPromptTemplateRepository(root)
+        val source = success(repository.createFolder(root, "Source"))
+        val destination = success(repository.createFolder(root, "Destination"))
+        val existing = success(repository.create(PromptTemplateDraft(name = "Review?", markdown = "stays"), destination))
+        val moving = success(repository.create(PromptTemplateDraft(name = "Review!", markdown = "moves"), source))
+        assertEquals(existing.directory.name, moving.directory.name)
+
+        val moved = success(repository.moveEntry(moving.directory, destination))
+
+        assertEquals(destination.resolve("${existing.directory.name}-2"), moved)
+        assertEquals("moves", success(repository.load(moved)).template.markdown)
+        assertEquals("stays", success(repository.load(existing.directory)).template.markdown)
+        assertEquals(
+            listOf(existing.directory.name, moved.name),
+            requireNotNull(LibraryFolderOrderCodec.read(destination).value).templates,
+        )
+        assertEquals(listOf("Review?", "Review!"), folder(repository.scan(), "Destination").children.map(LibraryEntry::displayName))
+    }
+
+    @Test
     fun `moves and renames folders while preserving their child order`() {
         val root = temporaryDirectory.resolve("library")
         val repository = FileSystemPromptTemplateRepository(root)
@@ -319,11 +373,17 @@ class FileSystemPromptTemplateHierarchyTest(
         val root = temporaryDirectory.resolve("library")
         val repository = FileSystemPromptTemplateRepository(root)
         val reviews = success(repository.createFolder(root, "reviews"))
+        val audit = success(repository.create(PromptTemplateDraft(name = "Audit", markdown = "audit"), reviews))
 
+        // Case-insensitive filesystems (Windows, default macOS) see both names as one entry and take the two-step
+        // rename through a hidden working directory; case-sensitive ones take an ordinary rename.
         val renamed = success(repository.renameFolder(reviews, "Reviews"))
 
         assertEquals(root.resolve("Reviews"), renamed)
-        assertEquals(listOf("Reviews"), repository.scan().children.map(LibraryEntry::displayName))
+        val snapshot = repository.scan()
+        assertEquals(listOf("Reviews"), snapshot.children.map(LibraryEntry::displayName))
+        assertNull(snapshot.diagnostic)
+        assertEquals(audit.template.id, success(repository.load(renamed.resolve(audit.directory.name))).template.id)
         assertEquals(
             listOf("Reviews"),
             requireNotNull(LibraryFolderOrderCodec.read(root).value).folders,
@@ -402,7 +462,7 @@ class FileSystemPromptTemplateHierarchyTest(
         val stored = success(repository.create(PromptTemplateDraft(name = "Template", markdown = "before"), nested))
         val outside = temporaryDirectory.resolve("outside.txt")
         Files.writeString(outside, "keep")
-        Files.createSymbolicLink(stored.directory.resolve("outside-link"), outside)
+        createSymbolicLinkOrSkip(stored.directory.resolve("outside-link"), outside)
 
         val firstPreview = success(repository.previewFolderDeletion(folder))
         assertTrue(firstPreview.folderCount >= 1)
@@ -454,47 +514,56 @@ class FileSystemPromptTemplateHierarchyTest(
     }
 
     @Test
-    fun `fresh deletion never follows an intermediate replaced after fingerprinting`() {
+    fun `forced Windows-capable fallback deletes a nested tree and never follows an intermediate replaced by a link`() {
         val target = temporaryDirectory.resolve("target")
         val intermediate = target.resolve("intermediate")
         val displaced = temporaryDirectory.resolve("displaced")
         val outside = temporaryDirectory.resolve("outside")
         Files.createDirectories(intermediate)
+        Files.createDirectories(target.resolve("one/two"))
         Files.createDirectories(outside)
+        Files.writeString(target.resolve("root.txt"), "root")
+        Files.writeString(target.resolve("one/two/deep.txt"), "deep")
         Files.writeString(intermediate.resolve("victim.txt"), "original")
         Files.writeString(outside.resolve("victim.txt"), "outside")
-
-        val fingerprint = LibraryTreeDeletion.manifest(target) { false }.fingerprint
+        // Deletion traverses afresh, so a directory swapped for a link after the preview is removed as a link.
         Files.move(intermediate, displaced)
-        Files.createSymbolicLink(intermediate, outside)
+        createSymbolicLinkOrSkip(intermediate, outside)
 
         LibraryTreeDeletion.deleteTree(target, LibraryDeletionMode.CONSERVATIVE_FALLBACK)
 
-        assertTrue(fingerprint.isNotBlank())
         assertFalse(Files.exists(target))
         assertEquals("outside", outside.resolve("victim.txt").readText())
         assertEquals("original", displaced.resolve("victim.txt").readText())
+        assertFalse(hasQuarantine(temporaryDirectory))
     }
 
     @Test
-    fun `forced Windows-capable fallback deletes a nested tree without file keys`() {
+    fun `forced fallback deletion restores the target when a nested entry cannot be deleted`() {
+        assumePosixPermissions()
         val target = temporaryDirectory.resolve("target")
-        Files.createDirectories(target.resolve("one/two"))
-        Files.writeString(target.resolve("root.txt"), "root")
-        Files.writeString(target.resolve("one/child.txt"), "child")
-        Files.writeString(target.resolve("one/two/deep.txt"), "deep")
+        val locked = target.resolve("locked")
+        Files.createDirectories(locked)
+        Files.writeString(target.resolve("first.txt"), "first")
+        Files.writeString(locked.resolve("kept.txt"), "kept")
+        Files.setPosixFilePermissions(locked, PosixFilePermissions.fromString("r-xr-xr-x"))
+        try {
+            assumeFalse(Files.isWritable(locked), "Directory permissions do not restrict this user.")
 
-        LibraryTreeDeletion.deleteTree(target, LibraryDeletionMode.CONSERVATIVE_FALLBACK)
+            val failure = assertFailsWith<IOException> {
+                LibraryTreeDeletion.deleteTree(target, LibraryDeletionMode.CONSERVATIVE_FALLBACK)
+            }
 
-        assertFalse(Files.exists(target))
-        val hasQuarantine = temporaryDirectory.useDirectoryEntries { entries ->
-            entries.any { it.name.startsWith(FileSystemPromptTemplateRepository.DELETE_SCRATCH_PREFIX) }
+            assertTrue(failure.message.orEmpty().contains("restored to '$target'"), failure.message)
+            assertEquals("kept", locked.resolve("kept.txt").readText())
+            assertFalse(hasQuarantine(temporaryDirectory))
+        } finally {
+            if (Files.exists(locked)) Files.setPosixFilePermissions(locked, PosixFilePermissions.fromString("rwxr-xr-x"))
         }
-        assertFalse(hasQuarantine)
     }
 
     @Test
-    fun `deletes a nested template without following its support symlinks`() {
+    fun `template deletion refuses support entries and never follows a canonical symlink`() {
         val root = temporaryDirectory.resolve("library")
         val repository = FileSystemPromptTemplateRepository(root)
         val folder = success(repository.createFolder(root, "Folder"))
@@ -502,12 +571,111 @@ class FileSystemPromptTemplateHierarchyTest(
         val outside = temporaryDirectory.resolve("outside")
         Files.createDirectories(outside)
         Files.writeString(outside.resolve("keep.txt"), "keep")
-        Files.createSymbolicLink(stored.directory.resolve("support"), outside)
+        createSymbolicLinkOrSkip(stored.directory.resolve("support"), outside)
+
+        val refused = assertIs<RepositoryResult.Failure>(repository.deleteTemplate(stored.directory))
+
+        assertTrue(refused.message.contains("'support'"), refused.message)
+        assertTrue(Files.isRegularFile(stored.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE)))
+        Files.delete(stored.directory.resolve("support"))
+        Files.delete(stored.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE))
+        createSymbolicLinkOrSkip(stored.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE), outside.resolve("keep.txt"))
 
         success(repository.deleteTemplate(stored.directory))
 
         assertFalse(Files.exists(stored.directory))
         assertEquals("keep", outside.resolve("keep.txt").readText())
+    }
+
+    @Test
+    fun `refuses to delete an organiser folder that only looks like a template because of a stray prompt`() {
+        val root = temporaryDirectory.resolve("library")
+        val reviews = root.resolve("Reviews")
+        val nested = writeTemplate(reviews.resolve("Security/audit"), "Audit", TemplateId.random())
+        writeTemplate(reviews.resolve("archive/old"), "Old", TemplateId.random())
+        Files.writeString(reviews.resolve("notes.txt"), "notes")
+        Files.writeString(reviews.resolve("todo.md"), "todo")
+        Files.writeString(reviews.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE), "stray")
+        val repository = FileSystemPromptTemplateRepository(root)
+        assertIs<LibraryEntry.Template>(repository.scan().children.single())
+
+        val failure = assertIs<RepositoryResult.Failure>(repository.deleteTemplate(reviews))
+
+        assertTrue(failure.message.contains("'archive', 'notes.txt', 'Security' and 1 more"), failure.message)
+        assertTrue(failure.message.contains("file manager"))
+        assertEquals("stray", reviews.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE).readText())
+        assertEquals("notes", reviews.resolve("notes.txt").readText())
+        assertEquals("# Audit", nested.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE).readText())
+        assertTrue(Files.isRegularFile(reviews.resolve("archive/old").resolve(FileSystemPromptTemplateRepository.METADATA_FILE)))
+    }
+
+    @Test
+    fun `template deletion accepts save working files and OS metadata`() {
+        val root = temporaryDirectory.resolve("library")
+        val repository = FileSystemPromptTemplateRepository(root)
+        val stored = success(repository.create(PromptTemplateDraft(name = "Template", markdown = "body")))
+        listOf(".DS_Store", "Thumbs.db", "desktop.ini", "._prompt.md", "${LibraryLayout.STAGE_PREFIX}leftover.tmp").forEach {
+            Files.writeString(stored.directory.resolve(it), "")
+        }
+
+        success(repository.deleteTemplate(stored.directory, stored.template.id))
+
+        assertFalse(Files.exists(stored.directory))
+    }
+
+    @Test
+    fun `template deletion with an expected id refuses a different or unreadable template at the same path`() {
+        val root = temporaryDirectory.resolve("library")
+        val repository = FileSystemPromptTemplateRepository(root)
+        val stored = success(repository.create(PromptTemplateDraft(name = "Review", markdown = "old")))
+        val metadataPath = stored.directory.resolve(FileSystemPromptTemplateRepository.METADATA_FILE)
+        // Another IDE moved the template away and created a different one with the same slug.
+        Files.writeString(metadataPath, TemplateMetadataCodec().encode(metadata("Review", TemplateId.random())))
+
+        val replaced = assertIs<RepositoryResult.Failure>(repository.deleteTemplate(stored.directory, stored.template.id))
+        assertTrue(replaced.message.contains("changed on disk"), replaced.message)
+        Files.writeString(metadataPath, "not metadata")
+        assertIs<RepositoryResult.Failure>(repository.deleteTemplate(stored.directory, stored.template.id))
+        assertTrue(Files.isRegularFile(metadataPath))
+
+        Files.delete(metadataPath)
+        val recoverable = success(repository.load(stored.directory))
+        success(repository.deleteTemplate(stored.directory, recoverable.template.id))
+        assertFalse(Files.exists(stored.directory))
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    fun `deleting a folder removes directory junctions without touching their targets`() {
+        val root = temporaryDirectory.resolve("library")
+        val repository = FileSystemPromptTemplateRepository(root)
+        val team = success(repository.createFolder(root, "Team"))
+        success(repository.create(PromptTemplateDraft(name = "Review", markdown = "body"), team))
+        val outside = temporaryDirectory.resolve("team-prompts")
+        Files.createDirectories(outside.resolve("nested"))
+        Files.writeString(outside.resolve("keep.txt"), "keep")
+        Files.writeString(outside.resolve("nested/prompt.md"), "outside template")
+        val removed = temporaryDirectory.resolve("removed")
+        Files.createDirectories(removed)
+        createJunction(team.resolve("Shared"), outside)
+        createJunction(team.resolve("Loop"), root)
+        createJunction(team.resolve("Dangling"), removed)
+        Files.delete(removed)
+
+        val linked = folder(repository.scan(), "Team").children.filter { it.displayName in setOf("Shared", "Loop", "Dangling") }
+        assertEquals(3, linked.size)
+        linked.forEach { assertTrue(assertIs<LibraryEntry.Folder>(it).diagnostic.orEmpty().contains("junction")) }
+        assertIs<RepositoryResult.Failure>(repository.createFolder(team.resolve("Shared"), "Escaped"))
+        assertFalse(Files.exists(outside.resolve("Escaped")))
+
+        val preview = success(repository.previewFolderDeletion(team))
+        assertEquals(1, preview.templateCount)
+        success(repository.deleteFolder(preview))
+
+        assertFalse(Files.exists(team))
+        assertTrue(Files.isDirectory(root))
+        assertEquals("keep", outside.resolve("keep.txt").readText())
+        assertEquals("outside template", outside.resolve("nested/prompt.md").readText())
     }
 
     @Test
@@ -549,16 +717,38 @@ class FileSystemPromptTemplateHierarchyTest(
     fun `rejects symlink paths and portable reserved folder names`() {
         val root = temporaryDirectory.resolve("library")
         val repository = FileSystemPromptTemplateRepository(root)
-        success(repository.createFolder(root, "Safe"))
+        val safe = success(repository.createFolder(root, "Safe"))
+        val sub = success(repository.createFolder(safe, "Sub"))
         val outside = temporaryDirectory.resolve("outside")
         Files.createDirectories(outside)
         val link = root.resolve("Link")
-        Files.createSymbolicLink(link, outside)
+        createSymbolicLinkOrSkip(link, outside)
+        // An alias inside the library passes the real-path containment check, so only the per-segment guard stops it.
+        createSymbolicLinkOrSkip(root.resolve("Alias"), safe)
 
         assertIs<RepositoryResult.Failure>(repository.createFolder(link, "Escaped"))
         assertFalse(Files.exists(outside.resolve("Escaped")))
+        assertIs<RepositoryResult.Failure>(repository.createFolder(root.resolve("Alias").resolve("Sub"), "Aliased"))
+        assertFalse(Files.exists(sub.resolve("Aliased")))
         assertIs<RepositoryResult.Failure>(repository.createFolder(root, "prompt.md"))
         assertIs<RepositoryResult.Failure>(repository.createFolder(root, "bad/name"))
+    }
+
+    @Test
+    fun `rejects Windows device names and keeps generated directory names short`() {
+        val root = temporaryDirectory.resolve("library")
+        val repository = FileSystemPromptTemplateRepository(root)
+
+        listOf("CON", "nul.txt", "Com1", "lpt9.tar.gz", "x".repeat(256)).forEach { name ->
+            assertIs<RepositoryResult.Failure>(repository.createFolder(root, name), name)
+        }
+        success(repository.createFolder(root, "Console"))
+        val device = success(repository.create(PromptTemplateDraft(name = "Con", markdown = "device")))
+        val long = success(repository.create(PromptTemplateDraft(name = "word ".repeat(40), markdown = "long")))
+
+        assertEquals("con-template", device.directory.name)
+        assertEquals("word-".repeat(12) + "word", long.directory.name)
+        assertEquals(listOf("Console"), repository.scan().children.filterIsInstance<LibraryEntry.Folder>().map { it.displayName })
     }
 
     @Test
@@ -566,7 +756,7 @@ class FileSystemPromptTemplateHierarchyTest(
         val physicalRoot = temporaryDirectory.resolve("physical-library")
         Files.createDirectories(physicalRoot)
         val linkedRoot = temporaryDirectory.resolve("linked-library")
-        Files.createSymbolicLink(linkedRoot, physicalRoot)
+        createSymbolicLinkOrSkip(linkedRoot, physicalRoot)
         val repository = FileSystemPromptTemplateRepository(linkedRoot)
 
         val folder = success(repository.createFolder(linkedRoot, "Folder"))
@@ -582,7 +772,7 @@ class FileSystemPromptTemplateHierarchyTest(
         val physicalParent = temporaryDirectory.resolve("physical")
         Files.createDirectories(physicalParent)
         val aliasParent = temporaryDirectory.resolve("alias")
-        Files.createSymbolicLink(aliasParent, physicalParent)
+        createSymbolicLinkOrSkip(aliasParent, physicalParent)
         val physicalRoot = physicalParent.resolve("library")
         val aliasRoot = aliasParent.resolve("library")
         val repositories = listOf(
@@ -646,6 +836,18 @@ class FileSystemPromptTemplateHierarchyTest(
 
         assertTrue(snapshot.children.isEmpty())
         assertTrue(snapshot.diagnostic.orEmpty().contains("not a regular directory"))
+    }
+
+    private fun hasQuarantine(parent: Path): Boolean = parent.useDirectoryEntries { entries ->
+        entries.any { it.name.startsWith(FileSystemPromptTemplateRepository.DELETE_SCRATCH_PREFIX) }
+    }
+
+    private fun createJunction(link: Path, target: Path) {
+        val process = ProcessBuilder("cmd", "/c", "mklink", "/J", link.toString(), target.toString())
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader().use { it.readText() }
+        assertEquals(0, process.waitFor(), output)
     }
 
     private fun writeTemplate(directory: Path, name: String, id: TemplateId): Path {

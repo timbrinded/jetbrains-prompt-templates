@@ -1,13 +1,12 @@
 package dev.timbrinded.prompttemplates.core
 
-import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository.Companion.MARKDOWN_FILE
-import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository.Companion.METADATA_FILE
-import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository.Companion.ORDER_FILE
-import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository.Companion.isInternalLibraryEntryName
+import dev.timbrinded.prompttemplates.core.LibraryLayout.MARKDOWN_FILE
+import dev.timbrinded.prompttemplates.core.LibraryLayout.METADATA_FILE
 import java.io.IOException
 import java.nio.file.DirectoryIteratorException
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
+import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import kotlin.io.path.name
 import kotlin.io.path.useDirectoryEntries
@@ -21,7 +20,7 @@ internal data class DirectLibraryEntry(
 internal class LibraryTreeScanner(
     root: Path,
     private val codec: TemplateMetadataCodec,
-    private val recover: (Path) -> Unit = {},
+    private val recover: (Path) -> Unit,
 ) {
     private val root = root.toAbsolutePath().normalize()
 
@@ -48,12 +47,12 @@ internal class LibraryTreeScanner(
     fun directEntries(parent: Path): List<DirectLibraryEntry> = parent.useDirectoryEntries { entries ->
         entries
             .filter(::isScannableDirectoryEntry)
-            .map(::classify)
+            .mapNotNull { path -> skipIfRemoved { classify(path) } }
             .toList()
     }
 
     fun classify(path: Path): DirectLibraryEntry {
-        val kind = if (!Files.isSymbolicLink(path) && isTemplatePackage(path)) {
+        val kind = if (!LibraryLayout.isLink(path) && LibraryLayout.isTemplatePackage(path)) {
             EntryKind.TEMPLATE
         } else {
             EntryKind.FOLDER
@@ -75,33 +74,32 @@ internal class LibraryTreeScanner(
         }
     }
 
-    fun isTemplatePackage(directory: Path): Boolean =
-        Files.exists(directory.resolve(MARKDOWN_FILE), NOFOLLOW_LINKS) ||
-            Files.exists(directory.resolve(METADATA_FILE), NOFOLLOW_LINKS) ||
-            Files.exists(directory.resolve(FileSystemPromptTemplateRepository.SAVE_JOURNAL_FILE), NOFOLLOW_LINKS)
-
     private fun scanFolder(directory: Path): ScannedFolder {
+        val interrupted = mutableListOf<String>()
         val children = try {
             directory.useDirectoryEntries { entries ->
                 entries
+                    .onEach { if (LibraryLayout.isInterruptedWorkingDirectoryName(it.name)) interrupted += it.name }
                     .filter(::isScannableDirectoryEntry)
-                    .map { child ->
+                    .mapNotNull { child ->
+                        val link = skipIfRemoved { LibraryLayout.isLink(child) } ?: return@mapNotNull null
                         when {
-                            Files.isSymbolicLink(child) -> LibraryEntry.Folder(
+                            link -> LibraryEntry.Folder(
                                 directory = child.toAbsolutePath().normalize(),
                                 relativeDirectory = relativeToRoot(child),
                                 displayName = child.name,
                                 children = emptyList(),
-                                diagnostic = "Symbolic-link entries are not supported.",
+                                diagnostic = "Symbolic links and directory junctions are not supported.",
                             )
 
-                            isTemplatePackage(child) -> LibraryEntry.Template(
+                            LibraryLayout.isTemplatePackage(child) -> LibraryEntry.Template(
                                 summary = summaryFor(child),
                                 relativeDirectory = relativeToRoot(child),
                             )
 
                             else -> {
                                 val nested = scanFolder(child)
+                                if (nested.removed) return@mapNotNull null
                                 LibraryEntry.Folder(
                                     directory = child.toAbsolutePath().normalize(),
                                     relativeDirectory = relativeToRoot(child),
@@ -114,6 +112,8 @@ internal class LibraryTreeScanner(
                     }
                     .toList()
             }
+        } catch (error: NoSuchFileException) {
+            return ScannedFolder(emptyList(), "Unable to read folder: ${error.message}", removed = true)
         } catch (error: IOException) {
             return ScannedFolder(emptyList(), "Unable to read folder: ${error.message}")
         } catch (error: DirectoryIteratorException) {
@@ -123,9 +123,13 @@ internal class LibraryTreeScanner(
         }
 
         val order = LibraryFolderOrderCodec.read(directory)
+        val interruptedDiagnostic = interrupted.takeIf { it.isNotEmpty() }?.let { names ->
+            "Hidden working folders from an interrupted rename or deletion remain here: ${quotedEntryNames(names)}. " +
+                "Restore or remove them in a file manager."
+        }
         return ScannedFolder(
             children = sortEntries(children, order.value),
-            diagnostic = order.diagnostic,
+            diagnostic = combineDiagnostics(order.diagnostic, interruptedDiagnostic),
         )
     }
 
@@ -244,9 +248,16 @@ internal class LibraryTreeScanner(
         diagnostic = diagnostic,
     )
 
+    /** An entry removed after it was listed is skipped, as if it had been removed before the scan. */
+    private inline fun <T : Any> skipIfRemoved(read: () -> T): T? = try {
+        read()
+    } catch (_: NoSuchFileException) {
+        null
+    }
+
     private fun isScannableDirectoryEntry(path: Path): Boolean =
-        path.name != ORDER_FILE &&
-            !isInternalLibraryEntryName(path.name) &&
+        path.name != LibraryLayout.ORDER_FILE &&
+            !LibraryLayout.isInternalLibraryEntryName(path.name) &&
             (Files.isDirectory(path, NOFOLLOW_LINKS) || Files.isSymbolicLink(path))
 
     private fun sortEntries(entries: List<LibraryEntry>, order: FolderOrderFile?): List<LibraryEntry> =
@@ -277,5 +288,14 @@ internal class LibraryTreeScanner(
     private data class ScannedFolder(
         val children: List<LibraryEntry>,
         val diagnostic: String? = null,
+        /** The folder was removed after its parent listed it, so the parent skips it. */
+        val removed: Boolean = false,
     )
+}
+
+/** Names up to three entries for a message, sorted so repeated scans and checks report them identically. */
+internal fun quotedEntryNames(names: List<String>): String {
+    val sorted = names.sortedWith(String.CASE_INSENSITIVE_ORDER)
+    val shown = sorted.take(3).joinToString(", ") { "'$it'" }
+    return if (sorted.size > 3) "$shown and ${sorted.size - 3} more" else shown
 }

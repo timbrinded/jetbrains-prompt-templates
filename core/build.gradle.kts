@@ -17,9 +17,14 @@ kotlin {
     jvmToolchain(25)
 }
 
+// Resolved at execution time: resolving the classpath while configuring locks testImplementation.
+class TestRuntimeClasspathArgument(@get:Classpath val classpath: FileCollection) : CommandLineArgumentProvider {
+    override fun asArguments() = listOf("-Dtest.runtime.classpath=${classpath.asPath}")
+}
+
 tasks.test {
     useJUnitPlatform()
-    systemProperty("test.runtime.classpath", sourceSets.test.get().runtimeClasspath.asPath)
+    jvmArgumentProviders += TestRuntimeClasspathArgument(sourceSets.test.get().runtimeClasspath)
 }
 
 tasks.named<Jar>("jar") {

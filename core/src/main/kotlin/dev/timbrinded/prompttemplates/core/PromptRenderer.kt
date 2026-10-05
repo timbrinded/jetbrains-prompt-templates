@@ -15,18 +15,10 @@ data class RenderResult(
         get() = diagnostics.none { it.severity == DiagnosticSeverity.ERROR }
 }
 
-interface PromptRenderer {
-    fun render(
-        template: PromptTemplate,
-        userValues: Map<String, String>,
-        contextValues: Map<String, ContextValue>,
-    ): RenderResult
-}
+class StrictPromptRenderer {
+    private val parser = LinearPlaceholderParser()
 
-class StrictPromptRenderer(
-    private val parser: PlaceholderParser = LinearPlaceholderParser(),
-) : PromptRenderer {
-    override fun render(
+    fun render(
         template: PromptTemplate,
         userValues: Map<String, String>,
         contextValues: Map<String, ContextValue>,
@@ -37,9 +29,9 @@ class StrictPromptRenderer(
         diagnostics += parseResult.diagnostics
 
         val replacements = mutableListOf<Replacement>()
-        parseResult.escapedOpenings.forEach { range ->
-            replacements += Replacement(range, "{{", null)
-        }
+        parseResult.escapedOpenings.forEach { range -> replacements += Replacement(range, "{{", null) }
+        val escapedVariables = parseResult.escapedVariablePlaceholders(template.markdown, variablesByKey.keys)
+        diagnostics += escapedVariables
 
         parseResult.placeholders.forEach { token ->
             val replacement = when {
@@ -54,7 +46,8 @@ class StrictPromptRenderer(
             .map(PlaceholderToken::key)
             .toSet()
         template.metadata.variables
-            .filterNot { it.key in referencedUserKeys }
+            // A definition used only in escaped text already has the more specific escaped-placeholder warning.
+            .filterNot { variable -> variable.key in referencedUserKeys || escapedVariables.any { it.key == variable.key } }
             .forEach { diagnostics += TemplateDiagnostic.UnusedVariableDefinition(it.key) }
 
         val output = StringBuilder(template.markdown.length)
@@ -120,7 +113,7 @@ class StrictPromptRenderer(
         if (context.status != ContextStatus.AVAILABLE || context.value == null) {
             diagnostics += TemplateDiagnostic.ContextUnavailable(
                 token.key,
-                context.errorMessage ?: "Context '$token.key' is unavailable.",
+                context.errorMessage ?: "Context '${token.key}' is unavailable.",
             )
             return "{{${token.key}}}"
         }

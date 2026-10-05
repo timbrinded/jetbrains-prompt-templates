@@ -4,8 +4,6 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption.ATOMIC_MOVE
-import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.security.MessageDigest
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -26,8 +24,9 @@ internal data class TemplateFiles(val markdown: String?, val metadata: String?) 
     val revision: TemplateRevision get() = TemplateRevision.of(markdown, metadata)
 }
 
+/** Commit boundaries of a save. Each leaves a different set of files on disk, so crash tests stop at each one. */
 internal enum class TemplateSaveStep {
-    BEFORE_STAGE, AFTER_STAGE, BEFORE_MARKDOWN, AFTER_MARKDOWN, BEFORE_METADATA, AFTER_METADATA,
+    BEFORE_STAGE, AFTER_STAGE, AFTER_MARKDOWN, AFTER_METADATA,
 }
 
 internal class TemplateRevisionMismatch : IOException("The template changed while preparing the save.")
@@ -43,20 +42,21 @@ internal class TemplateFileStore(
     }
 
     fun save(directory: Path, template: PromptTemplate, expected: TemplateRevision): TemplateRevision {
-        val journal = SaveJournal(expected, template.markdown, codec.encode(template.metadata))
-        check(codec.decode(journal.metadata) is MetadataDecodeResult.Success)
         onSaveStep(TemplateSaveStep.BEFORE_STAGE)
-        if (readCanonical(directory).revision != expected) {
+        val current = readCanonical(directory)
+        if (current.revision != expected) {
             throw TemplateRevisionMismatch()
         }
-        replaceAtomically(directory.resolve(JOURNAL_FILE), Json.encodeToString(journal))
+        val journal = SaveJournal(expected, template.markdown, codec.encode(template.metadata, original = current.metadata))
+        check(codec.decode(journal.metadata) is MetadataDecodeResult.Success)
+        replaceAtomically(directory.resolve(LibraryLayout.SAVE_JOURNAL_FILE), Json.encodeToString(journal))
         onSaveStep(TemplateSaveStep.AFTER_STAGE)
         finish(directory, journal, onSaveStep)
         return TemplateRevision.of(journal.markdown, journal.metadata)
     }
 
     fun recover(directory: Path) {
-        val path = directory.resolve(JOURNAL_FILE)
+        val path = directory.resolve(LibraryLayout.SAVE_JOURNAL_FILE)
         if (!Files.exists(path, NOFOLLOW_LINKS)) return
         try {
             val journal = Json.decodeFromString<SaveJournal>(requireNotNull(readRegular(path)))
@@ -87,23 +87,21 @@ internal class TemplateFileStore(
             }
             return current
         }
-        step(TemplateSaveStep.BEFORE_MARKDOWN)
         if (checkedCurrent().revision.markdown != next.markdown) {
-            replaceAtomically(directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE), journal.markdown)
+            replaceAtomically(directory.resolve(LibraryLayout.MARKDOWN_FILE), journal.markdown)
         }
         step(TemplateSaveStep.AFTER_MARKDOWN)
-        step(TemplateSaveStep.BEFORE_METADATA)
         if (checkedCurrent().revision.metadata != next.metadata) {
-            replaceAtomically(directory.resolve(FileSystemPromptTemplateRepository.METADATA_FILE), journal.metadata)
+            replaceAtomically(directory.resolve(LibraryLayout.METADATA_FILE), journal.metadata)
         }
         step(TemplateSaveStep.AFTER_METADATA)
         if (checkedCurrent().revision != next) throw IOException("The template changed before save completion.")
-        Files.delete(directory.resolve(JOURNAL_FILE))
+        Files.delete(directory.resolve(LibraryLayout.SAVE_JOURNAL_FILE))
     }
 
     private fun readCanonical(directory: Path) = TemplateFiles(
-        readRegular(directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE)),
-        readRegular(directory.resolve(FileSystemPromptTemplateRepository.METADATA_FILE)),
+        readRegular(directory.resolve(LibraryLayout.MARKDOWN_FILE)),
+        readRegular(directory.resolve(LibraryLayout.METADATA_FILE)),
     )
 
     private fun readRegular(path: Path): String? {
@@ -112,16 +110,8 @@ internal class TemplateFileStore(
         return Files.readString(path, Charsets.UTF_8)
     }
 
-    private fun replaceAtomically(path: Path, text: String) {
-        val temporary = Files.createTempFile(path.parent, STAGE_PREFIX, ".tmp")
-        try {
-            Files.writeString(temporary, text, Charsets.UTF_8)
-            // If atomic replacement is unsupported, stop with the journal intact before risking a partial file.
-            Files.move(temporary, path, ATOMIC_MOVE, REPLACE_EXISTING)
-        } finally {
-            Files.deleteIfExists(temporary)
-        }
-    }
+    // If atomic replacement is unsupported, stop with the journal intact before risking a partial file.
+    private fun replaceAtomically(path: Path, text: String) = writeTextAtomically(path, text, allowNonAtomicMove = false)
 
     @Serializable
     private data class SaveJournal(
@@ -130,9 +120,4 @@ internal class TemplateFileStore(
         val metadata: String,
         val version: Int = 1,
     )
-
-    companion object {
-        const val JOURNAL_FILE = ".prompt-template-save.json"
-        const val STAGE_PREFIX = ".prompt-template-stage-"
-    }
 }

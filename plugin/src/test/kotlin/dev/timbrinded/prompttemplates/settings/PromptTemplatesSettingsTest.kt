@@ -5,6 +5,7 @@ import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 
 class PromptTemplatesSettingsTest {
     @Test
@@ -38,6 +39,29 @@ class PromptTemplatesSettingsTest {
 
         assertEquals("/tmp/prompt-library", settings.state.libraryPath)
         assertFalse(settings.state.confirmDeletion)
+    }
+
+    @Test
+    fun `library path input accepts quoted absolute paths and rejects relative or unparseable ones`() {
+        val library = Path.of("/tmp/prompt library").toAbsolutePath().toString()
+
+        assertEquals(library, normalizeLibraryPathInput("  \"$library\"  "))
+        assertEquals(library, normalizeLibraryPathInput("'$library'"))
+        assertNull(libraryPathError("\"$library\""))
+        assertNull(libraryPathError("   "))
+        assertEquals("Enter an absolute directory path.", libraryPathError("Prompt Templates"))
+        assertEquals("Enter a valid directory path.", libraryPathError("/tmp/prompt\u0000library"))
+    }
+
+    @Test
+    fun `a stored path that no longer parses falls back to the default library and can be replaced`() {
+        val settings = PromptTemplatesSettings()
+        settings.libraryPath = "/tmp/prompt\u0000library"
+
+        assertEquals(libraryRootOf(""), settings.libraryRoot)
+
+        settings.libraryPath = "/tmp/fixed-library"
+        assertEquals(Path.of("/tmp/fixed-library").toAbsolutePath().normalize(), settings.libraryRoot)
     }
 
     @Test

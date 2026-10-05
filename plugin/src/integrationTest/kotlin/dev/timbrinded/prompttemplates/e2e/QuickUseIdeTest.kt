@@ -127,7 +127,8 @@ class QuickUseIdeTest {
             dialog.waitNotFound(30.seconds)
             waitFor("first tool-window creation preserves the exact invocation", 30.seconds) { main.renderedText() == "retained value: handoff snapshot" }
             main.clickButton("Copy Prompt")
-            assertEquals("retained value: handoff snapshot", clipboard())
+            // The click is delivered asynchronously; wait for it instead of reading the clipboard straight away.
+            waitFor("Copy Prompt copies the handed-off invocation", 10.seconds) { clipboard() == "retained value: handoff snapshot" }
 
             val moved = original.moveTo(harness.workspace.library.resolve("renamed"))
             moved.resolve("prompt.meta.json").writeText(TemplateMetadataCodec().encode(TemplateMetadata(

@@ -28,6 +28,8 @@ internal object SelectedEditorDestination {
             return DestinationResult.Failure("The insertion target is unavailable or changed. Select Insertion Target before inserting.")
         }
         val editor = target.editor
+        // Swing listeners hold no lock in 2026.2 and requestWriting needs write intent. Every write-intent API in
+        // 2026.2 is experimental, so the verifier's two experimental-API warnings here are an accepted exception.
         val writable = WriteIntentReadAction.compute {
             !editor.isViewer && FileDocumentManager.getInstance().requestWriting(editor.document, project)
         }

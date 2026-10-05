@@ -22,18 +22,6 @@
       <p><a href="https://www.flaticon.com/free-icons/copy-and-paste" title="copy-and-paste icons">Copy-and-paste icons created by ranksol graphics - Flaticon</a></p>
     ]]></description>
 
-    <change-notes><![CDATA[
-      <p>Quick Use, reliable context and faster template authoring.</p>
-      <ul>
-        <li>Find and invoke templates by keyboard with ranked search, favourites and recents.</li>
-        <li>Inspect frozen context and keep preview, input controls and output consistent across Quick Use and the tool window.</li>
-        <li>Recover interrupted saves, check revisions before overwriting and protect changed author drafts.</li>
-        <li>Duplicate templates, capture selections, configure defaults and field order, and insert or extract variables with Undo and Redo.</li>
-        <li>Use responsive forms with referenced inputs and correct multiline validation focus.</li>
-        <li>Attach explicit file buffers or Git diffs, export rendered Markdown to scratch files and browse optional worked examples.</li>
-      </ul>
-    ]]></change-notes>
-
     <depends>com.intellij.modules.platform</depends>
     <depends optional="true" config-file="dev.smoothbrains.prompttemplates-git.xml">Git4Idea</depends>
 
@@ -56,6 +44,8 @@
                 id="Prompt Templates"
                 displayType="BALLOON"
                 isLogByDefault="false"/>
+
+        <projectCloseHandler implementation="dev.timbrinded.prompttemplates.ui.UnsavedTemplateCloseHandler"/>
     </extensions>
 
     <actions>

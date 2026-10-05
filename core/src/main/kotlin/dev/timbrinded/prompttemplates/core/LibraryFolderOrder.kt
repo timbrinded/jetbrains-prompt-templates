@@ -6,8 +6,8 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
+import kotlin.io.path.name
 
-internal const val LIBRARY_ORDER_FILE = ".prompt-templates-order.json"
 internal const val LIBRARY_ORDER_SCHEMA_VERSION = 1
 
 internal enum class EntryKind { FOLDER, TEMPLATE }
@@ -27,6 +27,8 @@ internal data class ReadOrder(
 internal data class FolderOrderState(
     val folders: List<String>,
     val templates: List<String>,
+    /** Why the existing order file could not be read. Such a file is never replaced. */
+    val unreadable: String? = null,
 ) {
     fun names(kind: EntryKind): List<String> = when (kind) {
         EntryKind.FOLDER -> folders
@@ -45,6 +47,85 @@ internal data class FolderOrderState(
         withNames(kind, names(kind).map { if (it == oldName) newName else it })
 }
 
+/** Reads and persists the manual order of organiser folders. Callers hold the library lock. */
+internal class FolderOrderStore(
+    private val scanner: LibraryTreeScanner,
+    private val paths: LibraryPaths,
+) {
+    fun effective(folder: Path): FolderOrderState {
+        val read = LibraryFolderOrderCodec.read(folder)
+        val sorted = scanner.directEntries(folder).sortedWith(
+            LibraryFolderOrderCodec.comparator(
+                order = read.value,
+                kindOf = DirectLibraryEntry::kind,
+                orderKeyOf = { it.path.name },
+                fallbackNameOf = DirectLibraryEntry::visibleName,
+            ),
+        )
+        return FolderOrderState(
+            folders = sorted.filter { it.kind == EntryKind.FOLDER }.map { it.path.name },
+            templates = sorted.filter { it.kind == EntryKind.TEMPLATE }.map { it.path.name },
+            unreadable = read.diagnostic,
+        )
+    }
+
+    fun persist(folder: Path, order: FolderOrderState) {
+        // A malformed or newer-schema order file may hold order this version cannot represent.
+        order.unreadable?.let {
+            throw IOException(
+                "$it The existing order file was left unchanged. To reset this folder to alphabetical order, " +
+                    "delete ${folder.resolve(LibraryLayout.ORDER_FILE)}.",
+            )
+        }
+        val encoded = LibraryFolderOrderCodec.encode(order)
+        writeTextAtomically(folder.resolve(LibraryLayout.ORDER_FILE), encoded, allowNonAtomicMove = true)
+    }
+
+    /** Persists order after a content change that already succeeded, so a failure is only a warning. */
+    fun persistAfterChange(folder: Path, order: FolderOrderState): List<String> = try {
+        persist(folder, order)
+        emptyList()
+    } catch (error: IOException) {
+        listOf("The library change succeeded, but folder order could not be saved: ${error.message}")
+    } catch (error: SecurityException) {
+        listOf("The library change succeeded, but folder order could not be saved: permission denied.")
+    }
+
+    fun placing(
+        order: FolderOrderState,
+        name: String,
+        kind: EntryKind,
+        placement: EntryPlacement,
+        destinationFolder: Path,
+        source: Path,
+    ): FolderOrderState {
+        val names = order.names(kind).toMutableList().also { it.remove(name) }
+        names.add(placementIndex(placement, destinationFolder, source, kind, names), name)
+        return order.withNames(kind, names)
+    }
+
+    private fun placementIndex(
+        placement: EntryPlacement,
+        destinationFolder: Path,
+        source: Path,
+        kind: EntryKind,
+        names: List<String>,
+    ): Int {
+        val sibling = when (placement) {
+            EntryPlacement.EndOfKind -> return names.size
+            is EntryPlacement.Before -> placement.sibling
+            is EntryPlacement.After -> placement.sibling
+        }
+        val safeSibling = paths.requireEntry(sibling)
+        require(safeSibling.parent == destinationFolder) { "The placement target is not in the destination folder." }
+        require(safeSibling != source) { "An entry cannot be placed relative to itself." }
+        require(scanner.classify(safeSibling).kind == kind) { "Folders and templates cannot be interleaved." }
+        val siblingIndex = names.indexOf(safeSibling.name)
+        require(siblingIndex >= 0) { "The placement target is no longer available." }
+        return siblingIndex + if (placement is EntryPlacement.After) 1 else 0
+    }
+}
+
 internal object LibraryFolderOrderCodec {
     private val json = Json {
         prettyPrint = true
@@ -55,15 +136,15 @@ internal object LibraryFolderOrderCodec {
     fun read(folder: Path): ReadOrder = try {
         readOrderFile(folder)
     } catch (_: SecurityException) {
-        ReadOrder(diagnostic = "Unable to read $LIBRARY_ORDER_FILE: permission denied; alphabetical order is in use.")
+        ReadOrder(diagnostic = "Unable to read ${LibraryLayout.ORDER_FILE}: permission denied; alphabetical order is in use.")
     }
 
     private fun readOrderFile(folder: Path): ReadOrder {
-        val path = folder.resolve(LIBRARY_ORDER_FILE)
+        val path = folder.resolve(LibraryLayout.ORDER_FILE)
         if (!Files.exists(path, NOFOLLOW_LINKS)) return ReadOrder()
         if (!Files.isRegularFile(path, NOFOLLOW_LINKS)) {
             return ReadOrder(
-                diagnostic = "$LIBRARY_ORDER_FILE is not a regular file; alphabetical order is in use.",
+                diagnostic = "${LibraryLayout.ORDER_FILE} is not a regular file; alphabetical order is in use.",
             )
         }
         val decoded = try {
@@ -72,7 +153,7 @@ internal object LibraryFolderOrderCodec {
             return invalidOrder()
         } catch (error: IOException) {
             return ReadOrder(
-                diagnostic = "Unable to read $LIBRARY_ORDER_FILE: ${error.message}; alphabetical order is in use.",
+                diagnostic = "Unable to read ${LibraryLayout.ORDER_FILE}: ${error.message}; alphabetical order is in use.",
             )
         }
         if (decoded.schemaVersion != LIBRARY_ORDER_SCHEMA_VERSION) {
@@ -114,7 +195,7 @@ internal object LibraryFolderOrderCodec {
     }
 
     private fun invalidOrder(): ReadOrder =
-        ReadOrder(diagnostic = "$LIBRARY_ORDER_FILE is invalid; alphabetical order is in use.")
+        ReadOrder(diagnostic = "${LibraryLayout.ORDER_FILE} is invalid; alphabetical order is in use.")
 
     private fun hasValidNames(order: FolderOrderFile): Boolean {
         val all = order.folders + order.templates

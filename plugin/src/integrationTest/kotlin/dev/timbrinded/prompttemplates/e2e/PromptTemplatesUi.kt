@@ -42,6 +42,12 @@ class PromptTemplatesUi(
     fun open(): PromptTemplatesUi = apply {
         driver.invokeAction(OPEN_ACTION_ID, component = driver.ideFrame().component)
         libraryTree().waitFound(1.minutes)
+        // The tree shows a placeholder until the asynchronous library scan lands; later steps need the real rows.
+        waitFor("the prompt library has loaded", 1.minutes) {
+            driver.withContext(OnDispatcher.EDT) {
+                cast(libraryTree().component, TestLibraryTree::class).getEmptyText().getText()
+            } != LIBRARY_LOADING_TEXT
+        }
         driver.withContext(OnDispatcher.EDT) {
             val extraHeight = 650 - libraryTree().boundsOnScreen.height
             if (extraHeight > 0) {
@@ -289,7 +295,8 @@ class PromptTemplatesUi(
         }
     }
 
-    private fun lightweightContextMenu() = driver.ui.x { byClass("JPopupMenu") }.waitFound()
+    // Plain Swing menus and the library tree's action popup menu (a JPopupMenu subclass) both match.
+    private fun lightweightContextMenu() = driver.ui.x { byType("javax.swing.JPopupMenu") }.waitFound()
 
     fun selectedPaths(): List<String> = libraryTree()
         .collectSelectedPaths()
@@ -314,6 +321,7 @@ class PromptTemplatesUi(
 
     companion object {
         const val LIBRARY_TREE_ACCESSIBLE_NAME = "Prompt template library tree"
+        private const val LIBRARY_LOADING_TEXT = "Loading prompt templates…"
         private const val OPEN_ACTION_ID = "PromptTemplates.Open"
     }
 }
@@ -355,6 +363,16 @@ private interface RemoteToolkit {
 @Remote("java.awt.EventQueue")
 private interface RemoteEventQueue {
     fun postEvent(event: PopupTriggerEvent)
+}
+
+@Remote("com.intellij.ui.treeStructure.Tree")
+private interface TestLibraryTree {
+    fun getEmptyText(): TestStatusText
+}
+
+@Remote("com.intellij.util.ui.StatusText")
+private interface TestStatusText {
+    fun getText(): String
 }
 
 @Remote("com.intellij.openapi.wm.impl.ToolWindowImpl")

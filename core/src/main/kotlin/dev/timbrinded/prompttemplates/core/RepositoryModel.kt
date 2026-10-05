@@ -75,30 +75,3 @@ data class StoredTemplate(
     val recoverable: Boolean = false,
     val revision: TemplateRevision? = null,
 )
-
-interface PromptTemplateRepository {
-    val root: Path
-
-    fun scan(): LibrarySnapshot
-    fun load(directory: Path): RepositoryResult<StoredTemplate>
-    fun create(draft: PromptTemplateDraft, destinationFolder: Path = root): RepositoryResult<StoredTemplate>
-    fun update(directory: Path, draft: PromptTemplateDraft, expectedRevision: TemplateRevision?): RepositoryResult<StoredTemplate>
-    fun deleteTemplate(directory: Path): RepositoryResult<Unit>
-    fun importMarkdown(source: Path, destinationFolder: Path = root): RepositoryResult<StoredTemplate>
-    fun exportTemplateMarkdown(directory: Path, destination: Path): RepositoryResult<Path>
-    fun exportRenderedMarkdown(rendered: String, destination: Path): RepositoryResult<Path>
-    fun createFolder(parent: Path, name: String): RepositoryResult<Path>
-    fun renameFolder(directory: Path, newName: String): RepositoryResult<Path>
-
-    fun moveEntry(
-        entry: Path,
-        destinationFolder: Path,
-        placement: EntryPlacement = EntryPlacement.EndOfKind,
-    ): RepositoryResult<Path>
-
-    fun previewFolderDeletion(directory: Path): RepositoryResult<FolderDeletionPreview>
-    fun deleteFolder(preview: FolderDeletionPreview): RepositoryResult<Unit>
-
-    @Deprecated("Use deleteTemplate")
-    fun delete(directory: Path): RepositoryResult<Unit> = deleteTemplate(directory)
-}

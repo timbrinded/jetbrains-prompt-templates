@@ -131,7 +131,7 @@ These defaults remove ambiguity from the implementation.
 | Settings/forms framework | Kotlin UI DSL v2 where appropriate |
 | Build tooling | IntelliJ Platform Gradle Plugin 2.x |
 
-The minimum supported IntelliJ Platform is 2026.2 (build 262). Because the plugin depends only on `com.intellij.modules.platform`, its product scope is all standalone JetBrains IDEs that provide that shared module. The current beta verification matrix covers RustRover 2026.2 and WebStorm 2026.2; other compatible products are intended targets but have not yet been individually verified. Remote-development topology remains a separate target.
+The minimum supported IntelliJ Platform is 2026.2 (build 262). Because the plugin's only mandatory dependency is `com.intellij.modules.platform` (Git4Idea is optional), its product scope is all standalone JetBrains IDEs that provide that shared module. The current beta verification matrix covers RustRover 2026.2 and WebStorm 2026.2; other compatible products are intended targets but have not yet been individually verified. Remote-development topology remains a separate target.
 
 Use **compatible products** for products admitted by the descriptor dependencies and platform build range. Use **verified hosts** only for products checked by Plugin Verifier or explicit runtime testing. Do not use these terms interchangeably.
 
@@ -1013,7 +1013,6 @@ src/main/kotlin/com/example/prompttemplates/
 
 src/main/resources/
   META-INF/plugin.xml
-  messages/PromptTemplatesBundle.properties
   icons/
 
 src/test/kotlin/
@@ -1738,6 +1737,8 @@ Test:
 ---
 
 ## 26. CI and release engineering
+
+This section is the target pipeline. The current pipeline is described in the README: pull requests run unit tests, the plugin build and Plugin Verifier in CI, with a local E2E signoff; a tag-triggered workflow builds the GitHub release and optionally uploads to Marketplace. Plugin signing, a private Marketplace channel, static analysis and a version catalog are not yet implemented.
 
 ### 26.1 Pull-request pipeline
 
