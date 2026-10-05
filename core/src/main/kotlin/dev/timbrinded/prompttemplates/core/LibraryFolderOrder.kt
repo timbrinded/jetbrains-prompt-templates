@@ -71,7 +71,12 @@ internal class FolderOrderStore(
 
     fun persist(folder: Path, order: FolderOrderState) {
         // A malformed or newer-schema order file may hold order this version cannot represent.
-        order.unreadable?.let { throw IOException("$it The existing order file was left unchanged.") }
+        order.unreadable?.let {
+            throw IOException(
+                "$it The existing order file was left unchanged. To reset this folder to alphabetical order, " +
+                    "delete ${folder.resolve(LibraryLayout.ORDER_FILE)}.",
+            )
+        }
         val encoded = LibraryFolderOrderCodec.encode(order)
         writeTextAtomically(folder.resolve(LibraryLayout.ORDER_FILE), encoded, allowNonAtomicMove = true)
     }
