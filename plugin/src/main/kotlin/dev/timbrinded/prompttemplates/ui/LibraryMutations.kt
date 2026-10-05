@@ -16,6 +16,7 @@ import dev.timbrinded.prompttemplates.core.LibraryEntry
 import dev.timbrinded.prompttemplates.core.LibrarySnapshot
 import dev.timbrinded.prompttemplates.core.RepositoryResult
 import dev.timbrinded.prompttemplates.core.StoredTemplate
+import dev.timbrinded.prompttemplates.core.TemplateId
 import dev.timbrinded.prompttemplates.destination.PromptTemplatesNotifications
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesSettings
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesWorkspaceState
@@ -153,7 +154,7 @@ internal class LibraryMutations(
         )
     }
 
-    fun deleteTemplate(name: String, directory: Path) {
+    fun deleteTemplate(name: String, directory: Path, expectedId: TemplateId?) {
         if (!host.canChangeLibrary()) return
         if (settings.confirmDeletion) {
             val answer = Messages.showYesNoDialog(
@@ -166,7 +167,7 @@ internal class LibraryMutations(
         }
         val keyAtStart = host.selectedKey
         runRepositoryOperation(
-            operation = { repo -> repo.deleteTemplate(directory) },
+            operation = { repo -> repo.deleteTemplate(directory, expectedId) },
             successMessage = "Prompt template deleted.",
             afterSuccess = { host.reloadAfterMutation(preferred = null, keyAtStart) },
         )

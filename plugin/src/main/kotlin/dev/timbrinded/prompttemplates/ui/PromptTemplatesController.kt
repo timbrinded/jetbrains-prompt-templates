@@ -382,7 +382,7 @@ internal class PromptTemplatesController(
             UseViewAction.EXPORT_TEMPLATE -> use?.let { mutations.exportTemplate(it.stored) }
             UseViewAction.EXPORT_RENDERED -> use?.let(::exportRendered)
             UseViewAction.OPEN_RENDERED_SCRATCH -> projectService.openRenderedScratch()
-            UseViewAction.DELETE -> use?.let { mutations.deleteTemplate(it.stored.template.metadata.name, it.stored.directory) }
+            UseViewAction.DELETE -> use?.let { mutations.deleteTemplate(it.stored.template.metadata.name, it.stored.directory, it.stored.template.id) }
             UseViewAction.ADD_CONTEXT -> projectService.manageAttachments()
             UseViewAction.REFRESH_CONTEXT -> invocation.refreshContext()
             UseViewAction.RELOAD_TEMPLATE -> invocation.checkTemplate(reload = true)
@@ -479,7 +479,7 @@ internal class PromptTemplatesController(
             }
             LibraryTreeCommand.DELETE_FOLDER -> (target as? LibraryTreeSelection.Folder)?.let(mutations::deleteFolder)
             LibraryTreeCommand.DELETE_TEMPLATE -> (target as? LibraryTreeSelection.Template)?.let {
-                mutations.deleteTemplate(it.entry.summary.name, it.directory)
+                mutations.deleteTemplate(it.entry.summary.name, it.directory, it.entry.summary.id)
             }
             LibraryTreeCommand.EXPAND_ALL,
             LibraryTreeCommand.COLLAPSE_ALL,
