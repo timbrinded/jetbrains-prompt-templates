@@ -53,7 +53,7 @@ internal class LibraryTreeScanner(
     }
 
     fun classify(path: Path): DirectLibraryEntry {
-        val kind = if (!Files.isSymbolicLink(path) && isTemplatePackage(path)) {
+        val kind = if (!LibraryLayout.isLink(path) && isTemplatePackage(path)) {
             EntryKind.TEMPLATE
         } else {
             EntryKind.FOLDER
@@ -87,12 +87,12 @@ internal class LibraryTreeScanner(
                     .filter(::isScannableDirectoryEntry)
                     .map { child ->
                         when {
-                            Files.isSymbolicLink(child) -> LibraryEntry.Folder(
+                            LibraryLayout.isLink(child) -> LibraryEntry.Folder(
                                 directory = child.toAbsolutePath().normalize(),
                                 relativeDirectory = relativeToRoot(child),
                                 displayName = child.name,
                                 children = emptyList(),
-                                diagnostic = "Symbolic-link entries are not supported.",
+                                diagnostic = "Symbolic links and directory junctions are not supported.",
                             )
 
                             isTemplatePackage(child) -> LibraryEntry.Template(

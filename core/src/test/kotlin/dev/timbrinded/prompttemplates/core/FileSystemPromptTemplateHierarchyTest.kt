@@ -1,5 +1,7 @@
 package dev.timbrinded.prompttemplates.core
 
+import org.junit.jupiter.api.condition.EnabledOnOs
+import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.io.TempDir
 import java.io.IOException
 import java.nio.file.DirectoryIteratorException
@@ -511,6 +513,36 @@ class FileSystemPromptTemplateHierarchyTest(
     }
 
     @Test
+    @EnabledOnOs(OS.WINDOWS)
+    fun `deleting a folder removes directory junctions without touching their targets`() {
+        val root = temporaryDirectory.resolve("library")
+        val repository = FileSystemPromptTemplateRepository(root)
+        val team = success(repository.createFolder(root, "Team"))
+        success(repository.create(PromptTemplateDraft(name = "Review", markdown = "body"), team))
+        val outside = temporaryDirectory.resolve("team-prompts")
+        Files.createDirectories(outside.resolve("nested"))
+        Files.writeString(outside.resolve("keep.txt"), "keep")
+        Files.writeString(outside.resolve("nested/prompt.md"), "outside template")
+        createJunction(team.resolve("Shared"), outside)
+        createJunction(team.resolve("Loop"), root)
+
+        val linked = folder(repository.scan(), "Team").children.filter { it.displayName in setOf("Shared", "Loop") }
+        assertEquals(2, linked.size)
+        linked.forEach { assertTrue(assertIs<LibraryEntry.Folder>(it).diagnostic.orEmpty().contains("junction")) }
+        assertIs<RepositoryResult.Failure>(repository.createFolder(team.resolve("Shared"), "Escaped"))
+        assertFalse(Files.exists(outside.resolve("Escaped")))
+
+        val preview = success(repository.previewFolderDeletion(team))
+        assertEquals(1, preview.templateCount)
+        success(repository.deleteFolder(preview))
+
+        assertFalse(Files.exists(team))
+        assertTrue(Files.isDirectory(root))
+        assertEquals("keep", outside.resolve("keep.txt").readText())
+        assertEquals("outside template", outside.resolve("nested/prompt.md").readText())
+    }
+
+    @Test
     fun `reports an order warning after a successful content mutation`() {
         val root = temporaryDirectory.resolve("library")
         Files.createDirectories(root.resolve(FileSystemPromptTemplateRepository.ORDER_FILE))
@@ -646,6 +678,14 @@ class FileSystemPromptTemplateHierarchyTest(
 
         assertTrue(snapshot.children.isEmpty())
         assertTrue(snapshot.diagnostic.orEmpty().contains("not a regular directory"))
+    }
+
+    private fun createJunction(link: Path, target: Path) {
+        val process = ProcessBuilder("cmd", "/c", "mklink", "/J", link.toString(), target.toString())
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader().use { it.readText() }
+        assertEquals(0, process.waitFor(), output)
     }
 
     private fun writeTemplate(directory: Path, name: String, id: TemplateId): Path {

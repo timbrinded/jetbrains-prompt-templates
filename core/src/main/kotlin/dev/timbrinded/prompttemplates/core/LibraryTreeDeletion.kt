@@ -33,6 +33,12 @@ internal object LibraryTreeDeletion {
         val records = mutableListOf<String>()
         Files.walkFileTree(directory, object : SimpleFileVisitor<Path>() {
             override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
+                if (dir != directory && LibraryLayout.isLink(dir, attrs)) {
+                    // A Windows junction reads as a directory; record and delete the entry itself, never its target.
+                    fileCount++
+                    records += "L\u0000${directory.relativize(dir).invariantSeparatorsPathString}\u0000${junctionTarget(dir)}"
+                    return FileVisitResult.SKIP_SUBTREE
+                }
                 val templatePackage = isTemplatePackage(dir)
                 if (opaqueTemplatePackage == null) {
                     if (templatePackage) {
@@ -152,7 +158,7 @@ internal object LibraryTreeDeletion {
     private fun deleteFreshEntry(entry: Path, ancestors: List<Path>) {
         ancestors.forEach(::requireDirectoryWithoutLinks)
         val attributes = Files.readAttributes(entry, BasicFileAttributes::class.java, NOFOLLOW_LINKS)
-        if (!attributes.isDirectory || attributes.isSymbolicLink) {
+        if (!attributes.isDirectory || LibraryLayout.isLink(entry, attributes)) {
             ancestors.forEach(::requireDirectoryWithoutLinks)
             Files.delete(entry)
             return
@@ -189,9 +195,15 @@ internal object LibraryTreeDeletion {
 
     private fun requireDirectoryWithoutLinks(directory: Path) {
         val attributes = Files.readAttributes(directory, BasicFileAttributes::class.java, NOFOLLOW_LINKS)
-        if (!attributes.isDirectory || attributes.isSymbolicLink) {
+        if (!attributes.isDirectory || LibraryLayout.isLink(directory, attributes)) {
             throw IOException("A library directory changed during deletion. No further entries were deleted.")
         }
+    }
+
+    private fun junctionTarget(junction: Path): String = try {
+        junction.toRealPath().toString()
+    } catch (_: IOException) {
+        "unresolved"
     }
 
     private fun nextQuarantinePath(parent: Path): Path {

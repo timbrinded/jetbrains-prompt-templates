@@ -414,9 +414,6 @@ class FileSystemPromptTemplateRepository internal constructor(
             "Entry must be inside the template library."
         }
         require(Files.exists(normalPath, NOFOLLOW_LINKS)) { "Library entry does not exist." }
-        require(normalPath == libraryRoot || !Files.isSymbolicLink(normalPath)) {
-            "Symbolic-link entries are not supported."
-        }
         require(Files.isDirectory(normalPath)) { "Library entry is not a directory." }
 
         var current = libraryRoot
@@ -427,7 +424,7 @@ class FileSystemPromptTemplateRepository internal constructor(
                 "IDE metadata, version-control and library working directories are not part of the template library."
             }
             current = current.resolve(segment)
-            require(!Files.isSymbolicLink(current)) { "Symbolic-link paths are not supported." }
+            require(!LibraryLayout.isLink(current)) { "Symbolic links and directory junctions are not supported." }
             require(Files.isDirectory(current, NOFOLLOW_LINKS)) { "Library path is not a directory." }
             require(current == normalPath || !treeScanner.isTemplatePackage(current)) {
                 "Entries inside a template package are not part of the managed library hierarchy."
