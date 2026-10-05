@@ -45,6 +45,8 @@ internal object LibraryFileLock {
                         }
                     }
                 }
+                // Waiting inside another library's lock would keep the gate and stall every local change.
+                check(gate.holdCount == 1) { "A nested library lock on a different root cannot wait for another IDE." }
             } finally {
                 gate.unlock()
             }
