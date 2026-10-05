@@ -3,10 +3,8 @@ package dev.timbrinded.prompttemplates.ui
 import dev.timbrinded.prompttemplates.core.OutputMapping
 import dev.timbrinded.prompttemplates.core.RenderResult
 import dev.timbrinded.prompttemplates.core.SourceRange
-import java.awt.Font
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 
 class RenderedVariableHighlightControllerTest {
     @Test
@@ -38,20 +36,5 @@ class RenderedVariableHighlightControllerTest {
         )
         assertEquals(accents.getValue("density"), highlights.first().accent)
         assertEquals(highlights.first().accent, highlights.last().accent)
-    }
-
-    @Test
-    fun `uses clean inline emphasis without a token outline`() {
-        val accent = VariableAccentPalette.forVariables(
-            listOf(dev.timbrinded.prompttemplates.core.PromptVariable("density", "Density")),
-        ).getValue("density")
-
-        val attributes = renderedVariableTextAttributes(accent)
-
-        assertEquals(accent.foreground, attributes.foregroundColor)
-        assertEquals(accent.background, attributes.backgroundColor)
-        assertNull(attributes.effectType)
-        assertNull(attributes.effectColor)
-        assertEquals(Font.BOLD, attributes.fontType)
     }
 }

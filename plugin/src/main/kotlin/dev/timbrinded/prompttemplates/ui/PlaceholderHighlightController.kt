@@ -28,11 +28,13 @@ class PlaceholderHighlightController(
                 updateHighlights()
             }
         }, parentDisposable)
+        // The field creates its editor when it is first shown, and again after a layout switch re-parents it.
+        field.addSettingsProvider(::updateHighlights)
         updateHighlights()
     }
 
-    private fun updateHighlights() {
-        val editor = field.editor as? EditorEx ?: return
+    private fun updateHighlights(editor: EditorEx? = field.editor as? EditorEx) {
+        editor ?: return
         highlighters.forEach(RangeHighlighter::dispose)
         highlighters.clear()
 

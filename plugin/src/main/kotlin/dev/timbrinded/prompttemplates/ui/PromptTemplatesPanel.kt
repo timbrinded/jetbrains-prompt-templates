@@ -2,34 +2,26 @@ package dev.timbrinded.prompttemplates.ui
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.service
-import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.DocumentAdapter
-import com.intellij.ui.EditorTextField
 import com.intellij.ui.OnePixelSplitter
 import com.intellij.ui.SearchTextField
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import dev.timbrinded.prompttemplates.PromptTemplatesProjectService
-import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository
 import dev.timbrinded.prompttemplates.core.LibraryEntry
 import dev.timbrinded.prompttemplates.core.LibrarySnapshot
-import dev.timbrinded.prompttemplates.core.referencedUserVariables
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesSettings
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesWorkspaceState
 import java.awt.BorderLayout
 import java.awt.CardLayout
-import java.awt.Component
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.nio.file.Path
-import javax.swing.Box
-import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JMenuItem
@@ -117,12 +109,6 @@ internal class PromptTemplatesPanel(
 
     internal fun continueInvocation(): Boolean = controller.continueInvocation()
 
-    fun copyRenderedPrompt() = controller.performUseViewAction(UseViewAction.COPY_PROMPT)
-
-    fun insertRenderedPrompt() = controller.performUseViewAction(UseViewAction.INSERT)
-
-    fun hasValidRenderedPrompt(): Boolean = controller.hasValidRenderedPrompt()
-
     override val selectedDestinationFolder: Path
         get() = libraryTree.selectedDestinationFolder()
 
@@ -131,6 +117,7 @@ internal class PromptTemplatesPanel(
         bodyIndex: Map<Path, String>,
         selectedKey: LibrarySelectionKey?,
         expandedPaths: Collection<String>,
+        loading: Boolean,
     ) {
         val diagnostic = snapshot.diagnostic?.takeIf(String::isNotBlank)
         libraryDiagnosticLabel.text = diagnostic.orEmpty()
@@ -143,10 +130,13 @@ internal class PromptTemplatesPanel(
             searchQuery = searchField.text,
             selectedKey = selectedKey,
             expandedPaths = expandedPaths,
+            loading = loading,
         )
     }
 
     override fun clearLibrarySelection() = libraryTree.clearSelection()
+
+    override fun revertLibrarySelection(selectedKey: LibrarySelectionKey?) = libraryTree.revertSelection(selectedKey)
 
     override fun renderDetail(detail: PromptDetailState) {
         disposeRenderedDetail()
@@ -158,38 +148,19 @@ internal class PromptTemplatesPanel(
             is PromptDetailState.Folder -> renderFolder(detail.entry)
             is PromptDetailState.Use -> renderUse(detail)
             is PromptDetailState.Author -> renderAuthor(detail.author)
-            is PromptDetailState.LoadError -> renderError(detail)
+            is PromptDetailState.LoadError -> {
+                replaceDetail(createLoadErrorView(detail))
+                showNarrowDetail()
+            }
         }
     }
 
     override fun updateUsePreview(detail: PromptDetailState.Use) {
-        val useView = renderedDetail as? RenderedDetail.Use ?: return
-        useView.dynamicForm.updateValues(detail.values)
-        if (useView.previewField.text != detail.render.renderedText) useView.previewField.text = detail.render.renderedText
-        useView.actionButtons[UseViewAction.INSERT]?.text = detail.session.insertionLabel
-        useView.actionButtons[UseViewAction.COPY_PROMPT]?.isEnabled = !detail.session.capturing
-        useView.actionButtons[UseViewAction.INSERT]?.isEnabled = !detail.session.capturing
-        useView.highlights.update(detail.render)
-        useView.validationLabel.text = detail.session.deliveryProblem.orEmpty()
-        useView.contextArea.text = if (detail.referencedContext.isEmpty()) {
-            ""
-        } else {
-            detail.referencedContext.joinToString("\n", prefix = "Context\n") { key ->
-                val context = detail.context[key]
-                if (context?.value != null) {
-                    "✓ $key — ${context.displaySummary.orEmpty()}"
-                } else {
-                    "! $key — ${context?.errorMessage ?: "unknown"}"
-                }
-            }
-        }
-        if (detail.session.contextChanged) {
-            useView.contextArea.append("\nContext changed. Refresh Context to capture it; this preview is unchanged.")
-        }
+        (renderedDetail as? RenderedDetail.Use)?.view?.update(detail)
     }
 
     override fun focusVariable(key: String) {
-        (renderedDetail as? RenderedDetail.Use)?.dynamicForm?.focusVariable(key)
+        (renderedDetail as? RenderedDetail.Use)?.view?.focusVariable(key)
     }
 
     override fun setInteractionState(mutationsEnabled: Boolean, authorOpen: Boolean) {
@@ -246,30 +217,6 @@ internal class PromptTemplatesPanel(
         }
     }
 
-    private fun createEmptyState(): JComponent {
-        val content = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            border = JBUI.Borders.empty(28)
-        }
-        content.add(JBLabel("No prompt template selected.").apply { alignmentX = Component.LEFT_ALIGNMENT })
-        content.add(Box.createVerticalStrut(JBUI.scale(10)))
-        content.add(JButton("New Template").apply {
-            alignmentX = Component.LEFT_ALIGNMENT
-            addActionListener { controller.startNewTemplate() }
-        })
-        content.add(Box.createVerticalStrut(JBUI.scale(6)))
-        content.add(JButton("Import Markdown…").apply {
-            alignmentX = Component.LEFT_ALIGNMENT
-            addActionListener { controller.importMarkdown() }
-        })
-        content.add(Box.createVerticalStrut(JBUI.scale(6)))
-        content.add(JButton("Browse Examples…").apply {
-            alignmentX = Component.LEFT_ALIGNMENT
-            addActionListener { controller.browseExamples() }
-        })
-        return content
-    }
-
     private fun updateResponsiveLayout() {
         val shouldBeNarrow = width in 1 until JBUI.scale(640)
         if (shouldBeNarrow == narrowMode) return
@@ -305,151 +252,29 @@ internal class PromptTemplatesPanel(
         if (narrowMode) narrowLayout.show(narrowPanel, NARROW_LIBRARY_CARD)
     }
 
+    private fun createEmptyState(): JComponent = createEmptyDetailView(
+        onNewTemplate = controller::startNewTemplate,
+        onImportMarkdown = { controller.importMarkdown() },
+        onBrowseExamples = controller::browseExamples,
+    )
+
     private fun renderFolder(folder: LibraryEntry.Folder) {
-        val templateCount = flattenTemplates(folder.children).size
-        val folderCount = flattenFolders(folder.children).size
-        val panel = JPanel(BorderLayout(JBUI.scale(8), JBUI.scale(8))).apply {
-            border = JBUI.Borders.empty(18)
-        }
-        val title = JBLabel(folder.displayName).apply {
-            font = font.deriveFont(font.style or java.awt.Font.BOLD)
-        }
-        val description = buildString {
-            append(portableRelativePath(settings.libraryRoot, folder.directory))
-            append("\n$templateCount template${if (templateCount == 1) "" else "s"}")
-            append(" · $folderCount nested folder${if (folderCount == 1) "" else "s"}")
-        }
-        val details = JBTextArea(description).apply {
-            isEditable = false
-            isOpaque = false
-            lineWrap = true
-            accessibleContext.accessibleName = "Selected folder details"
-        }
-        val actions = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply {
-            add(JButton("New Template").apply {
-                addActionListener { controller.startNewTemplateAt(folder.directory) }
-            })
-            add(JButton("New Folder").apply {
-                addActionListener {
-                    controller.performLibraryCommand(
-                        LibraryTreeCommand.NEW_FOLDER,
-                        LibraryTreeSelection.Folder(folder),
-                    )
-                }
-            })
-            add(JButton("Import Markdown…").apply {
-                addActionListener { controller.importMarkdown(folder.directory) }
-            })
-        }
-        panel.add(title, BorderLayout.NORTH)
-        panel.add(details, BorderLayout.CENTER)
-        panel.add(actions, BorderLayout.SOUTH)
-        replaceDetail(panel)
+        replaceDetail(createFolderDetailView(
+            folder = folder,
+            relativePath = portableRelativePath(settings.libraryRoot, folder.directory),
+            onNewTemplate = { controller.startNewTemplateAt(folder.directory) },
+            onNewFolder = { controller.performLibraryCommand(LibraryTreeCommand.NEW_FOLDER, LibraryTreeSelection.Folder(folder)) },
+            onImportMarkdown = { controller.importMarkdown(folder.directory) },
+        ))
         showNarrowLibrary()
     }
 
     private fun renderUse(detail: PromptDetailState.Use) {
-        val stored = detail.stored
-        val panel = JPanel(BorderLayout(JBUI.scale(8), JBUI.scale(8))).apply {
-            border = JBUI.Borders.empty(10)
-        }
-        val title = JBLabel(stored.template.metadata.name).apply {
-            font = font.deriveFont(font.style or java.awt.Font.BOLD)
-        }
-        val titleRow = JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
-            isOpaque = false
-            add(title, BorderLayout.WEST)
-            add(createFileActionsMenu(), BorderLayout.EAST)
-        }
-        val header = JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
-            add(titleRow, BorderLayout.NORTH)
-            add(JBLabel(stored.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE).toString()), BorderLayout.SOUTH)
-        }
-        panel.add(header, BorderLayout.NORTH)
-
-        val variableAccents = VariableAccentPalette.forVariables(stored.template.metadata.variables)
-        val inputVariables = referencedUserVariables(stored.template)
-        val dynamicForm = DynamicVariableForm(
-            inputVariables,
-            variableAccents,
-            detail.values,
-            controller::setInvocationValue,
-        )
-        val formPanel = JPanel(BorderLayout()).apply {
-            add(JBScrollPane(dynamicForm).apply {
-                horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
-            }, BorderLayout.CENTER)
-        }
-        val previewField = EditorTextField("", project, PlainTextFileType.INSTANCE).apply {
-            setOneLineMode(false)
-            setViewer(true)
-            preferredSize = Dimension(JBUI.scale(420), JBUI.scale(190))
-            accessibleContext.accessibleName = "Rendered prompt preview"
-            addSettingsProvider { editor ->
-                editor.settings.isUseSoftWraps = true
-                configurePromptEditorScrollbars(editor.scrollPane)
-            }
-        }
-        val contextArea = JBTextArea().apply {
-            isEditable = false
-            isOpaque = false
-            lineWrap = true
-            wrapStyleWord = true
-            accessibleContext.accessibleName = "Resolved context"
-        }
-        val validationLabel = JBLabel().apply { foreground = com.intellij.ui.JBColor.RED }
-        val previewPanel = JPanel(BorderLayout(JBUI.scale(6), JBUI.scale(6))).apply {
-            add(contextArea, BorderLayout.NORTH)
-            add(previewField, BorderLayout.CENTER)
-            add(validationLabel, BorderLayout.SOUTH)
-        }
-        panel.add(
-            createUseViewContent(inputVariables.isNotEmpty(), formPanel, previewPanel),
-            BorderLayout.CENTER,
-        )
-        val actionButtons = mutableMapOf<UseViewAction, JButton>()
-        panel.add(createUseActions(actionButtons), BorderLayout.SOUTH)
-
-        renderedDetail = RenderedDetail.Use(
-            previewField,
-            validationLabel,
-            contextArea,
-            dynamicForm,
-            RenderedVariableHighlightController(previewField, variableAccents),
-            actionButtons,
-        )
-        replaceDetail(panel)
-        updateUsePreview(detail)
+        val view = UseDetailView(project, detail, controller::performUseViewAction, controller::setInvocationValue)
+        renderedDetail = RenderedDetail.Use(view)
+        replaceDetail(view)
+        view.update(detail)
         showNarrowDetail()
-    }
-
-    private fun createUseActions(buttons: MutableMap<UseViewAction, JButton>): JComponent {
-        val primary = ResponsiveActionsPanel()
-        USE_VIEW_PRIMARY_ACTIONS.forEach { action ->
-            primary.add(JButton(action.label).apply {
-                if (action == UseViewAction.COPY_PROMPT) font = JBUI.Fonts.label().asBold()
-                buttons[action] = this
-                addActionListener { controller.performUseViewAction(action) }
-            })
-        }
-        return JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.emptyTop(8)
-            add(primary, BorderLayout.CENTER)
-        }
-    }
-
-    private fun createFileActionsMenu(): JComponent {
-        val popup = JPopupMenu()
-        USE_VIEW_FILE_ACTIONS.forEach { action ->
-            if (action == UseViewAction.EXPORT_TEMPLATE || action == UseViewAction.DELETE) popup.addSeparator()
-            popup.add(JMenuItem(action.label).apply {
-                addActionListener { controller.performUseViewAction(action) }
-            })
-        }
-        return JButton("File ▾").apply {
-            accessibleContext.accessibleName = "Template file actions"
-            addActionListener { popup.show(this, 0, height) }
-        }
     }
 
     private fun renderAuthor(author: TemplateAuthorState) {
@@ -467,21 +292,10 @@ internal class PromptTemplatesPanel(
     override fun confirmDiscardAuthor(): Boolean =
         (renderedDetail as? RenderedDetail.Author)?.panel?.confirmDiscardChanges() ?: true
 
-    private fun renderError(error: PromptDetailState.LoadError) {
-        val panel = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(18)
-            add(JBLabel("Unable to open ${error.templateName}"), BorderLayout.NORTH)
-            add(JBScrollPane(JBTextArea(error.message).apply {
-                isEditable = false
-                lineWrap = true
-                wrapStyleWord = true
-                caretPosition = 0
-                accessibleContext.accessibleName = error.message
-            }), BorderLayout.CENTER)
-        }
-        replaceDetail(panel)
-        showNarrowDetail()
-    }
+    internal fun confirmCloseWithAuthorDraft(): Boolean =
+        (renderedDetail as? RenderedDetail.Author)?.panel
+            ?.confirmDiscardChanges("Discard the unsaved changes to this template and close the project?")
+            ?: true
 
     private fun replaceDetail(component: JComponent) {
         detailCards.removeAll()
@@ -494,7 +308,7 @@ internal class PromptTemplatesPanel(
         when (val detail = renderedDetail) {
             RenderedDetail.None -> Unit
             is RenderedDetail.Author -> Disposer.dispose(detail.panel)
-            is RenderedDetail.Use -> detail.highlights.dispose()
+            is RenderedDetail.Use -> Disposer.dispose(detail.view)
         }
         renderedDetail = RenderedDetail.None
     }
@@ -511,14 +325,7 @@ internal class PromptTemplatesPanel(
 
         data class Author(val panel: TemplateAuthorPanel) : RenderedDetail
 
-        data class Use(
-            val previewField: EditorTextField,
-            val validationLabel: JBLabel,
-            val contextArea: JBTextArea,
-            val dynamicForm: DynamicVariableForm,
-            val highlights: RenderedVariableHighlightController,
-            val actionButtons: Map<UseViewAction, JButton>,
-        ) : RenderedDetail
+        data class Use(val view: UseDetailView) : RenderedDetail
     }
 
     private companion object {
@@ -528,44 +335,3 @@ internal class PromptTemplatesPanel(
         const val NARROW_DETAIL_CARD = "narrow-detail"
     }
 }
-
-internal enum class UseViewAction(val label: String) {
-    COPY_PROMPT("Copy Prompt"),
-    INSERT("Insert…"),
-    EDIT("Edit"),
-    DUPLICATE("Duplicate Template…"),
-    OPEN_MARKDOWN("Open Markdown"),
-    REVEAL("Reveal in File Manager"),
-    COPY_PATH("Copy Markdown Path"),
-    EXPORT_TEMPLATE("Export Template Markdown…"),
-    EXPORT_RENDERED("Export Rendered Markdown…"),
-    OPEN_RENDERED_SCRATCH("Open Rendered Prompt as Scratch Markdown"),
-    DELETE("Delete"),
-    ADD_CONTEXT("Add Context…"),
-    REFRESH_CONTEXT("Refresh Context"),
-    RELOAD_TEMPLATE("Reload Template"),
-    SELECT_INSERTION_TARGET("Use Active Editor as Insertion Target"),
-    RESET_VALUES("Reset Values to Defaults"),
-}
-
-internal val USE_VIEW_PRIMARY_ACTIONS = listOf(
-    UseViewAction.COPY_PROMPT,
-    UseViewAction.INSERT,
-    UseViewAction.EDIT,
-)
-
-internal val USE_VIEW_FILE_ACTIONS = listOf(
-    UseViewAction.DUPLICATE,
-    UseViewAction.ADD_CONTEXT,
-    UseViewAction.REFRESH_CONTEXT,
-    UseViewAction.RELOAD_TEMPLATE,
-    UseViewAction.SELECT_INSERTION_TARGET,
-    UseViewAction.RESET_VALUES,
-    UseViewAction.OPEN_MARKDOWN,
-    UseViewAction.REVEAL,
-    UseViewAction.COPY_PATH,
-    UseViewAction.EXPORT_TEMPLATE,
-    UseViewAction.EXPORT_RENDERED,
-    UseViewAction.OPEN_RENDERED_SCRATCH,
-    UseViewAction.DELETE,
-)

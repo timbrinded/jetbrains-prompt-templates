@@ -1,9 +1,13 @@
 package dev.timbrinded.prompttemplates.ui
 
 import dev.timbrinded.prompttemplates.core.EntryPlacement
+import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository
 import dev.timbrinded.prompttemplates.core.LibraryEntry
 import dev.timbrinded.prompttemplates.core.LibrarySnapshot
+import dev.timbrinded.prompttemplates.core.RepositoryResult
+import dev.timbrinded.prompttemplates.core.StoredTemplate
 import dev.timbrinded.prompttemplates.core.TemplateHealth
+import dev.timbrinded.prompttemplates.core.TemplateId
 import java.io.IOException
 import java.nio.channels.Channels
 import java.nio.file.Files
@@ -62,6 +66,31 @@ internal fun resolveLibrarySelection(
         }
     }
 }
+
+/**
+ * Loads template [id] from [directory], or from wherever it has moved inside the library. A missing template
+ * reports why its old directory failed to load when that is known.
+ */
+internal fun loadTemplateFollowingMove(
+    repository: FileSystemPromptTemplateRepository,
+    directory: Path,
+    id: TemplateId,
+): RepositoryResult<StoredTemplate> {
+    val direct = repository.load(directory)
+    if (direct is RepositoryResult.Success && direct.value.template.id == id) return direct
+    val moved = flattenTemplates(repository.scan().children).firstOrNull { it.summary.id == id }
+    return moved?.let { repository.load(it.directory) }
+        ?: direct as? RepositoryResult.Failure
+        ?: RepositoryResult.Failure("The template is unavailable. Restore it or choose another template.")
+}
+
+/** Whether two keys select the same entry; a template keeps its identity when only its known path differs. */
+internal fun isSameLibrarySelection(first: LibrarySelectionKey?, second: LibrarySelectionKey?): Boolean =
+    if (first is LibrarySelectionKey.Template && second is LibrarySelectionKey.Template) {
+        first.templateId.equals(second.templateId, ignoreCase = true)
+    } else {
+        first == second
+    }
 
 internal fun readSearchIndexBody(markdownPath: Path): String {
     if (!Files.isRegularFile(markdownPath, NOFOLLOW_LINKS)) return ""

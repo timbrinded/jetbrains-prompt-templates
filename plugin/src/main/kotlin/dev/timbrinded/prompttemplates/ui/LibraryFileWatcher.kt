@@ -3,21 +3,13 @@ package dev.timbrinded.prompttemplates.ui
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
-import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.openapi.vfs.VirtualFileManager
-import com.intellij.openapi.vfs.newvfs.BulkFileListenerBackgroundable
-import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent
-import com.intellij.openapi.vfs.newvfs.events.VFileEvent
-import com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent
-import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent
 import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository
+import dev.timbrinded.prompttemplates.core.RepositoryResult
 import java.io.IOException
 import java.nio.file.DirectoryIteratorException
 import java.nio.file.Files
-import java.nio.file.InvalidPathException
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
@@ -33,88 +25,13 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.io.path.name
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
-
-internal fun isPromptLibraryChange(roots: List<Path>, eventPath: String): Boolean {
-    val changedPath = eventPathOrNull(eventPath) ?: return false
-    if (!isManagedLibraryPath(roots, changedPath)) return false
-
-    return changedPath.name in LIBRARY_CONTROL_FILES
-}
-
-/** Resolve the roots once per event batch with [libraryRootsOrNull]; resolving per event costs a realpath lookup each. */
-internal fun isPromptLibraryChange(roots: List<Path>, event: VFileEvent): Boolean {
-    // The bus carries events from every virtual file system; only local files can be in the library, and
-    // VirtualFile.toNioPath() throws for file systems without an nio mapping, so work from path strings.
-    if (event.fileSystem !is LocalFileSystem) return false
-    val paths = buildList {
-        add(event.path)
-        if (event is VFileMoveEvent) {
-            add("${event.oldParent.path}/${event.file.name}")
-            add("${event.newParent.path}/${event.file.name}")
-        }
-        if (event is VFilePropertyChangeEvent && event.propertyName == VirtualFile.PROP_NAME) {
-            event.file.parent?.let { parent -> add("${parent.path}/${event.oldValue}") }
-        }
-    }
-    val directoryEvent = event.file?.isDirectory == true || event is VFileCreateEvent && event.isDirectory
-    return isPromptLibraryChange(roots, paths, directoryEvent)
-}
-
-internal fun isPromptLibraryChange(
-    roots: List<Path>,
-    eventPaths: Collection<String>,
-    directoryEvent: Boolean,
-): Boolean {
-    if (eventPaths.any { isPromptLibraryChange(roots, it) }) return true
-    if (!directoryEvent) return false
-    return eventPaths.any { eventPath ->
-        val changedPath = eventPathOrNull(eventPath) ?: return@any false
-        isManagedLibraryPath(roots, changedPath)
-    }
-}
-
-/**
- * The configured root and, when the root is a symbolic link, its real path. VFS and native watcher
- * events may report either form, and README documents that the configured root may be a link.
- */
-internal fun libraryRootsOrNull(root: Path): List<Path>? {
-    val normalizedRoot = try {
-        root.toAbsolutePath().normalize()
-    } catch (_: SecurityException) {
-        return null
-    }
-    val realRoot = try {
-        normalizedRoot.toRealPath()
-    } catch (_: IOException) {
-        null
-    } catch (_: SecurityException) {
-        null
-    }
-    return if (realRoot == null || realRoot == normalizedRoot) listOf(normalizedRoot) else listOf(normalizedRoot, realRoot)
-}
-
-private fun eventPathOrNull(eventPath: String): Path? = try {
-    Path.of(eventPath).toAbsolutePath().normalize()
-} catch (_: InvalidPathException) {
-    null
-} catch (_: SecurityException) {
-    null
-}
-
-private fun isManagedLibraryPath(roots: List<Path>, candidate: Path): Boolean {
-    val root = roots.firstOrNull(candidate::startsWith) ?: return false
-    return root.relativize(candidate).none { segment ->
-        FileSystemPromptTemplateRepository.isInternalLibraryEntryName(segment.toString())
-    }
-}
-
-internal fun nearestExistingAncestor(root: Path): Path? =
-    generateSequence(root.toAbsolutePath().normalize()) { candidate -> candidate.parent }
-        .firstOrNull { candidate -> Files.exists(candidate) }
 
 internal data class LibraryPollEntry(
     val relativePath: String,
@@ -129,10 +46,16 @@ internal data class LibraryPollSnapshot(val entries: List<LibraryPollEntry>)
 internal class LibraryPollChangeTracker {
     private var previous: LibraryPollSnapshot? = null
 
+    /** Whether [snapshot] differs from the last snapshot recorded or accepted. */
     fun record(snapshot: LibraryPollSnapshot): Boolean {
         val priorSnapshot = previous
         previous = snapshot
         return priorSnapshot != null && priorSnapshot != snapshot
+    }
+
+    /** Takes [snapshot] as the known state without reporting it, after a change the plugin made itself. */
+    fun accept(snapshot: LibraryPollSnapshot) {
+        previous = snapshot
     }
 }
 
@@ -223,8 +146,12 @@ private fun listDirectoryNoFollow(directory: Path): List<Path> = try {
     emptyList()
 }
 
+/**
+ * Detects library changes made outside this project window by polling [snapshotPromptLibrary]. The poll is the
+ * only detection path: it also covers symbolic-link roots and file systems without native watching, and the
+ * plugin's own writes run through [ownWrite] so they are never reported back as external changes.
+ */
 internal class LibraryFileWatcher(
-    project: Project,
     root: Path,
     parentDisposable: Disposable,
     parentScope: CoroutineScope,
@@ -235,44 +162,53 @@ internal class LibraryFileWatcher(
             SupervisorJob(parentScope.coroutineContext[Job]) +
             CoroutineName("LibraryFileWatcher"),
     )
-    private val normalizedRoot = root.toAbsolutePath().normalize()
-    private val localFileSystem = LocalFileSystem.getInstance()
-    // Keep the materialized ancestor alive while IntelliJ watches a root that may not exist yet.
-    private val materializedRoot = nearestExistingAncestor(normalizedRoot)
-        ?.let(localFileSystem::refreshAndFindFileByNioFile)
-    private val watchRequest = localFileSystem.addRootToWatch(normalizedRoot.toString(), true)
+    val root: Path = root.toAbsolutePath().normalize()
     private val pollChangeTracker = LibraryPollChangeTracker()
+    private val pollLock = Mutex()
+    private var watchRequest: LocalFileSystem.WatchRequest? = null
     private var reloadJob: Job? = null
     @Volatile
     private var watcherDisposed = false
 
     init {
         Disposer.register(parentDisposable, this)
-        project.messageBus.connect(this).subscribe(
-            VirtualFileManager.VFS_CHANGES_BG,
-            object : BulkFileListenerBackgroundable {
-                override fun after(events: List<VFileEvent>) {
-                    val roots = libraryRootsOrNull(normalizedRoot) ?: return
-                    if (events.any { event -> isPromptLibraryChange(roots, event) }) {
-                        queueReload()
-                    }
-                }
-            },
-        )
-        coroutineScope.launch(Dispatchers.IO) { pollLibrary() }
+        coroutineScope.launch(Dispatchers.IO) {
+            // Native watching keeps editors that show library files current; registering it may touch the disk.
+            watchRoot()
+            pollLibrary()
+        }
     }
 
+    @Synchronized
     override fun dispose() {
         watcherDisposed = true
         coroutineScope.cancel()
-        watchRequest?.let(localFileSystem::removeWatchedRoot)
+        watchRequest?.let(LocalFileSystem.getInstance()::removeWatchedRoot)
+        watchRequest = null
+    }
+
+    @Synchronized
+    private fun watchRoot() {
+        if (!watcherDisposed) watchRequest = LocalFileSystem.getInstance().addRootToWatch(root.toString(), true)
+    }
+
+    /**
+     * Runs one of the plugin's own writes to this library. Polls wait for it, and a successful write becomes the
+     * known state, so the next poll reports only changes made elsewhere.
+     */
+    suspend fun <T> ownWrite(write: () -> RepositoryResult<T>): RepositoryResult<T> = withContext(Dispatchers.IO) {
+        pollLock.withLock {
+            write().also { result ->
+                if (result is RepositoryResult.Success) pollChangeTracker.accept(snapshotPromptLibrary(root))
+            }
+        }
     }
 
     private suspend fun pollLibrary() {
         while (currentCoroutineContext().isActive) {
             try {
-                val currentSnapshot = snapshotPromptLibrary(normalizedRoot)
-                if (pollChangeTracker.record(currentSnapshot)) queueReload()
+                val changed = pollLock.withLock { pollChangeTracker.record(snapshotPromptLibrary(root)) }
+                if (changed) queueReload()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (exception: RuntimeException) {
