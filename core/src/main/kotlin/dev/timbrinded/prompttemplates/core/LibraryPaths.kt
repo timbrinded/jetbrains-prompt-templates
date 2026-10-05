@@ -5,6 +5,9 @@ import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
 import kotlin.io.path.name
 
+/** The portable file-name stem the library derives from [name]; exports suggest the same stem. */
+fun portableSlug(name: String): String = LibraryPaths.slug(name)
+
 /**
  * Validates paths that callers supply against the managed library hierarchy. Accepted paths are absolute,
  * normalised, inside the root, free of links and internal entries, and never below a template package.

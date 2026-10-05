@@ -10,14 +10,12 @@ import dev.timbrinded.prompttemplates.PromptTemplatesProjectService
 import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository
 import dev.timbrinded.prompttemplates.core.LibraryEntry
 import dev.timbrinded.prompttemplates.core.LibrarySnapshot
-import dev.timbrinded.prompttemplates.core.LinearPlaceholderParser
 import dev.timbrinded.prompttemplates.core.PromptTemplateDraft
-import dev.timbrinded.prompttemplates.core.PromptVariable
 import dev.timbrinded.prompttemplates.core.RepositoryResult
 import dev.timbrinded.prompttemplates.core.StoredTemplate
 import dev.timbrinded.prompttemplates.core.TemplateId
+import dev.timbrinded.prompttemplates.core.TemplateReconciler
 import dev.timbrinded.prompttemplates.core.WorkedExamples
-import dev.timbrinded.prompttemplates.core.defaultVariableLabel
 import dev.timbrinded.prompttemplates.core.escapePlaceholderOpenings
 import dev.timbrinded.prompttemplates.destination.PromptTemplatesNotifications
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesSettings
@@ -61,7 +59,6 @@ internal class AuthorFlow(
     private val coroutineScope: CoroutineScope,
 ) {
     private val requests = AuthorAsyncRequestTracker()
-    private val parser = LinearPlaceholderParser()
 
     val saveInProgress: Boolean get() = requests.isSaveInProgress()
 
@@ -136,11 +133,7 @@ internal class AuthorFlow(
                         ?.trim()
                         ?.ifBlank { null }
                         ?: file.nameWithoutExtension
-                    val variables = parser.parse(body).placeholders
-                        .filterNot { it.contextReference }
-                        .map { it.key }
-                        .distinct()
-                        .map { PromptVariable(it, defaultVariableLabel(it)) }
+                    val variables = TemplateReconciler().reconcile(body, emptyList()).variables
                     showAuthor(
                         PromptTemplateDraft(name = name, variables = variables, markdown = body),
                         existing = null,

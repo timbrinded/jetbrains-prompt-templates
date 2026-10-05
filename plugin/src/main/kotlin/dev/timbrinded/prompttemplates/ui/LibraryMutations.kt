@@ -17,6 +17,7 @@ import dev.timbrinded.prompttemplates.core.LibrarySnapshot
 import dev.timbrinded.prompttemplates.core.RepositoryResult
 import dev.timbrinded.prompttemplates.core.StoredTemplate
 import dev.timbrinded.prompttemplates.core.TemplateId
+import dev.timbrinded.prompttemplates.core.portableSlug
 import dev.timbrinded.prompttemplates.destination.PromptTemplatesNotifications
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesSettings
 import dev.timbrinded.prompttemplates.settings.PromptTemplatesWorkspaceState
@@ -234,7 +235,7 @@ internal class LibraryMutations(
     }
 
     fun exportTemplate(stored: StoredTemplate) {
-        val destination = chooseDestination(slug(stored.template.metadata.name) + ".md") ?: return
+        val destination = chooseDestination(portableSlug(stored.template.metadata.name) + ".md") ?: return
         runRepositoryOperation(
             operation = { repo -> repo.exportTemplateMarkdown(stored.directory, destination) },
             successMessage = "Template Markdown exported to $destination.",
@@ -245,7 +246,7 @@ internal class LibraryMutations(
     /** Exports [payload], the inspected rendered prompt of [stored]. */
     fun exportRendered(stored: StoredTemplate, payload: String) {
         val usageRoot = settings.libraryRoot
-        val destination = chooseDestination(slug(stored.template.metadata.name) + "-rendered.md") ?: return
+        val destination = chooseDestination(portableSlug(stored.template.metadata.name) + "-rendered.md") ?: return
         runRepositoryOperation(
             operation = { repo ->
                 repo.exportRenderedMarkdown(payload, destination).also { result ->
@@ -323,10 +324,6 @@ internal class LibraryMutations(
         host.mutationStateChanged()
     }
 
-    private fun slug(value: String): String = value.lowercase()
-        .replace(Regex("[^a-z0-9]+"), "-")
-        .trim('-')
-        .ifEmpty { "prompt" }
 }
 
 /** The library root and every organiser folder, in tree order. */
