@@ -64,6 +64,7 @@ internal interface PromptTemplatesView {
     )
 
     fun clearLibrarySelection()
+    fun revertLibrarySelection(selectedKey: LibrarySelectionKey?)
     fun renderDetail(detail: PromptDetailState)
     fun updateUsePreview(detail: PromptDetailState.Use)
     fun focusVariable(key: String)
@@ -293,6 +294,8 @@ internal class PromptTemplatesController(
 
     fun onLibrarySelection(selection: LibraryTreeSelection) {
         if (authorOpen) {
+            // The draft stays open, so the tree must keep showing the entry it belongs to.
+            view.revertLibrarySelection(selectedKey)
             view.showNarrowDetail()
             return
         }

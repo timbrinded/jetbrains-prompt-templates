@@ -148,6 +148,8 @@ internal class PromptTemplatesPanel(
 
     override fun clearLibrarySelection() = libraryTree.clearSelection()
 
+    override fun revertLibrarySelection(selectedKey: LibrarySelectionKey?) = libraryTree.revertSelection(selectedKey)
+
     override fun renderDetail(detail: PromptDetailState) {
         disposeRenderedDetail()
         when (detail) {
@@ -466,6 +468,11 @@ internal class PromptTemplatesPanel(
 
     override fun confirmDiscardAuthor(): Boolean =
         (renderedDetail as? RenderedDetail.Author)?.panel?.confirmDiscardChanges() ?: true
+
+    internal fun confirmCloseWithAuthorDraft(): Boolean =
+        (renderedDetail as? RenderedDetail.Author)?.panel
+            ?.confirmDiscardChanges("Discard the unsaved changes to this template and close the project?")
+            ?: true
 
     private fun renderError(error: PromptDetailState.LoadError) {
         val panel = JPanel(BorderLayout()).apply {

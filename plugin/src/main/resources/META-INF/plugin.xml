@@ -56,6 +56,8 @@
                 id="Prompt Templates"
                 displayType="BALLOON"
                 isLogByDefault="false"/>
+
+        <projectCloseHandler implementation="dev.timbrinded.prompttemplates.ui.UnsavedTemplateCloseHandler"/>
     </extensions>
 
     <actions>

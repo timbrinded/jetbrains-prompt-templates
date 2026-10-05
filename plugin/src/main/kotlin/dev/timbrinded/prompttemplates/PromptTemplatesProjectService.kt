@@ -108,6 +108,14 @@ class PromptTemplatesProjectService(
 
     fun newTemplate() = show(PromptTemplatesPanel::startNewTemplate)
 
+    /** Asks about a changed author draft before the project closes; keeping it cancels the close and shows it. */
+    internal fun canCloseProject(): Boolean {
+        val panel = panelReference?.get() ?: return true
+        if (panel.confirmCloseWithAuthorDraft()) return true
+        show()
+        return false
+    }
+
     internal fun createFromSelection(editor: Editor?) {
         if (panelReference?.get()?.authorOpen == true) {
             PromptTemplatesNotifications.warning(project, "Save or cancel the open template before creating another template.")

@@ -294,11 +294,11 @@ class TemplateAuthorPanel(
         revalidate()
     }
 
-    internal fun confirmDiscardChanges(): Boolean {
+    internal fun confirmDiscardChanges(message: String = "Discard the unsaved changes to this template?"): Boolean {
         if (editSnapshot() == initialSnapshot) return true
         val discard = Messages.showDialog(
             project,
-            "Discard the unsaved changes to this template?",
+            message,
             "Unsaved Template",
             arrayOf("Discard", "Keep Editing"),
             1,

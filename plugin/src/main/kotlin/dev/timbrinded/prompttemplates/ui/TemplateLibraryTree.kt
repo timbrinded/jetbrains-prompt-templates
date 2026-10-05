@@ -32,6 +32,7 @@ import javax.swing.DropMode
 import javax.swing.JComponent
 import javax.swing.JTree
 import javax.swing.KeyStroke
+import javax.swing.SwingUtilities
 import javax.swing.TransferHandler
 import javax.swing.event.TreeExpansionEvent
 import javax.swing.event.TreeExpansionListener
@@ -105,6 +106,7 @@ internal class TemplateLibraryTree(
     private var snapshot = LibrarySnapshot(Path.of("."), emptyList())
     private var query = ""
     private var rebuilding = false
+    private var revertingSelection = false
     /** Expanded organiser folders as portable relative paths, including folders hidden under a collapsed ancestor. */
     private val expandedFolderPaths = linkedSetOf<String>()
     private var draggedSelection: LibraryTreeSelection? = null
@@ -126,7 +128,7 @@ internal class TemplateLibraryTree(
         setToggleClickCount(2)
 
         addTreeSelectionListener {
-            if (!rebuilding) selectedSelection()?.let { selection ->
+            if (!rebuilding && !revertingSelection) selectedSelection()?.let { selection ->
                 onSelection(selection)
             }
         }
@@ -239,6 +241,19 @@ internal class TemplateLibraryTree(
             entry.children.forEach { node.add(nodeFor(it)) }
         }
         is LibraryEntry.Template -> DefaultMutableTreeNode(LibraryTreeSelection.Template(entry))
+    }
+
+    /** Puts back [key], the selection the controller kept after declining the row the user just picked. */
+    fun revertSelection(key: LibrarySelectionKey?) {
+        // Let the click that moved the selection finish first, so its lead row is replaced as well.
+        SwingUtilities.invokeLater {
+            revertingSelection = true
+            try {
+                if (resolveLibrarySelection(snapshot, key) == null) clearSelection() else restoreSelection(key)
+            } finally {
+                revertingSelection = false
+            }
+        }
     }
 
     private fun restoreSelection(key: LibrarySelectionKey?) {
