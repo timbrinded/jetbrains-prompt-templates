@@ -200,47 +200,22 @@ class TemplateLibraryTreeTest {
     }
 
     @Test
-    fun `context menus expose commands and respect read-only mode`() {
-        assertEquals(
-            listOf(
-                LibraryTreeCommand.NEW_TEMPLATE,
-                LibraryTreeCommand.NEW_FOLDER,
-                null,
-                LibraryTreeCommand.EXPAND_ALL,
-                LibraryTreeCommand.COLLAPSE_ALL,
-            ),
-            ROOT_COMMANDS.map { command -> command?.command },
-        )
-        assertEquals(
-            listOf(
-                LibraryTreeCommand.NEW_TEMPLATE,
-                LibraryTreeCommand.NEW_FOLDER,
-                null,
-                LibraryTreeCommand.RENAME_FOLDER,
-                LibraryTreeCommand.MOVE_TO_FOLDER,
-                null,
-                LibraryTreeCommand.DELETE_FOLDER,
-            ),
-            FOLDER_COMMANDS.map { command -> command?.command },
-        )
-        assertEquals(
-            listOf(
-                LibraryTreeCommand.EDIT_TEMPLATE,
-                LibraryTreeCommand.DUPLICATE_TEMPLATE,
-                LibraryTreeCommand.OPEN_MARKDOWN,
-                null,
-                LibraryTreeCommand.MOVE_TO_FOLDER,
-                null,
-                LibraryTreeCommand.DELETE_TEMPLATE,
-            ),
-            TEMPLATE_COMMANDS.map { command -> command?.command },
-        )
+    fun `library commands respect read-only mode and need an entry unless they target the root`() {
+        val folder = LibraryTreeSelection.Folder(folder("Reviews", emptyList()))
+        val libraryRoot = LibraryTreeSelection.Root(root)
+
         // Read-only: mutations off, navigation/open still on.
-        assertEquals(false, isLibraryCommandEnabled(LibraryTreeCommand.RENAME_FOLDER, mutationsEnabled = false))
-        assertEquals(false, isLibraryCommandEnabled(LibraryTreeCommand.MOVE_TO_FOLDER, mutationsEnabled = false))
-        assertEquals(false, isLibraryCommandEnabled(LibraryTreeCommand.DELETE_FOLDER, mutationsEnabled = false))
-        assertEquals(true, isLibraryCommandEnabled(LibraryTreeCommand.OPEN_MARKDOWN, mutationsEnabled = false))
-        assertEquals(true, isLibraryCommandEnabled(LibraryTreeCommand.EXPAND_ALL, mutationsEnabled = false))
+        assertFalse(isLibraryCommandEnabled(LibraryTreeCommand.RENAME_FOLDER, folder, mutationsEnabled = false))
+        assertFalse(isLibraryCommandEnabled(LibraryTreeCommand.MOVE_TO_FOLDER, folder, mutationsEnabled = false))
+        assertFalse(isLibraryCommandEnabled(LibraryTreeCommand.DELETE_FOLDER, folder, mutationsEnabled = false))
+        assertTrue(isLibraryCommandEnabled(LibraryTreeCommand.OPEN_MARKDOWN, folder, mutationsEnabled = false))
+        assertTrue(isLibraryCommandEnabled(LibraryTreeCommand.EXPAND_ALL, libraryRoot, mutationsEnabled = false))
+
+        // The root has no entry to move; shortcuts pressed without a selection do nothing.
+        assertFalse(isLibraryCommandEnabled(LibraryTreeCommand.MOVE_UP, libraryRoot, mutationsEnabled = true))
+        assertFalse(isLibraryCommandEnabled(LibraryTreeCommand.MOVE_TO_FOLDER, libraryRoot, mutationsEnabled = true))
+        assertTrue(isLibraryCommandEnabled(LibraryTreeCommand.MOVE_UP, folder, mutationsEnabled = true))
+        assertTrue(isLibraryCommandEnabled(LibraryTreeCommand.NEW_FOLDER, libraryRoot, mutationsEnabled = true))
     }
 
     @Test

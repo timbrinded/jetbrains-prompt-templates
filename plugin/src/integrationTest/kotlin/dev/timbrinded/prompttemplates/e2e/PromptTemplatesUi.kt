@@ -289,7 +289,8 @@ class PromptTemplatesUi(
         }
     }
 
-    private fun lightweightContextMenu() = driver.ui.x { byClass("JPopupMenu") }.waitFound()
+    // Plain Swing menus and the library tree's action popup menu (a JPopupMenu subclass) both match.
+    private fun lightweightContextMenu() = driver.ui.x { byType("javax.swing.JPopupMenu") }.waitFound()
 
     fun selectedPaths(): List<String> = libraryTree()
         .collectSelectedPaths()

@@ -1,26 +1,35 @@
 package dev.timbrinded.prompttemplates.ui
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.ActionGroup
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.CustomShortcutSet
+import com.intellij.openapi.actionSystem.DataKey
+import com.intellij.openapi.actionSystem.DataSink
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.UiDataProvider
+import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.ui.ColoredTreeCellRenderer
+import com.intellij.ui.PopupHandler
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.treeStructure.Tree
+import com.intellij.util.ui.tree.TreeUtil
 import dev.timbrinded.prompttemplates.core.EntryPlacement
 import dev.timbrinded.prompttemplates.core.LibraryEntry
 import dev.timbrinded.prompttemplates.core.LibrarySnapshot
 import dev.timbrinded.prompttemplates.core.TemplateHealth
 import dev.timbrinded.prompttemplates.core.TemplateSearch
+import java.awt.Component
 import java.awt.GraphicsEnvironment
 import java.awt.datatransfer.StringSelection
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
 import javax.accessibility.AccessibleContext
 import java.nio.file.Path
 import javax.swing.DropMode
 import javax.swing.JComponent
-import javax.swing.JMenuItem
-import javax.swing.JPopupMenu
 import javax.swing.JTree
 import javax.swing.KeyStroke
 import javax.swing.TransferHandler
@@ -48,20 +57,25 @@ internal sealed interface LibraryTreeSelection {
     }
 }
 
-internal enum class LibraryTreeCommand {
-    NEW_TEMPLATE,
-    NEW_FOLDER,
-    RENAME_FOLDER,
-    EXPAND_ALL,
-    COLLAPSE_ALL,
-    EDIT_TEMPLATE,
-    DUPLICATE_TEMPLATE,
-    MOVE_TO_FOLDER,
-    MOVE_UP,
-    MOVE_DOWN,
-    OPEN_MARKDOWN,
-    DELETE_FOLDER,
-    DELETE_TEMPLATE,
+internal enum class LibraryTreeCommand(
+    val label: String,
+    /** False for commands that also apply to the library root, which the tree shows as no selection. */
+    val needsEntry: Boolean = true,
+    val mutatesLibrary: Boolean = true,
+) {
+    NEW_TEMPLATE("New Template", needsEntry = false),
+    NEW_FOLDER("New Folder", needsEntry = false),
+    RENAME_FOLDER("Rename…"),
+    EXPAND_ALL("Expand All", needsEntry = false, mutatesLibrary = false),
+    COLLAPSE_ALL("Collapse All", needsEntry = false, mutatesLibrary = false),
+    EDIT_TEMPLATE("Edit"),
+    DUPLICATE_TEMPLATE("Duplicate Template…"),
+    MOVE_TO_FOLDER("Move to Folder…"),
+    MOVE_UP("Move Up"),
+    MOVE_DOWN("Move Down"),
+    OPEN_MARKDOWN("Open Markdown", mutatesLibrary = false),
+    DELETE_FOLDER("Delete Folder…"),
+    DELETE_TEMPLATE("Delete Template"),
 }
 
 internal sealed interface LibrarySelectionKey {
@@ -80,13 +94,14 @@ internal sealed interface LibrarySelectionKey {
 /**
  * The library navigation widget. Filesystem work stays in [PromptTemplatesController]; this class owns
  * presentation, selection, filtering, context menus, keyboard movement and Swing drag-and-drop.
+ * Its commands are actions that read their target from the tree's data context.
  */
 internal class TemplateLibraryTree(
     private val onSelection: (LibraryTreeSelection) -> Unit,
     private val onCommand: (LibraryTreeCommand, LibraryTreeSelection) -> Unit,
     private val onMove: (LibraryTreeSelection, Path, EntryPlacement) -> Unit,
     private val onExpansionChanged: (Set<String>) -> Unit,
-) : Tree(DefaultTreeModel(DefaultMutableTreeNode())) {
+) : Tree(DefaultTreeModel(DefaultMutableTreeNode())), UiDataProvider {
     private var snapshot = LibrarySnapshot(Path.of("."), emptyList())
     private var query = ""
     private var rebuilding = false
@@ -95,6 +110,11 @@ internal class TemplateLibraryTree(
     private var draggedSelection: LibraryTreeSelection? = null
     private var mutationsEnabled = true
     private var fallbackAccessibleContext: AccessibleContext? = null
+    private val actions = LibraryTreeCommand.entries.associateWith { command -> LibraryTreeAction(command, ::runCommand) }
+    // Action groups resolve the action manager, so build them on first use rather than with the tree.
+    private val rootMenu by lazy(LazyThreadSafetyMode.NONE) { menu(ROOT_MENU) }
+    private val folderMenu by lazy(LazyThreadSafetyMode.NONE) { menu(FOLDER_MENU) }
+    private val templateMenu by lazy(LazyThreadSafetyMode.NONE) { menu(TEMPLATE_MENU) }
 
     init {
         isRootVisible = false
@@ -114,12 +134,14 @@ internal class TemplateLibraryTree(
             override fun treeExpanded(event: TreeExpansionEvent) = recordExpansion(event.path, expanded = true)
             override fun treeCollapsed(event: TreeExpansionEvent) = recordExpansion(event.path, expanded = false)
         })
-        addMouseListener(object : MouseAdapter() {
-            override fun mousePressed(event: MouseEvent) = maybeShowPopup(event)
-            override fun mouseReleased(event: MouseEvent) = maybeShowPopup(event)
-        })
-        installKeyboardActions()
+        addMouseListener(LibraryTreePopupHandler())
+        installShortcuts()
         installDragAndDrop()
+    }
+
+    override fun uiDataSnapshot(sink: DataSink) {
+        sink[LIBRARY_TREE_TARGET] = selectedSelection() ?: LibraryTreeSelection.Root(snapshot.root)
+        sink[LIBRARY_MUTATIONS_ENABLED] = mutationsEnabled
     }
 
     override fun getAccessibleContext(): AccessibleContext {
@@ -274,35 +296,11 @@ internal class TemplateLibraryTree(
         }
     }
 
-    private fun maybeShowPopup(event: MouseEvent) {
-        if (!event.isPopupTrigger) return
-        val path = getPathForLocation(event.x, event.y)
-        val target = if (path == null) {
-            clearSelection()
-            LibraryTreeSelection.Root(snapshot.root)
-        } else {
-            selectionPath = path
-            nodeSelection(path) ?: return
-        }
-        popupFor(target).show(this, event.x, event.y)
-    }
-
-    private fun popupFor(target: LibraryTreeSelection): JPopupMenu = JPopupMenu().apply {
-        val commands = when (target) {
-            is LibraryTreeSelection.Root -> ROOT_COMMANDS
-            is LibraryTreeSelection.Folder -> FOLDER_COMMANDS
-            is LibraryTreeSelection.Template -> TEMPLATE_COMMANDS
-        }
-        commands.forEach { command ->
-            if (command == null) addSeparator() else add(JMenuItem(command.label).apply {
-                isEnabled = isLibraryCommandEnabled(command.command, mutationsEnabled)
-                addActionListener { runCommand(command.command, target) }
-            })
-        }
+    private fun menu(commands: List<LibraryTreeCommand?>): ActionGroup = DefaultActionGroup().apply {
+        commands.forEach { command -> if (command == null) addSeparator() else add(actions.getValue(command)) }
     }
 
     private fun runCommand(command: LibraryTreeCommand, target: LibraryTreeSelection) {
-        if (!isLibraryCommandEnabled(command, mutationsEnabled)) return
         when (command) {
             LibraryTreeCommand.EXPAND_ALL -> expandAll()
             LibraryTreeCommand.COLLAPSE_ALL -> collapseAll()
@@ -310,31 +308,34 @@ internal class TemplateLibraryTree(
         }
     }
 
-    private fun installKeyboardActions() {
-        registerKeyboardAction(
-            { selectedSelection()?.let { onCommand(LibraryTreeCommand.MOVE_UP, it) } },
-            KeyStroke.getKeyStroke(KeyEvent.VK_UP, InputEvent.ALT_DOWN_MASK),
-            JComponent.WHEN_FOCUSED,
-        )
-        registerKeyboardAction(
-            { selectedSelection()?.let { onCommand(LibraryTreeCommand.MOVE_DOWN, it) } },
-            KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, InputEvent.ALT_DOWN_MASK),
-            JComponent.WHEN_FOCUSED,
-        )
-        registerKeyboardAction(
-            { selectedSelection()?.let { onCommand(LibraryTreeCommand.MOVE_TO_FOLDER, it) } },
-            KeyStroke.getKeyStroke(KeyEvent.VK_M, InputEvent.CTRL_DOWN_MASK or InputEvent.SHIFT_DOWN_MASK),
-            JComponent.WHEN_FOCUSED,
-        )
-        registerKeyboardAction(
-            {
-                val target = selectedSelection() ?: LibraryTreeSelection.Root(snapshot.root)
-                val y = selectionRows?.firstOrNull()?.let(::getRowBounds)?.y ?: 0
-                popupFor(target).show(this, 0, y)
-            },
-            KeyStroke.getKeyStroke(KeyEvent.VK_F10, InputEvent.SHIFT_DOWN_MASK),
-            JComponent.WHEN_FOCUSED,
-        )
+    /** Shortcuts go through the action system, so keymap actions cannot shadow them and disabled ones stay inert. */
+    private fun installShortcuts() {
+        mapOf(
+            LibraryTreeCommand.MOVE_UP to KeyStroke.getKeyStroke(KeyEvent.VK_UP, InputEvent.ALT_DOWN_MASK),
+            LibraryTreeCommand.MOVE_DOWN to KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, InputEvent.ALT_DOWN_MASK),
+            LibraryTreeCommand.MOVE_TO_FOLDER to
+                KeyStroke.getKeyStroke(KeyEvent.VK_M, InputEvent.CTRL_DOWN_MASK or InputEvent.SHIFT_DOWN_MASK),
+        ).forEach { (command, keyStroke) ->
+            actions.getValue(command).registerCustomShortcutSet(CustomShortcutSet(keyStroke), this)
+        }
+    }
+
+    /** Also serves the platform's context-menu key, which replays a popup-trigger click at the selected row. */
+    private inner class LibraryTreePopupHandler : PopupHandler() {
+        override fun invokePopup(component: Component, x: Int, y: Int) {
+            // Hit-test the whole row, as row selection does; the space below the last row targets the library root.
+            val path = TreeUtil.getPathForLocation(this@TemplateLibraryTree, x, y)
+            if (path == null) clearSelection() else selectionPath = path
+            val menu = when (selectedSelection()) {
+                is LibraryTreeSelection.Folder -> folderMenu
+                is LibraryTreeSelection.Template -> templateMenu
+                is LibraryTreeSelection.Root, null -> rootMenu
+            }
+            ActionManager.getInstance()
+                .createActionPopupMenu(LIBRARY_TREE_POPUP_PLACE, menu)
+                .component
+                .show(component, x, y)
+        }
     }
 
     private fun installDragAndDrop() {
@@ -436,44 +437,63 @@ private class LibraryTreeRenderer : ColoredTreeCellRenderer() {
     }
 }
 
-internal data class MenuCommand(val command: LibraryTreeCommand, val label: String)
+private class LibraryTreeAction(
+    private val command: LibraryTreeCommand,
+    private val perform: (LibraryTreeCommand, LibraryTreeSelection) -> Unit,
+) : DumbAwareAction(command.label) {
+    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
-internal val ROOT_COMMANDS: List<MenuCommand?> = listOf(
-    MenuCommand(LibraryTreeCommand.NEW_TEMPLATE, "New Template"),
-    MenuCommand(LibraryTreeCommand.NEW_FOLDER, "New Folder"),
-    null,
-    MenuCommand(LibraryTreeCommand.EXPAND_ALL, "Expand All"),
-    MenuCommand(LibraryTreeCommand.COLLAPSE_ALL, "Collapse All"),
-)
+    override fun update(event: AnActionEvent) {
+        val target = event.getData(LIBRARY_TREE_TARGET)
+        event.presentation.isEnabled = target != null &&
+            isLibraryCommandEnabled(command, target, mutationsEnabled = event.getData(LIBRARY_MUTATIONS_ENABLED) == true)
+    }
 
-internal val FOLDER_COMMANDS: List<MenuCommand?> = listOf(
-    MenuCommand(LibraryTreeCommand.NEW_TEMPLATE, "New Template"),
-    MenuCommand(LibraryTreeCommand.NEW_FOLDER, "New Folder"),
-    null,
-    MenuCommand(LibraryTreeCommand.RENAME_FOLDER, "Rename…"),
-    MenuCommand(LibraryTreeCommand.MOVE_TO_FOLDER, "Move to Folder…"),
-    null,
-    MenuCommand(LibraryTreeCommand.DELETE_FOLDER, "Delete Folder…"),
-)
+    override fun actionPerformed(event: AnActionEvent) {
+        event.getData(LIBRARY_TREE_TARGET)?.let { target -> perform(command, target) }
+    }
+}
 
-internal val TEMPLATE_COMMANDS: List<MenuCommand?> = listOf(
-    MenuCommand(LibraryTreeCommand.EDIT_TEMPLATE, "Edit"),
-    MenuCommand(LibraryTreeCommand.DUPLICATE_TEMPLATE, "Duplicate Template…"),
-    MenuCommand(LibraryTreeCommand.OPEN_MARKDOWN, "Open Markdown"),
-    null,
-    MenuCommand(LibraryTreeCommand.MOVE_TO_FOLDER, "Move to Folder…"),
-    null,
-    MenuCommand(LibraryTreeCommand.DELETE_TEMPLATE, "Delete Template"),
-)
+/** The entry a library command applies to: the selected row, or the library root when no row is selected. */
+internal val LIBRARY_TREE_TARGET: DataKey<LibraryTreeSelection> = DataKey.create("PromptTemplates.LibraryTreeTarget")
+internal val LIBRARY_MUTATIONS_ENABLED: DataKey<Boolean> = DataKey.create("PromptTemplates.LibraryMutationsEnabled")
 
-private val NON_MUTATION_COMMANDS = setOf(
+private const val LIBRARY_TREE_POPUP_PLACE = "PromptTemplatesLibraryTreePopup"
+
+private val ROOT_MENU = listOf(
+    LibraryTreeCommand.NEW_TEMPLATE,
+    LibraryTreeCommand.NEW_FOLDER,
+    null,
     LibraryTreeCommand.EXPAND_ALL,
     LibraryTreeCommand.COLLAPSE_ALL,
-    LibraryTreeCommand.OPEN_MARKDOWN,
 )
 
-internal fun isLibraryCommandEnabled(command: LibraryTreeCommand, mutationsEnabled: Boolean): Boolean =
-    mutationsEnabled || command in NON_MUTATION_COMMANDS
+private val FOLDER_MENU = listOf(
+    LibraryTreeCommand.NEW_TEMPLATE,
+    LibraryTreeCommand.NEW_FOLDER,
+    null,
+    LibraryTreeCommand.RENAME_FOLDER,
+    LibraryTreeCommand.MOVE_TO_FOLDER,
+    null,
+    LibraryTreeCommand.DELETE_FOLDER,
+)
+
+private val TEMPLATE_MENU = listOf(
+    LibraryTreeCommand.EDIT_TEMPLATE,
+    LibraryTreeCommand.DUPLICATE_TEMPLATE,
+    LibraryTreeCommand.OPEN_MARKDOWN,
+    null,
+    LibraryTreeCommand.MOVE_TO_FOLDER,
+    null,
+    LibraryTreeCommand.DELETE_TEMPLATE,
+)
+
+/** Read-only commands stay available while the library is busy or a template is being authored. */
+internal fun isLibraryCommandEnabled(
+    command: LibraryTreeCommand,
+    target: LibraryTreeSelection,
+    mutationsEnabled: Boolean,
+): Boolean = (target !is LibraryTreeSelection.Root || !command.needsEntry) && (mutationsEnabled || !command.mutatesLibrary)
 
 internal fun portableRelativePath(root: Path, directory: Path): String =
     portablePath(root.toAbsolutePath().normalize().relativize(directory.toAbsolutePath().normalize()))
