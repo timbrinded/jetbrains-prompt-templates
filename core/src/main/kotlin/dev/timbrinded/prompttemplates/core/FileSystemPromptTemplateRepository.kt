@@ -539,10 +539,13 @@ class FileSystemPromptTemplateRepository internal constructor(
         return FolderOrderState(
             folders = sorted.filter { it.kind == EntryKind.FOLDER }.map { it.path.name },
             templates = sorted.filter { it.kind == EntryKind.TEMPLATE }.map { it.path.name },
+            unreadable = read.diagnostic,
         )
     }
 
     private fun persistOrder(folder: Path, order: FolderOrderState) {
+        // A malformed or newer-schema order file may hold order this version cannot represent.
+        order.unreadable?.let { throw IOException("$it The existing order file was left unchanged.") }
         val encoded = LibraryFolderOrderCodec.encode(order)
         atomicWrite(folder.resolve(ORDER_FILE), encoded)
     }

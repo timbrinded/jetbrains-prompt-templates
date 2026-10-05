@@ -1,5 +1,8 @@
 package dev.timbrinded.prompttemplates.core
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.io.TempDir
 import java.nio.charset.MalformedInputException
 import java.nio.file.Files
@@ -48,6 +51,25 @@ class FileSystemPromptTemplateRepositoryTest(
 
         assertIs<RepositoryResult.Success<Unit>>(repository.deleteTemplate(created.directory))
         assertTrue(Files.notExists(created.directory))
+    }
+
+    @Test
+    fun `saving keeps metadata fields written by a newer plugin version`() {
+        val repository = FileSystemPromptTemplateRepository(temporaryDirectory.resolve("library"))
+        val created = assertIs<RepositoryResult.Success<StoredTemplate>>(
+            repository.create(PromptTemplateDraft(name = "Original", markdown = "Body")),
+        ).value
+        val metadataPath = created.directory.resolve(FileSystemPromptTemplateRepository.METADATA_FILE)
+        Files.writeString(metadataPath, metadataPath.readText().replaceFirst("{", "{\n  \"futureField\": \"keep\","))
+        val loaded = assertIs<RepositoryResult.Success<StoredTemplate>>(repository.load(created.directory)).value
+
+        assertIs<RepositoryResult.Success<StoredTemplate>>(
+            repository.update(created.directory, PromptTemplateDraft(created.template.id, "Renamed", markdown = "Body"), loaded.revision),
+        )
+
+        val saved = Json.parseToJsonElement(metadataPath.readText()).jsonObject
+        assertEquals(JsonPrimitive("Renamed"), saved["name"])
+        assertEquals(JsonPrimitive("keep"), saved["futureField"])
     }
 
     @Test

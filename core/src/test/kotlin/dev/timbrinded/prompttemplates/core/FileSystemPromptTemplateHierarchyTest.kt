@@ -175,6 +175,29 @@ class FileSystemPromptTemplateHierarchyTest(
     }
 
     @Test
+    fun `never replaces an unreadable or newer order file`() {
+        val root = temporaryDirectory.resolve("library")
+        Files.createDirectories(root.resolve("Alpha"))
+        Files.createDirectories(root.resolve("Bravo"))
+        val repository = FileSystemPromptTemplateRepository(root)
+        val orderPath = root.resolve(FileSystemPromptTemplateRepository.ORDER_FILE)
+        val newer = """{"schemaVersion": 2, "folders": ["Bravo", "Alpha"], "pinned": ["Bravo"]}"""
+        Files.writeString(orderPath, newer)
+
+        val created = assertIs<RepositoryResult.Success<Path>>(repository.createFolder(root, "Charlie"))
+
+        assertTrue(Files.isDirectory(created.value))
+        assertTrue(created.warnings.single().contains("left unchanged"), created.warnings.toString())
+        assertEquals(newer, orderPath.readText())
+
+        Files.writeString(orderPath, "{ malformed")
+        val reorder = repository.moveEntry(root.resolve("Bravo"), root, EntryPlacement.Before(root.resolve("Alpha")))
+
+        assertTrue(assertIs<RepositoryResult.Failure>(reorder).message.contains("left unchanged"))
+        assertEquals("{ malformed", orderPath.readText())
+    }
+
+    @Test
     fun `uses a portable manual order and appends unlisted entries alphabetically`() {
         val root = temporaryDirectory.resolve("library")
         Files.createDirectories(root.resolve("Alpha"))

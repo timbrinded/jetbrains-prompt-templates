@@ -27,6 +27,8 @@ internal data class ReadOrder(
 internal data class FolderOrderState(
     val folders: List<String>,
     val templates: List<String>,
+    /** Why the existing order file could not be read. Such a file is never replaced. */
+    val unreadable: String? = null,
 ) {
     fun names(kind: EntryKind): List<String> = when (kind) {
         EntryKind.FOLDER -> folders

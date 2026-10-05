@@ -43,12 +43,13 @@ internal class TemplateFileStore(
     }
 
     fun save(directory: Path, template: PromptTemplate, expected: TemplateRevision): TemplateRevision {
-        val journal = SaveJournal(expected, template.markdown, codec.encode(template.metadata))
-        check(codec.decode(journal.metadata) is MetadataDecodeResult.Success)
         onSaveStep(TemplateSaveStep.BEFORE_STAGE)
-        if (readCanonical(directory).revision != expected) {
+        val current = readCanonical(directory)
+        if (current.revision != expected) {
             throw TemplateRevisionMismatch()
         }
+        val journal = SaveJournal(expected, template.markdown, codec.encode(template.metadata, original = current.metadata))
+        check(codec.decode(journal.metadata) is MetadataDecodeResult.Success)
         replaceAtomically(directory.resolve(JOURNAL_FILE), Json.encodeToString(journal))
         onSaveStep(TemplateSaveStep.AFTER_STAGE)
         finish(directory, journal, onSaveStep)

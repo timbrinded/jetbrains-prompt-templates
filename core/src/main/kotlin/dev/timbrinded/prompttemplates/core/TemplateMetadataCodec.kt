@@ -2,7 +2,12 @@ package dev.timbrinded.prompttemplates.core
 
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.elementNames
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 
 sealed interface MetadataDecodeResult {
     data class Success(val metadata: TemplateMetadata) : MetadataDecodeResult
@@ -20,8 +25,19 @@ class TemplateMetadataCodec(
         ignoreUnknownKeys = true
     },
 ) {
-    fun encode(metadata: TemplateMetadata): String =
-        json.encodeToString(TemplateMetadata.serializer(), metadata.withLiteralEnumChoices()) + "\n"
+    /**
+     * Encodes [metadata]. With the [original] JSON it replaces, keys this version does not know, such as fields
+     * written by a newer plugin version, follow the known keys in their original order instead of being dropped.
+     * Variables and enum options keep their unknown keys while their key or id is unchanged.
+     */
+    fun encode(metadata: TemplateMetadata, original: String? = null): String {
+        val literal = metadata.withLiteralEnumChoices()
+        val previous = original?.let(::parseObject)
+            ?: return json.encodeToString(TemplateMetadata.serializer(), literal) + "\n"
+        val encoded = json.encodeToJsonElement(TemplateMetadata.serializer(), literal) as JsonObject
+        val merged = encoded.withUnknownKeysFrom(previous, TemplateMetadata.serializer().descriptor)
+        return json.encodeToString(JsonElement.serializer(), merged) + "\n"
+    }
 
     fun decode(raw: String): MetadataDecodeResult {
         val metadata = try {
@@ -43,6 +59,29 @@ class TemplateMetadataCodec(
         } else {
             MetadataDecodeResult.Invalid(error)
         }
+    }
+
+    private fun parseObject(raw: String): JsonObject? = try {
+        json.parseToJsonElement(raw) as? JsonObject
+    } catch (_: SerializationException) {
+        null
+    }
+
+    private fun JsonObject.withUnknownKeysFrom(original: JsonObject, descriptor: SerialDescriptor): JsonObject {
+        val known = descriptor.elementNames.toSet()
+        val merged = mapValuesTo(LinkedHashMap()) { (name, value) ->
+            val identity = IDENTITY_KEYS[name]
+            val previousItems = original[name] as? JsonArray
+            if (identity == null || value !is JsonArray || previousItems == null) return@mapValuesTo value
+            val itemDescriptor = descriptor.getElementDescriptor(descriptor.getElementIndex(name)).getElementDescriptor(0)
+            val previousById = previousItems.filterIsInstance<JsonObject>().associateBy { it[identity] }
+            JsonArray(value.map { item ->
+                val previous = previousById[(item as JsonObject)[identity]]
+                previous?.let { item.withUnknownKeysFrom(it, itemDescriptor) } ?: item
+            })
+        }
+        original.forEach { (name, value) -> if (name !in known) merged[name] = value }
+        return JsonObject(merged)
     }
 
     fun validate(metadata: TemplateMetadata): String? {
@@ -88,3 +127,6 @@ class TemplateMetadataCodec(
         return null
     }
 }
+
+/** Identity of the objects in each metadata list, used to carry their unknown keys across a save. */
+private val IDENTITY_KEYS = mapOf("variables" to "key", "options" to "id")
