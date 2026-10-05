@@ -79,7 +79,9 @@ internal fun snapshotPromptLibrary(root: Path): LibraryPollSnapshot {
         val isRoot = directory == normalizedRoot
         val directoryAttributes = (if (isRoot) readRootAttributes(directory) else readAttributesNoFollow(directory))
             ?: continue
-        if (!directoryAttributes.isDirectory || (!isRoot && directoryAttributes.isSymbolicLink)) continue
+        if (!directoryAttributes.isDirectory || (!isRoot && FileSystemPromptTemplateRepository.isLinkEntry(directory, directoryAttributes))) {
+            continue
+        }
 
         // One attribute read per child serves both the control-file records and the descent below.
         val children = listDirectoryNoFollow(directory).mapNotNull { child ->
@@ -118,7 +120,10 @@ internal fun snapshotPromptLibrary(root: Path): LibraryPollSnapshot {
         }
         children.forEach { (child, attributes) ->
             if (FileSystemPromptTemplateRepository.isInternalLibraryEntryName(child.name)) return@forEach
-            if (attributes.isDirectory && !attributes.isSymbolicLink) pendingDirectories.add(child)
+            // Directory junctions report as directories; never descend into a link out of (or back into) the library.
+            if (attributes.isDirectory && !FileSystemPromptTemplateRepository.isLinkEntry(child, attributes)) {
+                pendingDirectories.add(child)
+            }
         }
     }
 
