@@ -30,7 +30,8 @@ class StrictPromptRenderer {
 
         val replacements = mutableListOf<Replacement>()
         parseResult.escapedOpenings.forEach { range -> replacements += Replacement(range, "{{", null) }
-        diagnostics += parseResult.escapedVariablePlaceholders(template.markdown, variablesByKey.keys)
+        val escapedVariables = parseResult.escapedVariablePlaceholders(template.markdown, variablesByKey.keys)
+        diagnostics += escapedVariables
 
         parseResult.placeholders.forEach { token ->
             val replacement = when {
@@ -45,7 +46,8 @@ class StrictPromptRenderer {
             .map(PlaceholderToken::key)
             .toSet()
         template.metadata.variables
-            .filterNot { it.key in referencedUserKeys }
+            // A definition used only in escaped text already has the more specific escaped-placeholder warning.
+            .filterNot { variable -> variable.key in referencedUserKeys || escapedVariables.any { it.key == variable.key } }
             .forEach { diagnostics += TemplateDiagnostic.UnusedVariableDefinition(it.key) }
 
         val output = StringBuilder(template.markdown.length)

@@ -18,12 +18,24 @@ data class ParseResult(
     fun escapedVariablePlaceholders(
         markdown: String,
         variableKeys: Set<String>,
-    ): List<TemplateDiagnostic.EscapedVariablePlaceholder> = escapedOpenings.mapNotNull { opening ->
-        val closing = markdown.indexOf("}}", startIndex = opening.endExclusive)
-        if (closing < 0) return@mapNotNull null
-        val key = markdown.substring(opening.endExclusive, closing).trim(' ', '\t')
-        if (key !in variableKeys) return@mapNotNull null
-        TemplateDiagnostic.EscapedVariablePlaceholder(key, SourceRange(opening.start, closing + 2))
+    ): List<TemplateDiagnostic.EscapedVariablePlaceholder> {
+        // Only text short enough to be a padded key is compared, which keeps the scan linear in the text length.
+        val longestCandidate = (variableKeys.maxOfOrNull(String::length) ?: return emptyList()) + KEY_PADDING_LIMIT
+        val found = mutableListOf<TemplateDiagnostic.EscapedVariablePlaceholder>()
+        var closing = -1
+        for (opening in escapedOpenings) {
+            // Openings are in source order, so the closing found for an earlier opening is reused until passed.
+            if (closing < opening.endExclusive) closing = markdown.indexOf("}}", startIndex = opening.endExclusive)
+            if (closing < 0) break
+            if (closing - opening.endExclusive > longestCandidate) continue
+            val key = markdown.substring(opening.endExclusive, closing).trim(' ', '\t')
+            if (key in variableKeys) found += TemplateDiagnostic.EscapedVariablePlaceholder(key, SourceRange(opening.start, closing + 2))
+        }
+        return found
+    }
+
+    private companion object {
+        const val KEY_PADDING_LIMIT = 32
     }
 }
 

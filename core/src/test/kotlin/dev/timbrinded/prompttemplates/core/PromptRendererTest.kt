@@ -117,9 +117,8 @@ class PromptRendererTest {
 
         assertTrue(result.isValid)
         assertEquals("C:\\Users{{ name }} and {{other}}", result.renderedText)
-        val warning = assertIs<TemplateDiagnostic.EscapedVariablePlaceholder>(
-            result.diagnostics.single { it !is TemplateDiagnostic.UnusedVariableDefinition },
-        )
+        // The escaped warning replaces the less specific unused-definition warning for the same variable.
+        val warning = assertIs<TemplateDiagnostic.EscapedVariablePlaceholder>(result.diagnostics.single())
         assertEquals("name", warning.key)
         assertEquals(SourceRange(8, 19), warning.range)
         assertEquals(DiagnosticSeverity.WARNING, warning.severity)
