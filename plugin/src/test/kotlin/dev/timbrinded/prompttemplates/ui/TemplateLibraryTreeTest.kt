@@ -229,7 +229,7 @@ class TemplateLibraryTreeTest {
         val firstKey = LibrarySelectionKey.Template(requireNotNull(first.summary.id).value)
         tree.updateLibrary(snapshot, emptyMap(), "", firstKey, emptyList())
         assertTrue(selections.isEmpty())
-        tree.selectTemplateByDirectory(second.directory)
+        tree.selectionPath = tree.pathOf(second.directory)
         assertEquals(listOf(second.directory), selections)
         tree.updateLibrary(snapshot, emptyMap(), "", firstKey, emptyList())
         assertEquals(listOf(second.directory), selections)
@@ -251,7 +251,7 @@ class TemplateLibraryTreeTest {
         )
         searchTree.updateLibrary(flat, emptyMap(), "", controlledKey, emptyList())
         searchTree.updateLibrary(flat, emptyMap(), "Beta", controlledKey, emptyList())
-        searchTree.selectTemplateByDirectory(beta.directory)
+        searchTree.selectionPath = searchTree.pathOf(beta.directory)
         searchTree.updateLibrary(flat, emptyMap(), "", controlledKey, emptyList())
         assertEquals(beta.directory, assertIs<LibraryTreeSelection.Template>(searchTree.selectedSelection()).directory)
 
@@ -308,7 +308,6 @@ class TemplateLibraryTreeTest {
         val emptyTree = TemplateLibraryTree({}, { _, _ -> }, { _, _, _ -> }, { emptyRecorded += it })
         emptyTree.updateLibrary(LibrarySnapshot(root, emptyList()), emptyMap(), "", selectedKey = null, expandedPaths = listOf("work"))
         assertTrue(emptyRecorded.isEmpty(), "The pre-scan placeholder must not publish, but recorded $emptyRecorded")
-        assertEquals(setOf("work"), emptyTree.captureExpandedFolderPaths())
 
         // Selecting inside a collapsed folder publishes expanded ancestors.
         val selectRecorded = mutableListOf<Set<String>>()
@@ -362,14 +361,18 @@ class TemplateLibraryTreeTest {
         assertEquals(EntryPlacement.EndOfKind, insertionGapPlacement(first, null, siblings))
     }
 
-    private fun TemplateLibraryTree.pathOfFolder(relative: String): TreePath {
+    private fun TemplateLibraryTree.pathOfFolder(relative: String): TreePath = pathWhere { selection ->
+        selection is LibraryTreeSelection.Folder && portablePath(selection.entry.relativeDirectory) == relative
+    }
+
+    /** The row a user would click to pick the entry at [directory]. */
+    private fun TemplateLibraryTree.pathOf(directory: Path): TreePath = pathWhere { selection -> selection.directory == directory }
+
+    private fun TemplateLibraryTree.pathWhere(predicate: (LibraryTreeSelection) -> Boolean): TreePath {
         val rootNode = model.root as DefaultMutableTreeNode
         val node = rootNode.depthFirstEnumeration().asSequence()
             .filterIsInstance<DefaultMutableTreeNode>()
-            .first { candidate ->
-                (candidate.userObject as? LibraryTreeSelection.Folder)
-                    ?.let { portablePath(it.entry.relativeDirectory) } == relative
-            }
+            .first { candidate -> (candidate.userObject as? LibraryTreeSelection)?.let(predicate) == true }
         return TreePath(node.path)
     }
 

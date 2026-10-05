@@ -117,12 +117,6 @@ internal class PromptTemplatesPanel(
 
     internal fun continueInvocation(): Boolean = controller.continueInvocation()
 
-    fun copyRenderedPrompt() = controller.performUseViewAction(UseViewAction.COPY_PROMPT)
-
-    fun insertRenderedPrompt() = controller.performUseViewAction(UseViewAction.INSERT)
-
-    fun hasValidRenderedPrompt(): Boolean = controller.hasValidRenderedPrompt()
-
     override val selectedDestinationFolder: Path
         get() = libraryTree.selectedDestinationFolder()
 

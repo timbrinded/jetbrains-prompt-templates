@@ -221,20 +221,10 @@ internal class TemplateLibraryTree(
         if (!GraphicsEnvironment.isHeadless()) dragEnabled = enabled
     }
 
-    fun captureExpandedFolderPaths(): Set<String> = expandedFolderPaths.toSet()
-
     fun expandAll() = expandEveryRow()
 
     fun collapseAll() {
         for (row in rowCount - 1 downTo 0) collapseRow(row)
-    }
-
-    fun selectTemplateByDirectory(directory: Path) {
-        findPath { selection -> selection is LibraryTreeSelection.Template && selection.directory == directory }
-            ?.let {
-                selectionPath = it
-                if (isShowing) scrollPathToVisible(it)
-            }
     }
 
     private fun nodeFor(entry: LibraryEntry): DefaultMutableTreeNode = when (entry) {

@@ -153,19 +153,22 @@ class PromptTemplatesProjectService(
         ContextAttachmentsDialog(project, this).show()
     }
 
-    fun copyRendered() = reportDelivery(invocation.copyRendered(), "Prompt copied to the clipboard.")
+    fun copyRendered(): DestinationResult = reportDelivery(invocation.copyRendered(), "Prompt copied to the clipboard.")
 
-    fun insertRendered() = reportDelivery(invocation.insertRendered(), "Prompt inserted into the selected target.")
+    fun insertRendered(): DestinationResult =
+        reportDelivery(invocation.insertRendered(), "Prompt inserted into the selected target.")
 
-    fun openRenderedScratch() = reportDelivery(invocation.openRenderedScratch(), "Rendered prompt exported to a local scratch file.")
+    fun openRenderedScratch(): DestinationResult =
+        reportDelivery(invocation.openRenderedScratch(), "Rendered prompt exported to a local scratch file.")
 
     fun canDeliver(): Boolean = invocation.renderedPayload() != null
 
-    private fun reportDelivery(result: DestinationResult, successMessage: String) {
+    private fun reportDelivery(result: DestinationResult, successMessage: String): DestinationResult {
         when (result) {
             DestinationResult.Success -> PromptTemplatesNotifications.info(project, successMessage)
             is DestinationResult.Failure -> PromptTemplatesNotifications.error(project, result.message)
         }
+        return result
     }
 
     override fun dispose() {

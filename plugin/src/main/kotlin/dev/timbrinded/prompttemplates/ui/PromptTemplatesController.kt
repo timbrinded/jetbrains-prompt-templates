@@ -118,9 +118,11 @@ internal class PromptTemplatesController(
                 if (!showingInvocation || session == null) return@collect
                 val detail = PromptDetailState.Use(session)
                 val previous = state.detail as? PromptDetailState.Use
-                if (previous?.stored?.template?.id != detail.stored.template.id) {
-                    selectedKey = LibrarySelectionKey.Template(detail.stored.template.id.value)
-                    workspace.selectedTemplateId = detail.stored.template.id.value
+                // Another view, such as Quick Use, opened a different template; select it unless it already is.
+                val key = templateKey(detail.stored)
+                if (previous?.stored?.template?.id != detail.stored.template.id && !isSameLibrarySelection(selectedKey, key)) {
+                    selectedKey = key
+                    workspace.selectedTemplateId = key.templateId
                     refreshTree()
                 }
                 state.detail = detail
@@ -365,8 +367,9 @@ internal class PromptTemplatesController(
         val current = invocation.state.value ?: return false
         loadGenerations.invalidateDetailLoad()
         showingInvocation = true
-        selectedKey = LibrarySelectionKey.Template(current.invocation.stored.template.id.value)
-        workspace.selectedTemplateId = current.invocation.stored.template.id.value
+        val key = templateKey(current.invocation.stored)
+        selectedKey = key
+        workspace.selectedTemplateId = key.templateId
         state.detail = PromptDetailState.Use(current)
         view.renderDetail(state.detail)
         refreshTree()
@@ -393,30 +396,24 @@ internal class PromptTemplatesController(
             UseViewAction.REFRESH_CONTEXT -> invocation.refreshContext()
             UseViewAction.RELOAD_TEMPLATE -> invocation.checkTemplate(reload = true)
             UseViewAction.SELECT_INSERTION_TARGET -> invocation.selectInsertionTarget()
-            UseViewAction.RESET_VALUES -> {
-                invocation.resetValues()
-                invocation.state.value?.let { view.renderDetail(PromptDetailState.Use(it)) }
-            }
+            // The session update refreshes the form in place.
+            UseViewAction.RESET_VALUES -> invocation.resetValues()
         }
     }
-
-    fun hasValidRenderedPrompt(): Boolean = invocation.renderedPayload() != null
 
     private fun deliver(copy: Boolean) {
-        val destination = if (copy) invocation.copyRendered() else invocation.insertRendered()
-        when (destination) {
-            DestinationResult.Success -> PromptTemplatesNotifications.info(
-                project,
-                if (copy) "Prompt copied to the clipboard." else "Prompt inserted into the selected target.",
-            )
-            is DestinationResult.Failure -> {
-                val error = invocation.state.value?.invocation?.render?.diagnostics
-                    ?.firstOrNull { it.severity == DiagnosticSeverity.ERROR }
-                if (error is TemplateDiagnostic.MissingRequiredValue) view.focusVariable(error.key)
-                PromptTemplatesNotifications.error(project, destination.message)
-            }
+        val result = if (copy) projectService.copyRendered() else projectService.insertRendered()
+        if (result is DestinationResult.Failure) {
+            val error = invocation.state.value?.invocation?.render?.diagnostics
+                ?.firstOrNull { it.severity == DiagnosticSeverity.ERROR }
+            if (error is TemplateDiagnostic.MissingRequiredValue) view.focusVariable(error.key)
         }
     }
+
+    private fun templateKey(stored: StoredTemplate) = LibrarySelectionKey.Template(
+        stored.template.id.value,
+        portableRelativePath(state.librarySnapshot.root, stored.directory),
+    )
 
     fun startNewTemplate() = startNewTemplateAt(view.selectedDestinationFolder)
 
