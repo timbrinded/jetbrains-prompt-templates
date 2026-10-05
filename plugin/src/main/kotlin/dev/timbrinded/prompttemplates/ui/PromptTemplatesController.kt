@@ -245,6 +245,9 @@ internal class PromptTemplatesController(
                     return
                 }
                 val active = state.detail as? PromptDetailState.Use
+                // A file change may refresh this view's own template, but must not take over an invocation
+                // that Quick Use is showing while this view shows a folder, an empty state or an error.
+                if (reloadSelectedDetail && active == null && invocation.state.value != null) return
                 if (reloadSelectedDetail || active?.stored?.directory != selected.directory) {
                     loadTemplate(selected.entry.summary)
                 }
@@ -1026,9 +1029,10 @@ internal class PromptTemplatesController(
         showDetail(PromptDetailState.Empty)
     }
 
+    /** The only place this view leaves an invocation; it closes the shared session only when this view owns it. */
     private fun showDetail(detail: PromptDetailState) {
+        if (showingInvocation) invocation.close()
         showingInvocation = false
-        invocation.close()
         state.detail = detail
         view.renderDetail(detail)
         updateInteractionState()
