@@ -655,11 +655,15 @@ class FileSystemPromptTemplateHierarchyTest(
         Files.createDirectories(outside.resolve("nested"))
         Files.writeString(outside.resolve("keep.txt"), "keep")
         Files.writeString(outside.resolve("nested/prompt.md"), "outside template")
+        val removed = temporaryDirectory.resolve("removed")
+        Files.createDirectories(removed)
         createJunction(team.resolve("Shared"), outside)
         createJunction(team.resolve("Loop"), root)
+        createJunction(team.resolve("Dangling"), removed)
+        Files.delete(removed)
 
-        val linked = folder(repository.scan(), "Team").children.filter { it.displayName in setOf("Shared", "Loop") }
-        assertEquals(2, linked.size)
+        val linked = folder(repository.scan(), "Team").children.filter { it.displayName in setOf("Shared", "Loop", "Dangling") }
+        assertEquals(3, linked.size)
         linked.forEach { assertTrue(assertIs<LibraryEntry.Folder>(it).diagnostic.orEmpty().contains("junction")) }
         assertIs<RepositoryResult.Failure>(repository.createFolder(team.resolve("Shared"), "Escaped"))
         assertFalse(Files.exists(outside.resolve("Escaped")))

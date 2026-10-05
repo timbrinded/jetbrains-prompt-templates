@@ -28,12 +28,15 @@ internal object LibraryTreeDeletion {
         var fileCount = 0
         var opaqueTemplatePackage: Path? = null
         val records = mutableListOf<String>()
+        // A Windows junction reads as a directory; record it as a link, which deletion removes without its target.
+        fun recordJunction(junction: Path) {
+            fileCount++
+            records += "L\u0000${directory.relativize(junction).invariantSeparatorsPathString}\u0000${junctionTarget(junction)}"
+        }
         Files.walkFileTree(directory, object : SimpleFileVisitor<Path>() {
             override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
                 if (dir != directory && LibraryLayout.isLink(dir, attrs)) {
-                    // A Windows junction reads as a directory; record and delete the entry itself, never its target.
-                    fileCount++
-                    records += "L\u0000${directory.relativize(dir).invariantSeparatorsPathString}\u0000${junctionTarget(dir)}"
+                    recordJunction(dir)
                     return FileVisitResult.SKIP_SUBTREE
                 }
                 val templatePackage = LibraryLayout.isTemplatePackage(dir)
@@ -71,7 +74,12 @@ internal object LibraryTreeDeletion {
                 return FileVisitResult.CONTINUE
             }
 
-            override fun visitFileFailed(file: Path, error: IOException): FileVisitResult = throw error
+            override fun visitFileFailed(file: Path, error: IOException): FileVisitResult {
+                // The walk opens a junction before visiting it, which fails when its target is missing.
+                if (file == directory || !isReadableLink(file)) throw error
+                recordJunction(file)
+                return FileVisitResult.CONTINUE
+            }
         })
         val fingerprint = sha256(records.sorted().joinToString("\n").encodeToByteArray())
         return FolderDeletionPreview(
@@ -195,6 +203,12 @@ internal object LibraryTreeDeletion {
         if (!attributes.isDirectory || LibraryLayout.isLink(directory, attributes)) {
             throw IOException("A library directory changed during deletion. No further entries were deleted.")
         }
+    }
+
+    private fun isReadableLink(path: Path): Boolean = try {
+        LibraryLayout.isLink(path)
+    } catch (_: IOException) {
+        false
     }
 
     private fun junctionTarget(junction: Path): String = try {
