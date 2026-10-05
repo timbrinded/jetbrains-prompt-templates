@@ -3,7 +3,8 @@ package dev.timbrinded.prompttemplates.destination
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.command.WriteCommandAction
-import com.intellij.openapi.editor.EditorModificationUtil
+import com.intellij.openapi.application.WriteIntentReadAction
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import java.awt.datatransfer.StringSelection
@@ -27,8 +28,11 @@ internal object SelectedEditorDestination {
             return DestinationResult.Failure("The insertion target is unavailable or changed. Select Insertion Target before inserting.")
         }
         val editor = target.editor
-        // Callers deliver from the EDT. Both checks also explain a read-only target in the editor itself.
-        val writable = EditorModificationUtil.checkModificationAllowed(editor) && EditorModificationUtil.requestWriting(editor)
+        // Swing listeners hold no lock in 2026.2 and requestWriting needs write intent. Every write-intent API in
+        // 2026.2 is experimental, so the verifier's two experimental-API warnings here are an accepted exception.
+        val writable = WriteIntentReadAction.compute {
+            !editor.isViewer && FileDocumentManager.getInstance().requestWriting(editor.document, project)
+        }
         if (!writable) {
             return DestinationResult.Failure("The insertion target is read-only.")
         }
