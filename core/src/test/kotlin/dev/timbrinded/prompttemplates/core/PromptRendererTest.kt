@@ -125,6 +125,20 @@ class PromptRendererTest {
         assertEquals(DiagnosticSeverity.WARNING, warning.severity)
     }
 
+    @Test
+    fun `unavailable context without a provider message names its key`() {
+        val result = renderer.render(
+            template("{{ide.selection}}", emptyList()),
+            emptyMap(),
+            mapOf("ide.selection" to ContextValue(ContextStatus.UNAVAILABLE)),
+        )
+
+        assertEquals(
+            "Context 'ide.selection' is unavailable.",
+            assertIs<TemplateDiagnostic.ContextUnavailable>(result.diagnostics.single()).message,
+        )
+    }
+
     private fun template(markdown: String, variables: List<PromptVariable>) = PromptTemplate(
         TemplateMetadata(id = TemplateId.random().value, name = "Test", variables = variables),
         markdown,

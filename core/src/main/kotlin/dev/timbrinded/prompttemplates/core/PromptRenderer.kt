@@ -125,7 +125,7 @@ class StrictPromptRenderer {
         if (context.status != ContextStatus.AVAILABLE || context.value == null) {
             diagnostics += TemplateDiagnostic.ContextUnavailable(
                 token.key,
-                context.errorMessage ?: "Context '$token.key' is unavailable.",
+                context.errorMessage ?: "Context '${token.key}' is unavailable.",
             )
             return "{{${token.key}}}"
         }
