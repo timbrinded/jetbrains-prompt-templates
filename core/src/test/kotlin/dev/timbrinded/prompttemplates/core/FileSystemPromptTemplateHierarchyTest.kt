@@ -44,7 +44,7 @@ class FileSystemPromptTemplateHierarchyTest(
         val securityEntry = assertIs<LibraryEntry.Folder>(reviews.children.single())
         val audit = assertIs<LibraryEntry.Template>(securityEntry.children.single())
         assertEquals(nestedTemplate.toAbsolutePath(), audit.directory)
-        assertEquals(Path.of("Reviews/Security/audit"), audit.relativeDirectory)
+        assertEquals(Path.of("Reviews", "Security", "audit"), audit.relativeDirectory)
         assertIs<LibraryEntry.Template>(snapshot.children[2])
     }
 
@@ -116,7 +116,7 @@ class FileSystemPromptTemplateHierarchyTest(
         Files.createDirectories(linkedMarkdown)
         val outside = temporaryDirectory.resolve("outside.md")
         Files.writeString(outside, "outside")
-        Files.createSymbolicLink(linkedMarkdown.resolve("prompt.md"), outside)
+        createSymbolicLinkOrSkip(linkedMarkdown.resolve("prompt.md"), outside)
 
         val entries = FileSystemPromptTemplateRepository(root).scan().children
 
@@ -370,11 +370,17 @@ class FileSystemPromptTemplateHierarchyTest(
         val root = temporaryDirectory.resolve("library")
         val repository = FileSystemPromptTemplateRepository(root)
         val reviews = success(repository.createFolder(root, "reviews"))
+        val audit = success(repository.create(PromptTemplateDraft(name = "Audit", markdown = "audit"), reviews))
 
+        // Case-insensitive filesystems (Windows, default macOS) see both names as one entry and take the two-step
+        // rename through a hidden working directory; case-sensitive ones take an ordinary rename.
         val renamed = success(repository.renameFolder(reviews, "Reviews"))
 
         assertEquals(root.resolve("Reviews"), renamed)
-        assertEquals(listOf("Reviews"), repository.scan().children.map(LibraryEntry::displayName))
+        val snapshot = repository.scan()
+        assertEquals(listOf("Reviews"), snapshot.children.map(LibraryEntry::displayName))
+        assertNull(snapshot.diagnostic)
+        assertEquals(audit.template.id, success(repository.load(renamed.resolve(audit.directory.name))).template.id)
         assertEquals(
             listOf("Reviews"),
             requireNotNull(LibraryFolderOrderCodec.read(root).value).folders,
@@ -453,7 +459,7 @@ class FileSystemPromptTemplateHierarchyTest(
         val stored = success(repository.create(PromptTemplateDraft(name = "Template", markdown = "before"), nested))
         val outside = temporaryDirectory.resolve("outside.txt")
         Files.writeString(outside, "keep")
-        Files.createSymbolicLink(stored.directory.resolve("outside-link"), outside)
+        createSymbolicLinkOrSkip(stored.directory.resolve("outside-link"), outside)
 
         val firstPreview = success(repository.previewFolderDeletion(folder))
         assertTrue(firstPreview.folderCount >= 1)
@@ -519,7 +525,7 @@ class FileSystemPromptTemplateHierarchyTest(
         Files.writeString(outside.resolve("victim.txt"), "outside")
         // Deletion traverses afresh, so a directory swapped for a link after the preview is removed as a link.
         Files.move(intermediate, displaced)
-        Files.createSymbolicLink(intermediate, outside)
+        createSymbolicLinkOrSkip(intermediate, outside)
 
         LibraryTreeDeletion.deleteTree(target, LibraryDeletionMode.CONSERVATIVE_FALLBACK)
 
@@ -538,7 +544,7 @@ class FileSystemPromptTemplateHierarchyTest(
         val outside = temporaryDirectory.resolve("outside")
         Files.createDirectories(outside)
         Files.writeString(outside.resolve("keep.txt"), "keep")
-        Files.createSymbolicLink(stored.directory.resolve("support"), outside)
+        createSymbolicLinkOrSkip(stored.directory.resolve("support"), outside)
 
         val refused = assertIs<RepositoryResult.Failure>(repository.deleteTemplate(stored.directory))
 
@@ -546,7 +552,7 @@ class FileSystemPromptTemplateHierarchyTest(
         assertTrue(Files.isRegularFile(stored.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE)))
         Files.delete(stored.directory.resolve("support"))
         Files.delete(stored.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE))
-        Files.createSymbolicLink(stored.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE), outside.resolve("keep.txt"))
+        createSymbolicLinkOrSkip(stored.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE), outside.resolve("keep.txt"))
 
         success(repository.deleteTemplate(stored.directory))
 
@@ -685,9 +691,9 @@ class FileSystemPromptTemplateHierarchyTest(
         val outside = temporaryDirectory.resolve("outside")
         Files.createDirectories(outside)
         val link = root.resolve("Link")
-        Files.createSymbolicLink(link, outside)
+        createSymbolicLinkOrSkip(link, outside)
         // An alias inside the library passes the real-path containment check, so only the per-segment guard stops it.
-        Files.createSymbolicLink(root.resolve("Alias"), safe)
+        createSymbolicLinkOrSkip(root.resolve("Alias"), safe)
 
         assertIs<RepositoryResult.Failure>(repository.createFolder(link, "Escaped"))
         assertFalse(Files.exists(outside.resolve("Escaped")))
@@ -719,7 +725,7 @@ class FileSystemPromptTemplateHierarchyTest(
         val physicalRoot = temporaryDirectory.resolve("physical-library")
         Files.createDirectories(physicalRoot)
         val linkedRoot = temporaryDirectory.resolve("linked-library")
-        Files.createSymbolicLink(linkedRoot, physicalRoot)
+        createSymbolicLinkOrSkip(linkedRoot, physicalRoot)
         val repository = FileSystemPromptTemplateRepository(linkedRoot)
 
         val folder = success(repository.createFolder(linkedRoot, "Folder"))
@@ -735,7 +741,7 @@ class FileSystemPromptTemplateHierarchyTest(
         val physicalParent = temporaryDirectory.resolve("physical")
         Files.createDirectories(physicalParent)
         val aliasParent = temporaryDirectory.resolve("alias")
-        Files.createSymbolicLink(aliasParent, physicalParent)
+        createSymbolicLinkOrSkip(aliasParent, physicalParent)
         val physicalRoot = physicalParent.resolve("library")
         val aliasRoot = aliasParent.resolve("library")
         val repositories = listOf(

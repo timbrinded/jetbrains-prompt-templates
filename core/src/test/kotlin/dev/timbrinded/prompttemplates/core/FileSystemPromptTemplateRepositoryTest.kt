@@ -3,10 +3,8 @@ package dev.timbrinded.prompttemplates.core
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.io.TempDir
 import java.nio.charset.MalformedInputException
-import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
@@ -79,7 +77,7 @@ class FileSystemPromptTemplateRepositoryTest(
 
     @Test
     fun `new files follow the umask and replaced files keep their permissions`() {
-        assumeTrue("posix" in FileSystems.getDefault().supportedFileAttributeViews(), "POSIX permissions are unavailable.")
+        assumePosixPermissions()
         val repository = FileSystemPromptTemplateRepository(temporaryDirectory.resolve("library"))
         val probe = Files.createFile(temporaryDirectory.resolve("probe.md"))
         val exported = temporaryDirectory.resolve("exported.md")
