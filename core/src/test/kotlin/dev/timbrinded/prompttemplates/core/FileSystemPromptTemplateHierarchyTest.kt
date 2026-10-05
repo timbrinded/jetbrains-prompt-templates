@@ -318,6 +318,28 @@ class FileSystemPromptTemplateHierarchyTest(
     }
 
     @Test
+    fun `moves a template past a hidden directory-name collision and records the new name`() {
+        val root = temporaryDirectory.resolve("library")
+        val repository = FileSystemPromptTemplateRepository(root)
+        val source = success(repository.createFolder(root, "Source"))
+        val destination = success(repository.createFolder(root, "Destination"))
+        val existing = success(repository.create(PromptTemplateDraft(name = "Review?", markdown = "stays"), destination))
+        val moving = success(repository.create(PromptTemplateDraft(name = "Review!", markdown = "moves"), source))
+        assertEquals(existing.directory.name, moving.directory.name)
+
+        val moved = success(repository.moveEntry(moving.directory, destination))
+
+        assertEquals(destination.resolve("${existing.directory.name}-2"), moved)
+        assertEquals("moves", success(repository.load(moved)).template.markdown)
+        assertEquals("stays", success(repository.load(existing.directory)).template.markdown)
+        assertEquals(
+            listOf(existing.directory.name, moved.name),
+            requireNotNull(LibraryFolderOrderCodec.read(destination).value).templates,
+        )
+        assertEquals(listOf("Review?", "Review!"), folder(repository.scan(), "Destination").children.map(LibraryEntry::displayName))
+    }
+
+    @Test
     fun `moves and renames folders while preserving their child order`() {
         val root = temporaryDirectory.resolve("library")
         val repository = FileSystemPromptTemplateRepository(root)

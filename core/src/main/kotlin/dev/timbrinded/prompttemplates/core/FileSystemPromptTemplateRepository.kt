@@ -293,7 +293,12 @@ class FileSystemPromptTemplateRepository internal constructor(
                 "An entry named '${directEntry.visibleName}' already exists in the destination folder.",
             )
         }
-        val target = safeDestination.resolve(safeEntry.name)
+        val target = when {
+            sameParent -> safeEntry
+            // A template's directory name is only a slug, so a hidden collision just needs another free name.
+            kind == EntryKind.TEMPLATE -> nextAvailableDirectory(safeDestination, safeEntry.name)
+            else -> safeDestination.resolve(safeEntry.name)
+        }
         if (!sameParent && Files.exists(target, NOFOLLOW_LINKS)) {
             return@mutateLibrary RepositoryResult.Failure(
                 "A filesystem entry named '${safeEntry.fileName}' already exists in the destination folder.",
@@ -303,7 +308,7 @@ class FileSystemPromptTemplateRepository internal constructor(
         val sourceOrder = effectiveOrder(sourceParent)
         val destinationOrder = if (sameParent) sourceOrder else effectiveOrder(safeDestination)
         val placedDestinationOrder = destinationOrder.placing(
-            safeEntry.name,
+            target.name,
             kind,
             placement,
             safeDestination,
