@@ -7,7 +7,6 @@ import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.nio.file.StandardOpenOption
 import java.util.UUID
 import kotlin.io.path.extension
 import kotlin.io.path.name
@@ -206,7 +205,7 @@ class FileSystemPromptTemplateRepository internal constructor(
             is RepositoryResult.Failure -> loaded
             is RepositoryResult.Success -> {
                 ensureDestinationParent(destination)
-                atomicWrite(destination, loaded.value.template.markdown)
+                writeTextAtomically(destination, loaded.value.template.markdown, allowNonAtomicMove = true)
                 RepositoryResult.Success(destination)
             }
         }
@@ -217,7 +216,7 @@ class FileSystemPromptTemplateRepository internal constructor(
         destination: Path,
     ): RepositoryResult<Path> = protect("export rendered Markdown") {
         ensureDestinationParent(destination)
-        atomicWrite(destination, rendered)
+        writeTextAtomically(destination, rendered, allowNonAtomicMove = true)
         RepositoryResult.Success(destination)
     }
 
@@ -396,31 +395,6 @@ class FileSystemPromptTemplateRepository internal constructor(
         )
     }
 
-    private fun atomicWrite(destination: Path, content: String) {
-        val parent = requireNotNull(destination.parent) { "A destination parent is required." }
-        val temporary = Files.createTempFile(parent, ".${destination.name}.", ".tmp")
-        try {
-            Files.writeString(
-                temporary,
-                content,
-                Charsets.UTF_8,
-                StandardOpenOption.TRUNCATE_EXISTING,
-            )
-            try {
-                Files.move(
-                    temporary,
-                    destination,
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-            } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(temporary, destination, StandardCopyOption.REPLACE_EXISTING)
-            }
-        } finally {
-            Files.deleteIfExists(temporary)
-        }
-    }
-
     private fun requireTemplateDirectory(directory: Path): Path {
         val safeDirectory = requireExistingManagedDirectory(directory, allowRoot = false)
         require(treeScanner.isTemplatePackage(safeDirectory)) {
@@ -547,7 +521,7 @@ class FileSystemPromptTemplateRepository internal constructor(
         // A malformed or newer-schema order file may hold order this version cannot represent.
         order.unreadable?.let { throw IOException("$it The existing order file was left unchanged.") }
         val encoded = LibraryFolderOrderCodec.encode(order)
-        atomicWrite(folder.resolve(ORDER_FILE), encoded)
+        writeTextAtomically(folder.resolve(ORDER_FILE), encoded, allowNonAtomicMove = true)
     }
 
     private fun persistOrderWarnings(folder: Path, order: FolderOrderState): List<String> = try {

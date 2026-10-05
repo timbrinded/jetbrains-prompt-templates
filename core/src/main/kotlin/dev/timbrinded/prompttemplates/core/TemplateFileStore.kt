@@ -4,8 +4,6 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption.ATOMIC_MOVE
-import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.security.MessageDigest
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -113,16 +111,8 @@ internal class TemplateFileStore(
         return Files.readString(path, Charsets.UTF_8)
     }
 
-    private fun replaceAtomically(path: Path, text: String) {
-        val temporary = Files.createTempFile(path.parent, STAGE_PREFIX, ".tmp")
-        try {
-            Files.writeString(temporary, text, Charsets.UTF_8)
-            // If atomic replacement is unsupported, stop with the journal intact before risking a partial file.
-            Files.move(temporary, path, ATOMIC_MOVE, REPLACE_EXISTING)
-        } finally {
-            Files.deleteIfExists(temporary)
-        }
-    }
+    // If atomic replacement is unsupported, stop with the journal intact before risking a partial file.
+    private fun replaceAtomically(path: Path, text: String) = writeTextAtomically(path, text, allowNonAtomicMove = false)
 
     @Serializable
     private data class SaveJournal(

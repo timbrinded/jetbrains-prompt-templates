@@ -3,10 +3,13 @@ package dev.timbrinded.prompttemplates.core
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.io.TempDir
 import java.nio.charset.MalformedInputException
+import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import kotlin.io.path.readText
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -70,6 +73,31 @@ class FileSystemPromptTemplateRepositoryTest(
         val saved = Json.parseToJsonElement(metadataPath.readText()).jsonObject
         assertEquals(JsonPrimitive("Renamed"), saved["name"])
         assertEquals(JsonPrimitive("keep"), saved["futureField"])
+    }
+
+    @Test
+    fun `new files follow the umask and replaced files keep their permissions`() {
+        assumeTrue("posix" in FileSystems.getDefault().supportedFileAttributeViews(), "POSIX permissions are unavailable.")
+        val repository = FileSystemPromptTemplateRepository(temporaryDirectory.resolve("library"))
+        val probe = Files.createFile(temporaryDirectory.resolve("probe.md"))
+        val exported = temporaryDirectory.resolve("exported.md")
+
+        assertIs<RepositoryResult.Success<Path>>(repository.exportRenderedMarkdown("rendered", exported))
+
+        assertEquals(Files.getPosixFilePermissions(probe), Files.getPosixFilePermissions(exported))
+        val stored = assertIs<RepositoryResult.Success<StoredTemplate>>(
+            repository.create(PromptTemplateDraft(name = "Restricted", markdown = "Body")),
+        ).value
+        val markdown = stored.directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE)
+        val restricted = PosixFilePermissions.fromString("rw-r-----")
+        Files.setPosixFilePermissions(markdown, restricted)
+
+        assertIs<RepositoryResult.Success<StoredTemplate>>(
+            repository.update(stored.directory, PromptTemplateDraft(stored.template.id, "Restricted", markdown = "Changed"), stored.revision),
+        )
+
+        assertEquals("Changed", markdown.readText())
+        assertEquals(restricted, Files.getPosixFilePermissions(markdown))
     }
 
     @Test
