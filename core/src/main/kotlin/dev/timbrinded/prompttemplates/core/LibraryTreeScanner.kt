@@ -1,9 +1,7 @@
 package dev.timbrinded.prompttemplates.core
 
-import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository.Companion.MARKDOWN_FILE
-import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository.Companion.METADATA_FILE
-import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository.Companion.ORDER_FILE
-import dev.timbrinded.prompttemplates.core.FileSystemPromptTemplateRepository.Companion.isInternalLibraryEntryName
+import dev.timbrinded.prompttemplates.core.LibraryLayout.MARKDOWN_FILE
+import dev.timbrinded.prompttemplates.core.LibraryLayout.METADATA_FILE
 import java.io.IOException
 import java.nio.file.DirectoryIteratorException
 import java.nio.file.Files
@@ -53,7 +51,7 @@ internal class LibraryTreeScanner(
     }
 
     fun classify(path: Path): DirectLibraryEntry {
-        val kind = if (!LibraryLayout.isLink(path) && isTemplatePackage(path)) {
+        val kind = if (!LibraryLayout.isLink(path) && LibraryLayout.isTemplatePackage(path)) {
             EntryKind.TEMPLATE
         } else {
             EntryKind.FOLDER
@@ -75,17 +73,12 @@ internal class LibraryTreeScanner(
         }
     }
 
-    fun isTemplatePackage(directory: Path): Boolean =
-        Files.exists(directory.resolve(MARKDOWN_FILE), NOFOLLOW_LINKS) ||
-            Files.exists(directory.resolve(METADATA_FILE), NOFOLLOW_LINKS) ||
-            Files.exists(directory.resolve(FileSystemPromptTemplateRepository.SAVE_JOURNAL_FILE), NOFOLLOW_LINKS)
-
     private fun scanFolder(directory: Path): ScannedFolder {
         val interrupted = mutableListOf<String>()
         val children = try {
             directory.useDirectoryEntries { entries ->
                 entries
-                    .onEach { if (isInterruptedWorkingDirectoryName(it.name)) interrupted += it.name }
+                    .onEach { if (LibraryLayout.isInterruptedWorkingDirectoryName(it.name)) interrupted += it.name }
                     .filter(::isScannableDirectoryEntry)
                     .map { child ->
                         when {
@@ -97,7 +90,7 @@ internal class LibraryTreeScanner(
                                 diagnostic = "Symbolic links and directory junctions are not supported.",
                             )
 
-                            isTemplatePackage(child) -> LibraryEntry.Template(
+                            LibraryLayout.isTemplatePackage(child) -> LibraryEntry.Template(
                                 summary = summaryFor(child),
                                 relativeDirectory = relativeToRoot(child),
                             )
@@ -250,13 +243,9 @@ internal class LibraryTreeScanner(
         diagnostic = diagnostic,
     )
 
-    private fun isInterruptedWorkingDirectoryName(name: String): Boolean =
-        name.startsWith(FileSystemPromptTemplateRepository.DELETE_SCRATCH_PREFIX, ignoreCase = true) ||
-            name.startsWith(FileSystemPromptTemplateRepository.RENAME_SCRATCH_PREFIX, ignoreCase = true)
-
     private fun isScannableDirectoryEntry(path: Path): Boolean =
-        path.name != ORDER_FILE &&
-            !isInternalLibraryEntryName(path.name) &&
+        path.name != LibraryLayout.ORDER_FILE &&
+            !LibraryLayout.isInternalLibraryEntryName(path.name) &&
             (Files.isDirectory(path, NOFOLLOW_LINKS) || Files.isSymbolicLink(path))
 
     private fun sortEntries(entries: List<LibraryEntry>, order: FolderOrderFile?): List<LibraryEntry> =

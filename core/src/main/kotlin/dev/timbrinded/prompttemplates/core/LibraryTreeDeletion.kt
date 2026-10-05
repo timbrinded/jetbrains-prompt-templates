@@ -22,10 +22,7 @@ internal enum class LibraryDeletionMode {
 }
 
 internal object LibraryTreeDeletion {
-    fun manifest(
-        directory: Path,
-        isTemplatePackage: (Path) -> Boolean,
-    ): FolderDeletionPreview {
+    fun manifest(directory: Path): FolderDeletionPreview {
         var folderCount = 0
         var templateCount = 0
         var fileCount = 0
@@ -39,7 +36,7 @@ internal object LibraryTreeDeletion {
                     records += "L\u0000${directory.relativize(dir).invariantSeparatorsPathString}\u0000${junctionTarget(dir)}"
                     return FileVisitResult.SKIP_SUBTREE
                 }
-                val templatePackage = isTemplatePackage(dir)
+                val templatePackage = LibraryLayout.isTemplatePackage(dir)
                 if (opaqueTemplatePackage == null) {
                     if (templatePackage) {
                         templateCount++
@@ -208,7 +205,7 @@ internal object LibraryTreeDeletion {
 
     private fun nextQuarantinePath(parent: Path): Path {
         while (true) {
-            val candidate = parent.resolve("${FileSystemPromptTemplateRepository.DELETE_SCRATCH_PREFIX}${Uuid.random()}")
+            val candidate = parent.resolve("${LibraryLayout.DELETE_SCRATCH_PREFIX}${Uuid.random()}")
             if (!Files.exists(candidate, NOFOLLOW_LINKS)) return candidate
         }
     }

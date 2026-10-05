@@ -20,7 +20,6 @@ import kotlin.time.TimeSource
  * Waiting is bounded, so a frozen IDE that holds the lock produces an error instead of blocking forever.
  */
 internal object LibraryFileLock {
-    const val FILE_NAME = ".prompt-templates.lock"
     private val DEFAULT_TIMEOUT = 10.seconds
     private val POLL_INTERVAL = 50.milliseconds
     private val gate = ReentrantLock()
@@ -34,7 +33,7 @@ internal object LibraryFileLock {
         try {
             val realRoot = root.toRealPath()
             if (realRoot in heldRoots) return block()
-            FileChannel.open(realRoot.resolve(FILE_NAME), CREATE, WRITE, NOFOLLOW_LINKS).use { channel ->
+            FileChannel.open(realRoot.resolve(LibraryLayout.LOCK_FILE), CREATE, WRITE, NOFOLLOW_LINKS).use { channel ->
                 acquire(channel, deadline).use {
                     heldRoots.add(realRoot)
                     try {

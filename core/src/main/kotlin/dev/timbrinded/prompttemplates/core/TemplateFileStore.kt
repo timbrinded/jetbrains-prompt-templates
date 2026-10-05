@@ -48,14 +48,14 @@ internal class TemplateFileStore(
         }
         val journal = SaveJournal(expected, template.markdown, codec.encode(template.metadata, original = current.metadata))
         check(codec.decode(journal.metadata) is MetadataDecodeResult.Success)
-        replaceAtomically(directory.resolve(JOURNAL_FILE), Json.encodeToString(journal))
+        replaceAtomically(directory.resolve(LibraryLayout.SAVE_JOURNAL_FILE), Json.encodeToString(journal))
         onSaveStep(TemplateSaveStep.AFTER_STAGE)
         finish(directory, journal, onSaveStep)
         return TemplateRevision.of(journal.markdown, journal.metadata)
     }
 
     fun recover(directory: Path) {
-        val path = directory.resolve(JOURNAL_FILE)
+        val path = directory.resolve(LibraryLayout.SAVE_JOURNAL_FILE)
         if (!Files.exists(path, NOFOLLOW_LINKS)) return
         try {
             val journal = Json.decodeFromString<SaveJournal>(requireNotNull(readRegular(path)))
@@ -88,21 +88,21 @@ internal class TemplateFileStore(
         }
         step(TemplateSaveStep.BEFORE_MARKDOWN)
         if (checkedCurrent().revision.markdown != next.markdown) {
-            replaceAtomically(directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE), journal.markdown)
+            replaceAtomically(directory.resolve(LibraryLayout.MARKDOWN_FILE), journal.markdown)
         }
         step(TemplateSaveStep.AFTER_MARKDOWN)
         step(TemplateSaveStep.BEFORE_METADATA)
         if (checkedCurrent().revision.metadata != next.metadata) {
-            replaceAtomically(directory.resolve(FileSystemPromptTemplateRepository.METADATA_FILE), journal.metadata)
+            replaceAtomically(directory.resolve(LibraryLayout.METADATA_FILE), journal.metadata)
         }
         step(TemplateSaveStep.AFTER_METADATA)
         if (checkedCurrent().revision != next) throw IOException("The template changed before save completion.")
-        Files.delete(directory.resolve(JOURNAL_FILE))
+        Files.delete(directory.resolve(LibraryLayout.SAVE_JOURNAL_FILE))
     }
 
     private fun readCanonical(directory: Path) = TemplateFiles(
-        readRegular(directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE)),
-        readRegular(directory.resolve(FileSystemPromptTemplateRepository.METADATA_FILE)),
+        readRegular(directory.resolve(LibraryLayout.MARKDOWN_FILE)),
+        readRegular(directory.resolve(LibraryLayout.METADATA_FILE)),
     )
 
     private fun readRegular(path: Path): String? {
@@ -121,9 +121,4 @@ internal class TemplateFileStore(
         val metadata: String,
         val version: Int = 1,
     )
-
-    companion object {
-        const val JOURNAL_FILE = ".prompt-template-save.json"
-        const val STAGE_PREFIX = ".prompt-template-stage-"
-    }
 }

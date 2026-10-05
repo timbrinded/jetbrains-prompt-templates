@@ -31,7 +31,7 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
             val committed = step != TemplateSaveStep.BEFORE_STAGE
             assertEquals(if (committed) "New body" else "Old body", loaded.template.markdown, step.name)
             assertEquals(if (committed) "Changed" else "Original", loaded.template.metadata.name, step.name)
-            assertFalse(original.directory.resolve(TemplateFileStore.JOURNAL_FILE).exists())
+            assertFalse(original.directory.resolve(LibraryLayout.SAVE_JOURNAL_FILE).exists())
         }
     }
 
@@ -49,7 +49,7 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
             assertEquals(TemplateHealth.HEALTHY, summary.health, step.name)
             assertEquals(if (step == TemplateSaveStep.BEFORE_STAGE) "Old body" else "New body", loaded.template.markdown, step.name)
             assertEquals(if (step == TemplateSaveStep.BEFORE_STAGE) "Original" else "Changed", summary.name, step.name)
-            assertFalse(original.directory.resolve(TemplateFileStore.JOURNAL_FILE).exists())
+            assertFalse(original.directory.resolve(LibraryLayout.SAVE_JOURNAL_FILE).exists())
         }
     }
 
@@ -61,7 +61,7 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
         val child = startProcess(root, "crash", TemplateSaveStep.AFTER_MARKDOWN.name)
         assertTrue(child.waitFor(15, TimeUnit.SECONDS))
         assertEquals(23, child.exitValue())
-        val journal = original.directory.resolve(TemplateFileStore.JOURNAL_FILE)
+        val journal = original.directory.resolve(LibraryLayout.SAVE_JOURNAL_FILE)
         val retained = journal.readText()
         val metadata = original.directory.resolve(FileSystemPromptTemplateRepository.METADATA_FILE)
         val originalMetadata = metadata.readText()
@@ -91,7 +91,7 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
         path.writeText("External two")
         val second = assertIs<RepositoryResult.Conflict>(repository.update(original.directory, changed(original), first.current.revision))
         assertEquals("External two", path.readText())
-        assertFalse(original.directory.resolve(TemplateFileStore.JOURNAL_FILE).exists())
+        assertFalse(original.directory.resolve(LibraryLayout.SAVE_JOURNAL_FILE).exists())
         assertIs<RepositoryResult.Success<StoredTemplate>>(repository.update(original.directory, changed(original), second.current.revision))
         assertEquals("New body", path.readText())
     }
@@ -106,7 +106,7 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
         })
         val conflict = assertIs<RepositoryResult.Conflict>(repository.update(original.directory, changed(original), original.revision))
         assertEquals("External change", conflict.current.template.markdown)
-        assertFalse(original.directory.resolve(TemplateFileStore.JOURNAL_FILE).exists())
+        assertFalse(original.directory.resolve(LibraryLayout.SAVE_JOURNAL_FILE).exists())
     }
 
     @Test
@@ -127,7 +127,7 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
     fun `invalid journal blocks reads and is retained without changing canonical files`() {
         val repository = FileSystemPromptTemplateRepository(temporary.resolve("library"))
         val original = createOriginal(repository)
-        val journal = original.directory.resolve(TemplateFileStore.JOURNAL_FILE)
+        val journal = original.directory.resolve(LibraryLayout.SAVE_JOURNAL_FILE)
         journal.writeText("interrupted or invalid journal")
         assertIs<RepositoryResult.Failure>(repository.load(original.directory))
         assertEquals(TemplateHealth.BROKEN, assertIs<LibraryEntry.Template>(repository.scan().children.single()).summary.health)

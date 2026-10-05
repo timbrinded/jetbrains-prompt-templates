@@ -19,7 +19,7 @@ import kotlin.uuid.Uuid
  */
 internal fun writeTextAtomically(target: Path, text: String, allowNonAtomicMove: Boolean) {
     val directory = requireNotNull(target.toAbsolutePath().parent) { "A destination parent is required." }
-    val staging = directory.resolve("${TemplateFileStore.STAGE_PREFIX}${Uuid.random()}.tmp")
+    val staging = directory.resolve("${LibraryLayout.STAGE_PREFIX}${Uuid.random()}.tmp")
     try {
         FileChannel.open(staging, CREATE_NEW, WRITE).use { channel ->
             copyPosixPermissions(from = target, to = staging)

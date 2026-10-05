@@ -7,7 +7,6 @@ import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
 
-internal const val LIBRARY_ORDER_FILE = ".prompt-templates-order.json"
 internal const val LIBRARY_ORDER_SCHEMA_VERSION = 1
 
 internal enum class EntryKind { FOLDER, TEMPLATE }
@@ -57,15 +56,15 @@ internal object LibraryFolderOrderCodec {
     fun read(folder: Path): ReadOrder = try {
         readOrderFile(folder)
     } catch (_: SecurityException) {
-        ReadOrder(diagnostic = "Unable to read $LIBRARY_ORDER_FILE: permission denied; alphabetical order is in use.")
+        ReadOrder(diagnostic = "Unable to read ${LibraryLayout.ORDER_FILE}: permission denied; alphabetical order is in use.")
     }
 
     private fun readOrderFile(folder: Path): ReadOrder {
-        val path = folder.resolve(LIBRARY_ORDER_FILE)
+        val path = folder.resolve(LibraryLayout.ORDER_FILE)
         if (!Files.exists(path, NOFOLLOW_LINKS)) return ReadOrder()
         if (!Files.isRegularFile(path, NOFOLLOW_LINKS)) {
             return ReadOrder(
-                diagnostic = "$LIBRARY_ORDER_FILE is not a regular file; alphabetical order is in use.",
+                diagnostic = "${LibraryLayout.ORDER_FILE} is not a regular file; alphabetical order is in use.",
             )
         }
         val decoded = try {
@@ -74,7 +73,7 @@ internal object LibraryFolderOrderCodec {
             return invalidOrder()
         } catch (error: IOException) {
             return ReadOrder(
-                diagnostic = "Unable to read $LIBRARY_ORDER_FILE: ${error.message}; alphabetical order is in use.",
+                diagnostic = "Unable to read ${LibraryLayout.ORDER_FILE}: ${error.message}; alphabetical order is in use.",
             )
         }
         if (decoded.schemaVersion != LIBRARY_ORDER_SCHEMA_VERSION) {
@@ -116,7 +115,7 @@ internal object LibraryFolderOrderCodec {
     }
 
     private fun invalidOrder(): ReadOrder =
-        ReadOrder(diagnostic = "$LIBRARY_ORDER_FILE is invalid; alphabetical order is in use.")
+        ReadOrder(diagnostic = "${LibraryLayout.ORDER_FILE} is invalid; alphabetical order is in use.")
 
     private fun hasValidNames(order: FolderOrderFile): Boolean {
         val all = order.folders + order.templates

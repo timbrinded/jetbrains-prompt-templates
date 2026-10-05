@@ -7,6 +7,7 @@ import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.UUID
 import kotlin.io.path.extension
 import kotlin.io.path.name
@@ -341,13 +342,13 @@ class FileSystemPromptTemplateRepository internal constructor(
         protect("inspect folder") {
             val safeDirectory = requireOrganiserFolder(directory)
             require(safeDirectory != normalizedRoot()) { "The library root cannot be deleted." }
-            RepositoryResult.Success(LibraryTreeDeletion.manifest(safeDirectory, treeScanner::isTemplatePackage))
+            RepositoryResult.Success(LibraryTreeDeletion.manifest(safeDirectory))
         }
 
     override fun deleteFolder(preview: FolderDeletionPreview): RepositoryResult<Unit> = mutateLibrary("delete folder") {
         val safeDirectory = requireOrganiserFolder(preview.directory)
         require(safeDirectory != normalizedRoot()) { "The library root cannot be deleted." }
-        val current = LibraryTreeDeletion.manifest(safeDirectory, treeScanner::isTemplatePackage)
+        val current = LibraryTreeDeletion.manifest(safeDirectory)
         if (current != preview.copy(directory = safeDirectory)) {
             return@mutateLibrary RepositoryResult.Failure(
                 "The folder contents changed after confirmation. Review the folder and confirm deletion again.",
@@ -399,7 +400,7 @@ class FileSystemPromptTemplateRepository internal constructor(
 
     private fun requireTemplateDirectory(directory: Path): Path {
         val safeDirectory = requireExistingManagedDirectory(directory, allowRoot = false)
-        require(treeScanner.isTemplatePackage(safeDirectory)) {
+        require(LibraryLayout.isTemplatePackage(safeDirectory)) {
             "The selected entry is an organiser folder, not a template."
         }
         return safeDirectory
@@ -413,7 +414,7 @@ class FileSystemPromptTemplateRepository internal constructor(
         }
         val safeDirectory = requireExistingManagedDirectory(normalDirectory, allowRoot = true)
         if (safeDirectory != libraryRoot) {
-            require(!treeScanner.isTemplatePackage(safeDirectory)) { "Templates cannot contain organiser folders." }
+            require(!LibraryLayout.isTemplatePackage(safeDirectory)) { "Templates cannot contain organiser folders." }
         }
         return safeDirectory
     }
@@ -434,13 +435,13 @@ class FileSystemPromptTemplateRepository internal constructor(
         libraryRoot.relativize(normalPath).forEach { segment ->
             val segmentName = segment.name
             if (segmentName.isEmpty()) return@forEach
-            require(!isInternalLibraryEntryName(segmentName)) {
+            require(!LibraryLayout.isInternalLibraryEntryName(segmentName)) {
                 "IDE metadata, version-control and library working directories are not part of the template library."
             }
             current = current.resolve(segment)
             require(!LibraryLayout.isLink(current)) { "Symbolic links and directory junctions are not supported." }
             require(Files.isDirectory(current, NOFOLLOW_LINKS)) { "Library path is not a directory." }
-            require(current == normalPath || !treeScanner.isTemplatePackage(current)) {
+            require(current == normalPath || !LibraryLayout.isTemplatePackage(current)) {
                 "Entries inside a template package are not part of the managed library hierarchy."
             }
         }
@@ -498,13 +499,11 @@ class FileSystemPromptTemplateRepository internal constructor(
         require(!trimmed.endsWith('.')) { "Folder names cannot end with a period." }
         require(trimmed.encodeToByteArray().size <= MAX_NAME_BYTES) { "Folder name is too long." }
         require(!isWindowsDeviceName(trimmed)) { "'$trimmed' is a reserved device name on Windows." }
-        require(
-            trimmed.lowercase() !in RESERVED_ENTRY_NAMES,
-        ) { "'$trimmed' is reserved by the prompt-template library." }
-        require(!isLibraryManagementDirectoryName(trimmed)) {
+        require(!LibraryLayout.isReservedFileName(trimmed)) { "'$trimmed' is reserved by the prompt-template library." }
+        require(!LibraryLayout.isManagementDirectoryName(trimmed)) {
             "'$trimmed' is reserved for IDE or version-control metadata."
         }
-        require(!isLibraryScratchDirectoryName(trimmed)) {
+        require(!LibraryLayout.isScratchName(trimmed)) {
             "'$trimmed' uses a prefix reserved for the library's working directories."
         }
         return trimmed
@@ -610,7 +609,7 @@ class FileSystemPromptTemplateRepository internal constructor(
 
     private fun nextCaseRenameTemporaryPath(parent: Path): Path {
         while (true) {
-            val candidate = parent.resolve("$RENAME_SCRATCH_PREFIX${Uuid.random()}")
+            val candidate = parent.resolve("${LibraryLayout.RENAME_SCRATCH_PREFIX}${Uuid.random()}")
             if (!Files.exists(candidate, NOFOLLOW_LINKS)) return candidate
         }
     }
@@ -681,14 +680,13 @@ class FileSystemPromptTemplateRepository internal constructor(
     }
 
     companion object {
-        const val MARKDOWN_FILE = "prompt.md"
-        const val METADATA_FILE = "prompt.meta.json"
-        const val ORDER_FILE = LIBRARY_ORDER_FILE
-        const val SAVE_JOURNAL_FILE = TemplateFileStore.JOURNAL_FILE
+        const val MARKDOWN_FILE = LibraryLayout.MARKDOWN_FILE
+        const val METADATA_FILE = LibraryLayout.METADATA_FILE
+        const val ORDER_FILE = LibraryLayout.ORDER_FILE
+        const val SAVE_JOURNAL_FILE = LibraryLayout.SAVE_JOURNAL_FILE
+        const val DELETE_SCRATCH_PREFIX = LibraryLayout.DELETE_SCRATCH_PREFIX
+        const val RENAME_SCRATCH_PREFIX = LibraryLayout.RENAME_SCRATCH_PREFIX
 
-        private val RESERVED_ENTRY_NAMES = setOf(MARKDOWN_FILE, METADATA_FILE, ORDER_FILE, SAVE_JOURNAL_FILE, LibraryFileLock.FILE_NAME)
-            .mapTo(mutableSetOf(), String::lowercase)
-        private val LIBRARY_MANAGEMENT_DIRECTORY_NAMES = setOf(".git", ".hg", ".svn", ".idea")
         private val INVALID_FOLDER_NAME_CHARACTERS = setOf('<', '>', ':', '"', '/', '\\', '|', '?', '*')
         private val WINDOWS_DEVICE_NAMES = setOf("con", "prn", "aux", "nul") + (1..9).flatMap { listOf("com$it", "lpt$it") }
         private const val MAX_NAME_BYTES = 255
@@ -700,21 +698,13 @@ class FileSystemPromptTemplateRepository internal constructor(
         private fun isWindowsDeviceName(name: String): Boolean =
             name.substringBefore('.').trimEnd(' ').lowercase() in WINDOWS_DEVICE_NAMES
 
-        /** Prefixes of the working directories the repository creates beside an entry it is deleting or renaming. */
-        const val DELETE_SCRATCH_PREFIX = ".prompt-template-delete-"
-        const val RENAME_SCRATCH_PREFIX = ".prompt-template-rename-"
+        /** Entries the library never shows or manages: version-control metadata and the repository's own working files. */
+        fun isInternalLibraryEntryName(name: String): Boolean = LibraryLayout.isInternalLibraryEntryName(name)
 
-        fun isLibraryManagementDirectoryName(name: String): Boolean =
-            name.lowercase() in LIBRARY_MANAGEMENT_DIRECTORY_NAMES
-
-        fun isLibraryScratchDirectoryName(name: String): Boolean =
-            name.startsWith(DELETE_SCRATCH_PREFIX, ignoreCase = true) ||
-                name.startsWith(RENAME_SCRATCH_PREFIX, ignoreCase = true) ||
-                name.startsWith(TemplateFileStore.STAGE_PREFIX, ignoreCase = true)
-
-        /** Entries the library never shows or manages: version-control metadata and the repository's own scratch directories. */
-        fun isInternalLibraryEntryName(name: String): Boolean =
-            isLibraryManagementDirectoryName(name) || isLibraryScratchDirectoryName(name) ||
-                name.equals(LibraryFileLock.FILE_NAME, ignoreCase = true)
+        /**
+         * Whether a traversal below the library root must treat [path] as a link and not descend into it. This
+         * covers Windows directory junctions, which report as directories that are not symbolic links.
+         */
+        fun isLinkEntry(path: Path, attributes: BasicFileAttributes): Boolean = LibraryLayout.isLink(path, attributes)
     }
 }

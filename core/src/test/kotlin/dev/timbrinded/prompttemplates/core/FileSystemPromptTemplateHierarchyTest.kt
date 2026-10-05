@@ -515,7 +515,7 @@ class FileSystemPromptTemplateHierarchyTest(
         Files.writeString(intermediate.resolve("victim.txt"), "original")
         Files.writeString(outside.resolve("victim.txt"), "outside")
 
-        val fingerprint = LibraryTreeDeletion.manifest(target) { false }.fingerprint
+        val fingerprint = LibraryTreeDeletion.manifest(target).fingerprint
         Files.move(intermediate, displaced)
         Files.createSymbolicLink(intermediate, outside)
 
@@ -596,7 +596,7 @@ class FileSystemPromptTemplateHierarchyTest(
         val root = temporaryDirectory.resolve("library")
         val repository = FileSystemPromptTemplateRepository(root)
         val stored = success(repository.create(PromptTemplateDraft(name = "Template", markdown = "body")))
-        listOf(".DS_Store", "Thumbs.db", "desktop.ini", "${TemplateFileStore.STAGE_PREFIX}leftover.tmp").forEach {
+        listOf(".DS_Store", "Thumbs.db", "desktop.ini", "${LibraryLayout.STAGE_PREFIX}leftover.tmp").forEach {
             Files.writeString(stored.directory.resolve(it), "")
         }
 
