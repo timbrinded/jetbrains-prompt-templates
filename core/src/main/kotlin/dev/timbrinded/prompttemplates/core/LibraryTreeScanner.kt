@@ -19,7 +19,7 @@ internal data class DirectLibraryEntry(
 internal class LibraryTreeScanner(
     root: Path,
     private val codec: TemplateMetadataCodec,
-    private val recover: (Path) -> Unit = {},
+    private val recover: (Path) -> Unit,
 ) {
     private val root = root.toAbsolutePath().normalize()
 

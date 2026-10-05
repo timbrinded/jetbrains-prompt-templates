@@ -15,18 +15,10 @@ data class RenderResult(
         get() = diagnostics.none { it.severity == DiagnosticSeverity.ERROR }
 }
 
-interface PromptRenderer {
-    fun render(
-        template: PromptTemplate,
-        userValues: Map<String, String>,
-        contextValues: Map<String, ContextValue>,
-    ): RenderResult
-}
+class StrictPromptRenderer {
+    private val parser = LinearPlaceholderParser()
 
-class StrictPromptRenderer(
-    private val parser: PlaceholderParser = LinearPlaceholderParser(),
-) : PromptRenderer {
-    override fun render(
+    fun render(
         template: PromptTemplate,
         userValues: Map<String, String>,
         contextValues: Map<String, ContextValue>,

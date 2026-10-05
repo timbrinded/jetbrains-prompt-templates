@@ -29,23 +29,21 @@ internal inline fun <T> protectRepositoryOperation(
 }
 
 class FileSystemPromptTemplateRepository internal constructor(
-    override val root: Path,
+    val root: Path,
     private val codec: TemplateMetadataCodec,
-    private val parser: PlaceholderParser,
     private val files: TemplateFileStore,
-) : PromptTemplateRepository {
+) {
     constructor(
         root: Path,
         codec: TemplateMetadataCodec = TemplateMetadataCodec(),
-        parser: PlaceholderParser = LinearPlaceholderParser(),
-    ) : this(root, codec, parser, TemplateFileStore(codec))
+    ) : this(root, codec, TemplateFileStore(codec))
 
     private val paths = LibraryPaths(root)
     private val treeScanner = LibraryTreeScanner(root, codec, files::recover)
     private val orders = FolderOrderStore(treeScanner, paths)
-    private val reconciler = TemplateReconciler(parser)
+    private val reconciler = TemplateReconciler()
 
-    override fun scan(): LibrarySnapshot {
+    fun scan(): LibrarySnapshot {
         if (!Files.isDirectory(root)) return treeScanner.scan()
         return when (val result = protect("scan library") {
             LibraryFileLock.withLock(root) { RepositoryResult.Success(treeScanner.scan()) }
@@ -55,7 +53,7 @@ class FileSystemPromptTemplateRepository internal constructor(
         }
     }
 
-    override fun load(directory: Path): RepositoryResult<StoredTemplate> = mutateLibrary("load template") {
+    fun load(directory: Path): RepositoryResult<StoredTemplate> = mutateLibrary("load template") {
         loadLocked(directory)
     }
 
@@ -84,9 +82,9 @@ class FileSystemPromptTemplateRepository internal constructor(
         }
     }
 
-    override fun create(
+    fun create(
         draft: PromptTemplateDraft,
-        destinationFolder: Path,
+        destinationFolder: Path = root,
     ): RepositoryResult<StoredTemplate> = mutateLibrary("create template", createRoot = true) {
         val template = draft.toTemplate()
         codec.validate(template.metadata)?.let { return@mutateLibrary RepositoryResult.Failure(it) }
@@ -116,7 +114,7 @@ class FileSystemPromptTemplateRepository internal constructor(
         RepositoryResult.Success(StoredTemplate(template, directory, revision = revision), warnings)
     }
 
-    override fun update(
+    fun update(
         directory: Path,
         draft: PromptTemplateDraft,
         expectedRevision: TemplateRevision?,
@@ -151,7 +149,11 @@ class FileSystemPromptTemplateRepository internal constructor(
         RepositoryResult.Success(StoredTemplate(template, safeDirectory, revision = revision))
     }
 
-    override fun deleteTemplate(directory: Path, expectedId: TemplateId?): RepositoryResult<Unit> = mutateLibrary("delete template") {
+    /**
+     * Deletes a template package that holds only template files. With [expectedId], the package must still
+     * contain that template, so a stale view cannot delete a different template now at the same path.
+     */
+    fun deleteTemplate(directory: Path, expectedId: TemplateId? = null): RepositoryResult<Unit> = mutateLibrary("delete template") {
         val safeDirectory = paths.requireTemplateDirectory(directory)
         val unexpected = unexpectedPackageEntries(safeDirectory)
         if (unexpected.isNotEmpty()) {
@@ -172,9 +174,9 @@ class FileSystemPromptTemplateRepository internal constructor(
         RepositoryResult.Success(Unit, orders.persistAfterChange(parent, updated))
     }
 
-    override fun importMarkdown(
+    fun importMarkdown(
         source: Path,
-        destinationFolder: Path,
+        destinationFolder: Path = root,
     ): RepositoryResult<StoredTemplate> = protect("import Markdown") {
         if (!Files.isRegularFile(source, NOFOLLOW_LINKS) || source.extension.lowercase() != "md") {
             return@protect RepositoryResult.Failure("Select a regular Markdown (.md) file.")
@@ -191,7 +193,7 @@ class FileSystemPromptTemplateRepository internal constructor(
         )
     }
 
-    override fun exportTemplateMarkdown(
+    fun exportTemplateMarkdown(
         directory: Path,
         destination: Path,
     ): RepositoryResult<Path> = mutateLibrary("export template Markdown") {
@@ -205,7 +207,7 @@ class FileSystemPromptTemplateRepository internal constructor(
         }
     }
 
-    override fun exportRenderedMarkdown(
+    fun exportRenderedMarkdown(
         rendered: String,
         destination: Path,
     ): RepositoryResult<Path> = protect("export rendered Markdown") {
@@ -214,7 +216,7 @@ class FileSystemPromptTemplateRepository internal constructor(
         RepositoryResult.Success(destination)
     }
 
-    override fun createFolder(parent: Path, name: String): RepositoryResult<Path> = mutateLibrary("create folder", createRoot = true) {
+    fun createFolder(parent: Path, name: String): RepositoryResult<Path> = mutateLibrary("create folder", createRoot = true) {
         val safeParent = paths.requireOrganiserFolder(parent, createRoot = true)
         val validName = LibraryPaths.requireFolderName(name)
         duplicateVisibleName(safeParent, validName)?.let {
@@ -231,7 +233,7 @@ class FileSystemPromptTemplateRepository internal constructor(
         RepositoryResult.Success(directory, warnings)
     }
 
-    override fun renameFolder(directory: Path, newName: String): RepositoryResult<Path> =
+    fun renameFolder(directory: Path, newName: String): RepositoryResult<Path> =
         mutateLibrary("rename folder") {
         val safeDirectory = paths.requireOrganiserFolder(directory)
         require(safeDirectory != paths.root) { "The library root cannot be renamed." }
@@ -265,10 +267,10 @@ class FileSystemPromptTemplateRepository internal constructor(
         RepositoryResult.Success(destination, orders.persistAfterChange(parent, updatedOrder))
     }
 
-    override fun moveEntry(
+    fun moveEntry(
         entry: Path,
         destinationFolder: Path,
-        placement: EntryPlacement,
+        placement: EntryPlacement = EntryPlacement.EndOfKind,
     ): RepositoryResult<Path> = mutateLibrary("move library entry") {
         val safeEntry = paths.requireEntry(entry)
         val safeDestination = paths.requireOrganiserFolder(destinationFolder)
@@ -334,14 +336,14 @@ class FileSystemPromptTemplateRepository internal constructor(
         RepositoryResult.Success(resultPath, warnings)
     }
 
-    override fun previewFolderDeletion(directory: Path): RepositoryResult<FolderDeletionPreview> =
+    fun previewFolderDeletion(directory: Path): RepositoryResult<FolderDeletionPreview> =
         protect("inspect folder") {
             val safeDirectory = paths.requireOrganiserFolder(directory)
             require(safeDirectory != paths.root) { "The library root cannot be deleted." }
             RepositoryResult.Success(LibraryTreeDeletion.manifest(safeDirectory))
         }
 
-    override fun deleteFolder(preview: FolderDeletionPreview): RepositoryResult<Unit> = mutateLibrary("delete folder") {
+    fun deleteFolder(preview: FolderDeletionPreview): RepositoryResult<Unit> = mutateLibrary("delete folder") {
         val safeDirectory = paths.requireOrganiserFolder(preview.directory)
         require(safeDirectory != paths.root) { "The library root cannot be deleted." }
         val current = LibraryTreeDeletion.manifest(safeDirectory)

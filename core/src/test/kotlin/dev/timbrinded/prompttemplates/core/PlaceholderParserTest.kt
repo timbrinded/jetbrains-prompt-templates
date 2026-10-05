@@ -9,7 +9,7 @@ class PlaceholderParserTest {
 
     @Test
     fun `literal capture round trips escaped malformed and overlapping openings through rendering`() {
-        val renderer = StrictPromptRenderer(parser)
+        val renderer = StrictPromptRenderer()
         val selections = listOf(
             "", "  \t\r\n", "猫 {{name}} 🦧", "{{ide.selection}} {{clipboard}}",
             "\\{{already_escaped}}", "\\\\{{two_backslashes}}", "{{", "{{bad key}}",

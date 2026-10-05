@@ -23,7 +23,7 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
             val repository = FileSystemPromptTemplateRepository(root)
             val original = createOriginal(repository)
             val codec = TemplateMetadataCodec()
-            val failing = FileSystemPromptTemplateRepository(root, codec, LinearPlaceholderParser(), TemplateFileStore(codec) {
+            val failing = FileSystemPromptTemplateRepository(root, codec, TemplateFileStore(codec) {
                 if (it == step) throw IOException("Injected $step")
             })
             assertIs<RepositoryResult.Failure>(failing.update(original.directory, changed(original), original.revision))
@@ -101,7 +101,7 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
         val root = temporary.resolve("library")
         val original = createOriginal(FileSystemPromptTemplateRepository(root))
         val codec = TemplateMetadataCodec()
-        val repository = FileSystemPromptTemplateRepository(root, codec, LinearPlaceholderParser(), TemplateFileStore(codec) {
+        val repository = FileSystemPromptTemplateRepository(root, codec, TemplateFileStore(codec) {
             if (it == TemplateSaveStep.BEFORE_STAGE) original.directory.resolve("prompt.md").writeText("External change")
         })
         val conflict = assertIs<RepositoryResult.Conflict>(repository.update(original.directory, changed(original), original.revision))
@@ -113,7 +113,7 @@ class TemplateSaveRecoveryTest(@param:TempDir private val temporary: Path) {
     fun `a journal before either canonical file is discoverable as one recoverable template`() {
         val root = temporary.resolve("library")
         val codec = TemplateMetadataCodec()
-        val failing = FileSystemPromptTemplateRepository(root, codec, LinearPlaceholderParser(), TemplateFileStore(codec) {
+        val failing = FileSystemPromptTemplateRepository(root, codec, TemplateFileStore(codec) {
             if (it == TemplateSaveStep.AFTER_STAGE) throw IOException("Interrupted create")
         })
         assertIs<RepositoryResult.Failure>(failing.create(PromptTemplateDraft(name = "Original", markdown = "New body")))
@@ -208,7 +208,7 @@ object TemplateSaveProcess {
             root.resolve("waiting-attempt").writeText("")
         }
         val codec = TemplateMetadataCodec()
-        val repository = FileSystemPromptTemplateRepository(root, codec, LinearPlaceholderParser(), TemplateFileStore(codec) { step ->
+        val repository = FileSystemPromptTemplateRepository(root, codec, TemplateFileStore(codec) { step ->
             if (mode == "crash" && step.name == args[2]) Runtime.getRuntime().halt(23)
             if (mode == "hold" && step == TemplateSaveStep.AFTER_MARKDOWN) {
                 root.resolve("holding-ready").writeText("")
