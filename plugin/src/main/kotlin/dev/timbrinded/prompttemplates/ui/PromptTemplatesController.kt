@@ -920,9 +920,15 @@ internal class PromptTemplatesController(
 
     private fun openMarkdown(directory: Path) {
         val path = directory.resolve(FileSystemPromptTemplateRepository.MARKDOWN_FILE)
-        val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path)
-        if (file == null) PromptTemplatesNotifications.error(project, "Unable to find $path.")
-        else FileEditorManager.getInstance(project).openFile(file, true)
+        coroutineScope.launch {
+            // Refreshing the file from disk can block on a slow mount, so resolve it off the EDT.
+            val file = withContext(Dispatchers.IO) { LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path) }
+            withContext(Dispatchers.EDT) {
+                if (isDisposed()) return@withContext
+                if (file == null) PromptTemplatesNotifications.error(project, "Unable to find $path.")
+                else FileEditorManager.getInstance(project).openFile(file, true)
+            }
+        }
     }
 
     private fun revealSource() {
