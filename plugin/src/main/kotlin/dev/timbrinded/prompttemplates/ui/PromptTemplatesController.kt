@@ -17,6 +17,7 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.ui.UIUtil
 import com.intellij.openapi.components.service
+import dev.timbrinded.prompttemplates.LibraryChange
 import dev.timbrinded.prompttemplates.PromptTemplatesProjectService
 import dev.timbrinded.prompttemplates.core.DiagnosticSeverity
 import dev.timbrinded.prompttemplates.core.EntryPlacement
@@ -107,7 +108,8 @@ internal class PromptTemplatesController(
             PromptTemplatesSettingsListener(::onLibraryRootChanged),
         )
         coroutineScope.launch(Dispatchers.EDT) {
-            projectService.libraryChanges.collect { onLibraryFilesChanged() }
+            // This view reloads after its own writes itself, with the selection that write calls for.
+            projectService.libraryChanges.collect { change -> if (change == LibraryChange.EXTERNAL) onLibraryFilesChanged() }
         }
         coroutineScope.launch(Dispatchers.EDT) {
             invocation.state.collect { session ->
@@ -230,11 +232,11 @@ internal class PromptTemplatesController(
     ) {
         if (authorOpen) return
         val active = state.detail as? PromptDetailState.Use
+        // The project service already re-checked the open invocation when it reported the change.
         if (active != null && pendingDetail == null && (
                 reloadSelectedDetail ||
                     selected is LibraryTreeSelection.Template && selected.entry.summary.id == active.stored.template.id
                 )) {
-            invocation.checkTemplate()
             return
         }
         when (selected) {
@@ -523,7 +525,7 @@ internal class PromptTemplatesController(
             // release the save latch; otherwise later Save clicks are silently ignored.
             try {
                 if (!authorRequests.isCurrent(request)) return@launch
-                var result = withContext(Dispatchers.IO) {
+                var result = projectService.writeLibrary(repo.root) {
                     if (existing == null) {
                         repo.create(draft, request.destination)
                     } else {
@@ -534,7 +536,7 @@ internal class PromptTemplatesController(
                     val current = result.current
                     if (!confirmOverwrite(request, current, draft)) return@launch
                     if (!authorRequests.isCurrent(request)) return@launch
-                    result = withContext(Dispatchers.IO) {
+                    result = projectService.writeLibrary(repo.root) {
                         repo.update(existing.directory, draft, current.revision)
                     }
                 }
@@ -860,6 +862,7 @@ internal class PromptTemplatesController(
         runRepositoryOperation(
             operation = { repo -> repo.exportTemplateMarkdown(use.stored.directory, destination) },
             successMessage = "Template Markdown exported to $destination.",
+            changesLibrary = false,
         )
     }
 
@@ -879,6 +882,7 @@ internal class PromptTemplatesController(
                 }
             },
             successMessage = "Rendered Markdown exported to $destination.",
+            changesLibrary = false,
         )
     }
 
@@ -921,6 +925,7 @@ internal class PromptTemplatesController(
         requestRepository: FileSystemPromptTemplateRepository = repository,
         operation: (FileSystemPromptTemplateRepository) -> RepositoryResult<T>,
         successMessage: String,
+        changesLibrary: Boolean = true,
         afterSuccess: (T) -> Unit = {},
     ) {
         if (state.mutationInProgress) return
@@ -929,7 +934,8 @@ internal class PromptTemplatesController(
         updateInteractionState()
         coroutineScope.launch {
             val result = try {
-                withContext(Dispatchers.IO) { runRepositoryOperationSafely { operation(requestRepository) } }
+                val run = { runRepositoryOperationSafely { operation(requestRepository) } }
+                if (changesLibrary) projectService.writeLibrary(requestRoot, run) else withContext(Dispatchers.IO) { run() }
             } catch (cancelled: ProcessCanceledException) {
                 resetMutationAfterCancellation()
                 throw cancelled
