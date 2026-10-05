@@ -43,6 +43,7 @@ class FileSystemPromptTemplateRepository internal constructor(
     private val paths = LibraryPaths(root)
     private val treeScanner = LibraryTreeScanner(root, codec, files::recover)
     private val orders = FolderOrderStore(treeScanner, paths)
+    private val reconciler = TemplateReconciler(parser)
 
     override fun scan(): LibrarySnapshot {
         if (!Files.isDirectory(root)) return treeScanner.scan()
@@ -180,15 +181,10 @@ class FileSystemPromptTemplateRepository internal constructor(
         }
         val markdown = Files.readString(source, Charsets.UTF_8)
         val inferredName = firstHeading(markdown) ?: source.nameWithoutExtension
-        val variables = parser.parse(markdown).placeholders
-            .filterNot(PlaceholderToken::contextReference)
-            .map(PlaceholderToken::key)
-            .distinct()
-            .map { key -> PromptVariable(key = key, label = defaultVariableLabel(key)) }
         create(
             PromptTemplateDraft(
                 name = inferredName,
-                variables = variables,
+                variables = inferredVariables(markdown),
                 markdown = markdown,
             ),
             destinationFolder,
@@ -384,19 +380,14 @@ class FileSystemPromptTemplateRepository internal constructor(
     private fun inferredId(directory: Path): String =
         UUID.nameUUIDFromBytes(directory.toAbsolutePath().normalize().toString().encodeToByteArray()).toString()
 
-    private fun inferredMetadata(directory: Path, markdown: String): TemplateMetadata {
-        val id = inferredId(directory)
-        val variables = parser.parse(markdown).placeholders
-            .filterNot(PlaceholderToken::contextReference)
-            .map(PlaceholderToken::key)
-            .distinct()
-            .map { key -> PromptVariable(key = key, label = defaultVariableLabel(key)) }
-        return TemplateMetadata(
-            id = id,
-            name = firstHeading(markdown) ?: directory.name,
-            variables = variables,
-        )
-    }
+    private fun inferredMetadata(directory: Path, markdown: String): TemplateMetadata = TemplateMetadata(
+        id = inferredId(directory),
+        name = firstHeading(markdown) ?: directory.name,
+        variables = inferredVariables(markdown),
+    )
+
+    private fun inferredVariables(markdown: String): List<PromptVariable> =
+        reconciler.reconcile(markdown, existing = emptyList()).variables
 
     private fun duplicateVisibleName(
         parent: Path,
